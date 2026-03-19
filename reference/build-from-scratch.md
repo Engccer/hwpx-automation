@@ -412,3 +412,10 @@ DPI 보고서 HWPX 생성 스크립트 (`generate_hwpx.py`):
 - 출력: 42KB HWPX (659 단락, 8 표, 22쪽)
 - 스타일: 21 charPr, 7 borderFill, 16 paraPr, 맑은 고딕 폰트
 - 소요: 스크립트 작성 ~2시간, 이후 재생성 <5초
+
+## 주의사항
+
+1. **build-from-scratch lineSpacing 단위**: HWPML PERCENT 타입은 정수 그대로 사용 (160% = `value="160"`). `* 100` 하면 16000%가 되어 수백 쪽 문서 생성
+2. **build-from-scratch fontRef**: 빈 템플릿의 기본 폰트(함초롬돋움/바탕)가 아닌 맑은 고딕 등을 사용하려면 fontface에 새 폰트를 추가하고 charPr의 fontRef ID를 변경해야 함
+3. **build-from-scratch set_cell_text**: `set_cell_text()`로 생성된 run은 charPrIDRef="0" (템플릿 기본값)을 사용. XML 후처리에서 해당 셀의 charPrIDRef를 커스텀 ID로 교체 필요
+4. **style_tables_xml 루프**: `for` 루프에서 section_xml을 수정하면 이후 표 위치가 달라지므로, 반드시 `while` 루프 + 매 반복 tables 리스트 재계산 사용

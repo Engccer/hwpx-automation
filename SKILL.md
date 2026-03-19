@@ -1,6 +1,6 @@
 ---
 name: hwpx
-description: "HWP/HWPX 문서 읽기, 변환, 편집을 위한 통합 워크플로우. HWP 또는 HWPX 파일을 다룰 때 사용. 트리거: (1) HWP/HWPX 파일 읽기/파싱 요청 (2) HWP에서 HWPX 변환 요청 (3) HWPX 문서 편집(텍스트 치환, 표 셀 채우기, 양식 작성) (4) 한글 문서 템플릿 기반 자동화 작업 (5) HWPX 구조적 편집(행/표/단락 추가)"
+description: "HWP/HWPX 문서 읽기, 변환, 편집을 위한 통합 워크플로우. HWP 또는 HWPX 파일을 다룰 때 사용. 트리거: (1) HWP/HWPX 파일 읽기/파싱 요청 (2) HWP에서 HWPX 변환 요청 (3) HWPX 문서 편집(텍스트 치환, 표 셀 채우기, 양식 작성) (4) 한글 문서 템플릿 기반 자동화 작업 (5) HWPX 구조적 편집(행/표/단락 추가) (6) HWPX에 이미지 삽입 (7) HWPX→PDF 변환 (8) 한컴 COM 자동화"
 ---
 
 # HWP/HWPX 작업 스킬
@@ -431,26 +431,8 @@ hwp.HAction.Execute('RepeatFind', fr.HSet)
 
 ## 주의사항
 
-1. **`--find/--replace` 2단계 치환**: (1) python-hwpx로 본문 런 치환 (서식 보존, 런 분할 텍스트 지원) → (2) lxml로 표 셀 내부만 추가 치환. 영역이 분리되어 중복 치환 없음. **주의**: `--find/--replace`는 내부적으로 `HwpxDocument.open()`을 사용하여 구조 검증이 엄격함 (PrvText.txt 필수). `--set-cell`은 lxml 직접 파싱이라 검증 없이 통과. HWP→HWPX 변환 파일은 `--find/--replace`가 실패할 수 있으므로, 본문 텍스트 치환은 XML 직접 편집 + `hwpx-pack` 리팩으로 우회
-2. **편집 후 검증**: `hwpx-validate`로 무결성 확인, 양식 편집 시 `hwpx-page-guard`로 쪽수 드리프트 감지
-3. **자동 출력 폴더와 `--set-cell` 다중 호출**: `-o` 미지정 시 입력 파일과 같은 디렉터리의 `_output/` 폴더에 저장 (원본 보존). **주의**: `--set-cell`을 여러 번 체이닝(`&&`)하면 매번 원본에서 읽어 `_output/`에 덮어쓰므로 **마지막 호출만 남는다**. 여러 셀을 채울 때는 Python 스크립트로 순차 호출하되 반드시 `-o`로 동일 파일을 지정하라
-4. **서식 보존 원칙**: 가능한 한 `<hp:t>` 요소의 텍스트만 변경하고, XML 구조는 건드리지 않음
-5. **병합 셀 주의**: `rowSpan`/`colSpan`을 변경하면 표 레이아웃이 깨질 수 있음. 한글에서 확인 필요
-6. **다중 섹션 문서**: `section1.xml` 등 존재 가능
-7. **네임스페이스 필수**: `hp`, `hs`, `hh`, `hc` (`reference/format.md` 참조)
-8. **HWP→HWPX 변환 후 검은 배경**: `--sanitize` 또는 `save_hwpx()` 자동 수정
-9. **HWPML 2016 → 2011**: python-hwpx v2.8+는 네임스페이스 자동 변환 지원
-10. **hwpx_convert.py blockquote 누락**: `>` blockquote 내용이 변환 시 완전히 누락됨. 반드시 전처리로 마커 치환 필요
-11. **hwpx_convert.py 각주**: `[^N]` 각주가 HWPX 각주 요소가 아닌 문서 끝 일반 텍스트로 변환됨
-12. **한국어 검색 인코딩**: Windows 터미널(cp949)에서 `python -c` 한국어 → HWPX UTF-8 불일치. `.py` 파일 또는 유니코드 이스케이프 사용
-13. **변환 스크립트 보존**: MD→HWPX 변환 시 생성한 Python 스크립트는 삭제하지 않고 프로젝트 폴더에 보관한다 (향후 재변환·수정 용도). 사용자가 명시적으로 삭제를 요청한 경우에만 삭제
-14. **build-from-scratch lineSpacing 단위**: HWPML PERCENT 타입은 정수 그대로 사용 (160% = `value="160"`). `* 100` 하면 16000%가 되어 수백 쪽 문서 생성
-15. **build-from-scratch fontRef**: 빈 템플릿의 기본 폰트(함초롬돋움/바탕)가 아닌 맑은 고딕 등을 사용하려면 fontface에 새 폰트를 추가하고 charPr의 fontRef ID를 변경해야 함
-16. **build-from-scratch set_cell_text**: `set_cell_text()`로 생성된 run은 charPrIDRef="0" (템플릿 기본값)을 사용. XML 후처리에서 해당 셀의 charPrIDRef를 커스텀 ID로 교체 필요
-17. **style_tables_xml 루프**: `for` 루프에서 section_xml을 수정하면 이후 표 위치가 달라지므로, 반드시 `while` 루프 + 매 반복 tables 리스트 재계산 사용
-18. **`--to-md`는 표만 추출**: 문서 제목, 지도교사, 머리글 등 **표 바깥 본문 텍스트는 `--to-md`에 나타나지 않는다**. 양식 편집 시 `--to-md` + `grep "<hp:t>" section0.xml` 병행으로 표 밖 텍스트를 반드시 확인
-19. **HWP→HWPX 변환 후 `PrvText.txt` 누락**: `hwp2hwpx.bat` 변환 결과에 `Preview/PrvText.txt`가 없는 경우가 있음. python-hwpx API (`HwpxDocument.open()`)와 `hwpx-pack`이 이 파일 누락 시 실패하므로, 변환 직후 `mkdir -p Preview && touch Preview/PrvText.txt`로 빈 파일을 생성해 두라
-20. **HWPX 이미지 삽입은 XML 직접 편집 불가**: `<hp:pic>` 요소를 XML로 직접 구성해도 한글이 인식하지 않음 (XSD 검증은 통과하지만 렌더링 안 됨). 반드시 **한컴 COM `hwp.InsertPicture()`로 삽입** → XML 후처리로 위치/배치 조정
-21. **manifest.xml self-closing 태그 주의**: HWP→HWPX 변환 결과의 manifest.xml이 `<odf:manifest .../>` (self-closing) 형태일 수 있음. `replace('</odf:manifest>', ...)` 패턴이 실패하므로, self-closing 여부를 먼저 확인하고 처리
-22. **양식 채우기 + 이미지 삽입 워크플로우**: (1) hwpx_edit.py로 셀 채우기 (2) XML 직접 편집으로 날짜/텍스트 수정 (3) COM으로 이미지 삽입 → HWPX 저장 (4) XML 후처리로 이미지 위치 조정 (5) COM으로 PDF 저장. 3~5단계를 **별도 Python 스크립트**로 분리 (COM segfault 방지)
-23. **HWPX→PDF 변환**: `simple-hwp2pdf`는 실제로 MS Word COM 기반이라 HWPX 미지원. 한컴오피스 COM `hwp.SaveAs(path, 'PDF', '')`가 가장 확실
+워크플로우별 주의사항은 각 reference 파일에 포함:
+- **XML 편집 전반**: `reference/warnings-editing.md` — find/replace 동작, set-cell 체이닝, 서식 보존, PrvText.txt 누락, manifest self-closing 등
+- **MD → HWPX 변환**: `reference/conversion.md` 하단 — blockquote 누락, 각주 변환, 인코딩, 스크립트 보존
+- **Build-from-scratch**: `reference/build-from-scratch.md` 하단 — lineSpacing 단위, fontRef, set_cell_text, style_tables_xml 루프
+- **한컴 COM 자동화**: `reference/warnings-com.md` — 이미지 XML 삽입 불가, 양식+이미지 워크플로우, PDF 변환
