@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Output
+_output/
+drafts/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+desktop.ini
+Thumbs.db
+.DS_Store
+
+# Hancom official docs (parsed from hancom-io/devcenter-archive PDFs)
+# Excluded from public repo due to potential copyright concerns.
+# Regenerate locally: download PDFs from https://github.com/hancom-io/devcenter-archive/tree/main/hwp-automation
+# then parse with DocParse (see SKILL.md reference table for parser used per file).
+reference/action-table.md
+reference/hwp-automation.md
+reference/parameterset-table.md
