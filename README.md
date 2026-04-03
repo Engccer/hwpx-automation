@@ -79,4 +79,16 @@ hwpx-automation/
 
 ## License
 
-[MIT](LICENSE)
+이 프로젝트의 코드는 [MIT](LICENSE) 라이선스로 배포됩니다.
+
+단, 이 프로젝트는 다음 서드파티 라이브러리에 의존하며, 각각 별도의 라이선스가 적용됩니다:
+
+| 라이브러리 | 라이선스 | 비고 |
+|-----------|----------|------|
+| [python-hwpx](https://github.com/airmang/python-hwpx) | **Non-Commercial** | 상업적 사용 불가 |
+| [lxml](https://lxml.de/) | BSD-3-Clause | |
+| [hwplib](https://github.com/neolord0/hwplib) | Apache-2.0 | JAR 포함 |
+| [hwpxlib](https://github.com/neolord0/hwpxlib) | Apache-2.0 | JAR 포함 |
+| [hwp2hwpx](https://github.com/niceharu/hwp2hwpx) | Apache-2.0 | JAR 포함 |
+
+> **주의**: `python-hwpx`는 비상업적 라이선스입니다. 이 프로젝트를 상업적 목적으로 사용하려면 `python-hwpx`의 라이선스 조건을 별도로 확인하세요.

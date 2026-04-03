@@ -1,0 +1,16 @@
+This project includes the following third-party software:
+
+hwplib v1.1.10
+  Copyright (c) neolord0
+  License: Apache License 2.0
+  https://github.com/neolord0/hwplib
+
+hwpxlib v1.0.8
+  Copyright (c) neolord0
+  License: Apache License 2.0
+  https://github.com/neolord0/hwpxlib
+
+hwp2hwpx v1.0.0
+  Copyright (c) niceharu
+  License: Apache License 2.0
+  https://github.com/niceharu/hwp2hwpx
