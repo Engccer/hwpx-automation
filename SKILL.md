@@ -10,7 +10,7 @@ description: "HWP/HWPX/PDF 문서 읽기, 변환, 편집을 위한 통합 워크
 이 SKILL.md와 같은 디렉토리에 모든 도구가 포함되어 있다:
 - **hwpx_edit.py**: 이 디렉토리의 `hwpx_edit.py`
 - **hwp2hwpx.bat**: 이 디렉토리의 `convert/hwp2hwpx.bat`
-- **python-hwpx CLI**: `pip install python-hwpx` (v2.8.2+) — `hwpx-validate`, `hwpx-page-guard` 등
+- **python-hwpx CLI**: `pip install python-hwpx` (v2.9.0+) — `hwpx-validate`, `hwpx-page-guard` 등
 
 실행 시 이 스킬 디렉토리의 절대경로를 사용한다. 예: `python <스킬디렉토리>/hwpx_edit.py`
 
@@ -19,7 +19,12 @@ description: "HWP/HWPX/PDF 문서 읽기, 변환, 편집을 위한 통합 워크
 ```
 HWP/HWPX 작업 요청
 ├── 읽기 (내용 파악)
-│   ├── HWPX 파일 → hwpx_edit.py --to-md (XML 직접 파싱, 무료, 정확)
+│   ├── HWPX 파일
+│   │   ├── 암호화 감지(META-INF/manifest.xml에 encryption-data 존재)
+│   │   │   → 한컴 COM으로 먼저 암호 제거 (reference/encrypted-hwpx.md 참조)
+│   │   ├── 표 셀 안에 긴 지문이 있는 문서(고사지·보고서)
+│   │   │   → hwpx_edit.py --to-md --cell-br (셀 내부 문단을 <br>로 구분)
+│   │   └── 그 외 → hwpx_edit.py --to-md (XML 직접 파싱, 무료, 정확)
 │   ├── HWP 파일 → kordoc (HWP 5.x 바이너리 직접 파싱, 로컬, API 불필요)
 │   │     npx kordoc <파일.hwp>
 │   └── PDF 파일 → kordoc (빠른 읽기) 또는 /docparse (고품질 퓨전)
@@ -35,6 +40,7 @@ HWP/HWPX 작업 요청
 │       ├── 행 삭제 → hwpx_edit.py --delete-rows
 │       ├── 텍스트 요소 제거 → hwpx_edit.py --remove-text
 │       ├── 검은 배경 수정 → hwpx_edit.py --sanitize (save_hwpx 시 자동 적용)
+│       ├── 빈 셀 hp:p 보정 → hwpx_edit.py --fix-empty-cells (save_hwpx 시 자동; Pandoc/hwpx_convert.py 변환물에 반드시 실행)
 │       ├── 표/문단/머리글 추가·수정 → python-hwpx API (lineseg 자동 처리)
 │       ├── 구조적 편집 (행 추가/복제) → Python + regex (아래 구조적 편집 규칙 필수)
 │       └── 복잡한 편집 → python-hwpx + lxml 직접 사용 (reference/api.md + reference/structural.md 참조)
@@ -63,6 +69,15 @@ HWP/HWPX 작업 요청
 ```bash
 # HWPX → Markdown 변환 (XML 직접 파싱, API 불필요, 오프라인 사용 가능)
 python hwpx_edit.py <파일.hwpx> --to-md [-o output.md]
+
+# 표 셀 안에 긴 지문(일기·본문)이 있는 문서는 --cell-br 권장
+#  - 기본(--to-md만): 셀 내 모든 <hp:t>를 공백 하나로 합침 (문단 경계 손실)
+#  - --cell-br:      셀 내 <hp:p> 문단을 <br>로 구분 (고사지·보고서 권장)
+python hwpx_edit.py <파일.hwpx> --to-md --cell-br [-o output.md]
+
+# 암호화된 HWPX (AES-256-CBC)는 hwpx_edit.py가 자동 감지하고 오류 메시지로
+# 해제 절차 안내한다. 해제는 한컴 COM으로 FilePasswordChange 액션 사용.
+# 상세: reference/encrypted-hwpx.md
 
 # 표 구조 확인 (표 개수, 행/열 수, 셀 내용 미리보기)
 python hwpx_edit.py <파일.hwpx> --info
@@ -93,6 +108,13 @@ python hwpx_edit.py <파일.hwpx> --remove-text "2027. 2. 28."
 
 # HWP→HWPX 변환 후 검은 배경 문제 수정
 python hwpx_edit.py <파일.hwpx> --sanitize
+
+# 빈 표 셀에 기본 hp:p 삽입 (Pandoc/hwpx_convert.py 변환 후 한글이 15초 로딩 후
+# 닫히는 문제 해결. MD 표의 빈 셀 ` | | `이 <hp:subList>만 있고 <hp:p>가 없는
+# 구조로 생성되는 것이 원인. XSD 스키마는 통과하므로 hwpx-validate로는 탐지
+# 불가. hwpx_edit.py 내부 save_hwpx 경로에서는 자동 적용되지만, 외부 도구로
+# 만든 HWPX는 이 명령을 단독 실행해야 함)
+python hwpx_edit.py <파일.hwpx> --fix-empty-cells
 
 # 별도 파일로 저장
 python hwpx_edit.py <파일.hwpx> --set-cell 0,1,0 "텍스트" -o output.hwpx
@@ -127,7 +149,7 @@ npx kordoc *.pdf -d ./converted/
 > HWPX 읽기는 hwpx_edit.py --to-md와 kordoc 모두 가능. 편집 워크플로우 연계 시 hwpx_edit.py 권장.
 > PDF 고품질 파싱은 /docparse 스킬 사용 (다중 파서 퓨전).
 
-## python-hwpx CLI 도구 (v2.8.2+)
+## python-hwpx CLI 도구 (v2.9.0+)
 
 ```bash
 # XSD 스키마 검증 — 편집 후 무결성 확인
@@ -165,9 +187,9 @@ convert/hwp2hwpx.bat <입력.hwp> [출력.hwpx]
 > 간단한 문서에 적합. 복잡한 보고서는 아래 "Build-from-scratch 방식" 참조.
 
 1. **사전 요구사항 확인**: `pip install pypandoc-hwpx` (미설치 시 ModuleNotFoundError)
-2. **전처리** (필수!): (a) 따옴표(`"…"`, `'…'`, `"…"`, `'…'`) → PUA 마커(U+FFF0~3) 치환 (Pandoc HWPX writer가 따옴표 안 텍스트를 통째 누락시킴), (b) `> ` blockquote → `【인용】` 마커 치환. **둘 다 필수.**
+2. **전처리** (필수!): (a) 따옴표(`"…"`, `'…'`, `"…"`, `'…'`) → PUA 마커(U+FFF0~3) 치환 (Pandoc HWPX writer가 따옴표 안 텍스트를 통째 누락시킴) 또는 `「…」` 한글 괄호로 대체, (b) `> ` blockquote → `【인용】` 마커 치환 또는 일반 문단으로 변환. **둘 다 필수.**
 3. **기본 변환**: `python hwpx_convert.py <입력.md> -o <출력.hwpx>`
-4. **빈 셀 수정** (필수!): `fix_empty_cells()` — 빈 표 셀에 `<hp:p>` 누락 시 한글 크래시
+4. **빈 셀 수정** (필수!): `python hwpx_edit.py <출력.hwpx> --fix-empty-cells` — MD 표의 빈 셀(` | | `)이 HWPX에서 `<hp:subList>`만 있고 `<hp:p>`가 없는 상태로 변환됨. 한글 엔진이 이를 만나면 약 15초 로딩 후 안전 종료함(XSD 스키마는 통과하므로 `hwpx-validate`로는 탐지 불가). `hwpx_convert.py`는 이 보정을 자동 적용하지 않으므로 **변환 직후 반드시 실행**.
 5. **스타일 후처리** (raw XML 편집):
    - header.xml: borderFill 추가 (표 배경색), charPr 추가 (굵은/이탤릭), 본문 글꼴 크기 변경
    - section0.xml: PUA 마커 → 스마트 따옴표 복원(`postprocess_quotes`), 표 헤더 행 배경색, 합계 행 배경색, 인용문 좌측 여백+이탤릭, `【인용】` 마커 제거
@@ -233,7 +255,7 @@ convert/hwp2hwpx.bat <입력.hwp> [출력.hwpx]
 7. **쪽수 드리프트 감지**: `hwpx-page-guard -r output.hwpx -o result.hwpx`
 8. **내용 확인**: `--to-md`로 최종 텍스트 검증
 
-## python-hwpx API (v2.8.2) — 주요 패턴
+## python-hwpx API (v2.9.0) — 주요 패턴
 
 ### 기본 구조
 
@@ -313,6 +335,57 @@ for run in underlined:
 
 > 전체 API 패턴 (색상 필터링, 섹션/문단 추가 등)은 `reference/api.md` 참조.
 
+### v2.9.0 신규 API (2026.4)
+
+#### 테이블 자동화 (양식 채우기에 유용)
+
+```python
+# 문서 내 모든 표의 메타데이터 조회
+table_map = doc.get_table_map()
+
+# 라벨 텍스트로 셀 탐색 (공백·대소문자·콜론 정규화 지원)
+result = doc.find_cell_by_label("성명", direction="right")
+
+# 경로 기반 일괄 채우기 ("라벨 > 방향 > ..." 형식)
+doc.fill_by_path({"성명 > right": "홍길동", "생년월일 > right": "1990-01-01"})
+```
+
+#### 이미지·도형
+
+```python
+# 이미지 임베딩 (ZIP에 추가, manifest ID 반환 — hp:pic 요소 생성은 별도)
+item_id = doc.add_image(open("logo.png", "rb").read(), "png")
+doc.list_images()       # 임베딩된 이미지 메타데이터 조회
+doc.remove_image(id)    # 이미지 제거
+
+# 도형 삽입 (HWPUNIT 단위, 7200 per inch)
+doc.add_line(start_x=0, start_y=0, end_x=14400, end_y=0)
+doc.add_rectangle(width=14400, height=7200, fill_color="#E6E6E6")
+```
+
+#### 기타
+
+```python
+doc.add_footnote("각주 텍스트")           # 각주
+doc.add_endnote("미주 텍스트")            # 미주
+doc.add_bookmark("bookmark_name")         # 북마크
+doc.add_hyperlink("https://...", "표시 텍스트")  # 하이퍼링크
+doc.add_memo_with_anchor("메모 텍스트")   # 메모 + 앵커 자동 연결
+
+doc.export_html()       # HTML 내보내기
+doc.export_markdown()   # Markdown 내보내기
+doc.export_text()       # 텍스트 내보내기
+
+doc.remove_paragraph(0) # 문단 삭제 (인덱스 또는 객체)
+doc.remove_section(0)   # 섹션 삭제
+doc.set_columns(2)      # 다단 설정
+
+# 스타일 자동 생성/재사용
+cp_id = doc.ensure_run_style(bold=True, italic=False)
+```
+
+> **lxml 6.0.4 호환성**: python-hwpx의 `requires lxml<6` 제약이 있으나 실제 동작은 정상 (2026.4 확인). pip 경고만 발생.
+
 ## 구조적 편집 (행/표/단락 추가) — raw lxml 필요
 
 > python-hwpx API에 `add_row()`, `insert_row()`가 **없으므로**, 표에 행을 추가/복제하는 경우에만 raw lxml + regex를 사용한다.
@@ -369,6 +442,29 @@ XML 직접 편집으로 불가능한 작업(이미지 삽입, PDF 변환)에 사
 3. **코드**: `hwp.RegisterModule('FilePathCheckDLL', 'FilePathCheckerModule')`
 
 > 재설치 시: `https://github.com/hancom-io/devcenter-archive/raw/main/hwp-automation/보안모듈(Automation).zip` 에서 DLL 다운로드 → 레지스트리 등록
+
+> **경로 일치 주의**: 레지스트리에 등록된 DLL 경로와 실제 DLL 파일 경로가 일치해야 한다. 레지스트리는 남아 있지만 DLL이 다른 위치에만 있으면(예: 프로젝트 이동 후) 보안 팝업이 계속 뜨며 `RegisterModule` 호출도 무시된다. 증상: 스크립트가 매 Open/SaveAs마다 멈춤. 진단: `reg query "HKCU\SOFTWARE\HNC\HwpAutomation\Modules"`로 경로 확인 후 실제 DLL 존재 여부 검증.
+
+### 암호화된 HWPX 해제 (비밀번호 필요)
+
+AES-256-CBC로 암호화된 HWPX는 `hwpx_edit.py`로 직접 파싱할 수 없다. `Open()`의 세 번째 인자로 비밀번호를 넘긴 뒤 `FilePasswordChange` 액션으로 암호를 제거해야 한다. 단순 `SaveAs`만 하면 암호화된 채로 저장된다.
+
+```python
+hwp.Open(abs_in, 'HWPX', f'password:{PASSWORD}')
+act = hwp.CreateAction('FilePasswordChange')
+pset = act.CreateSet()
+act.GetDefault(pset)
+pset.SetItem('String', '')       # 새 암호: 빈 문자열 = 제거
+pset.SetItem('Ask', 0)           # 0 = 대화상자 없이 적용
+pset.SetItem('ReadString', '')
+pset.SetItem('WriteString', '')
+pset.SetItem('RWAsk', 0)
+act.Execute(pset)
+hwp.SaveAs(abs_out, 'HWPX', '')
+```
+
+> 감지: `META-INF/manifest.xml`에 `<odf:encryption-data>` 항목 존재 여부로 확인. `hwpx_edit.py`는 `is_encrypted_hwpx()`로 자동 감지하고 친절한 오류 메시지 출력.
+> 상세: `reference/encrypted-hwpx.md` 참조
 
 ### 기본 패턴
 
@@ -457,6 +553,7 @@ hwp.HAction.Execute('RepeatFind', fr.HSet)
 | 구조적 편집 코드 | `reference/structural.md` | lineseg 원리, 행 추가/단락 복제 코드, ZIP 패키징, XML 직렬화 |
 | HWPX 파일 구조 | `reference/format.md` | ZIP 내부 구조, section0.xml 요소, 네임스페이스 딕셔너리 |
 | 스킬 업데이트 | `reference/update-checklist.md` | python-hwpx 업데이트, GitHub 인사이트 수집, 반영 기준 |
+| 암호화 HWPX 해제 | `reference/encrypted-hwpx.md` | 암호화 감지, 한컴 COM 암호 해제 전체 스크립트, 주의사항 |
 | 한컴 COM 액션 테이블 | `reference/action-table.md` | 모든 HAction ID와 대응 ParameterSet ID (공식, 2025.04). Gemini 파싱, "한글"→"호글" 오인식 있으나 API명 검색에 무영향 |
 | 한컴 COM API 가이드 | `reference/hwp-automation.md` | IHwpObject 전체 API — 프로퍼티, 메서드, 이벤트, ParameterSet 상세 (공식, 2025.04). Gemini 파싱, 다이어그램은 텍스트 설명으로 대체됨 |
 | 한컴 COM 파라미터셋 | `reference/parameterset-table.md` | 149개 ParameterSet 필드/타입/기본값 (공식, 2025.04). Mistral 파싱, 워터마크 환각 잔여 가능, heading이 평문 처리된 경우 있음 |

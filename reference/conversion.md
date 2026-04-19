@@ -474,6 +474,23 @@ header.xml
 | 제목 스타일 | Heading 1~9 자동 매핑 (## → Heading 2 등) |
 | 용지 | A4, 좌우 72mm, 상 42.55mm, 하 49.6mm |
 | 각주 | 문서 끝 텍스트로 변환 (HWPX 각주 요소 아님) |
+| **줄간격** | **180%** (`lineSpacing type="PERCENT" value="180"`) — 160% 등으로 변경 시 후처리 필수 |
+
+### Pandoc HWPX lineSpacing 주의사항
+
+Pandoc HWPX writer가 생성하는 `lineSpacing` 태그는 **네임스페이스 접두사가 없다**:
+- Pandoc 출력: `lineSpacing type="PERCENT" value="180" unit="HWPUNIT"`
+- 한컴 COM 출력: `<hc:lineSpacing type="percent" value="160"/>`
+
+줄간격을 후처리로 변경할 때 `hc:lineSpacing` 패턴이 아닌 `lineSpacing` 패턴으로 검색해야 한다:
+
+```python
+# ✅ 올바른 패턴 (네임스페이스 무관)
+header_xml = re.sub(r'(lineSpacing[^/]*?)value="180"', r'\1value="160"', header_xml)
+
+# ❌ 잘못된 패턴 (Pandoc HWPX에서 매칭 안 됨)
+header_xml = re.sub(r'(<hc:lineSpacing[^/]*?)value="\d+"', r'\1value="160"', header_xml)
+```
 
 ## 주의사항
 

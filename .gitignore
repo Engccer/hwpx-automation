@@ -8,6 +8,9 @@ __pycache__/
 _output/
 drafts/
 
+# JAR 풀림 부산물 (hwp2hwpx-1.0.0.jar 실행 시 생성)
+convert/META-INF/
+
 # IDE
 .vscode/
 .idea/

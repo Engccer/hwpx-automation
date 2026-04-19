@@ -48,8 +48,45 @@ def get_output_path(filepath, ext=None):
         return os.path.join(output_dir, os.path.basename(filepath))
 
 
+def is_encrypted_hwpx(filepath):
+    """HWPX 파일이 AES 등으로 암호화되어 있는지 확인.
+
+    META-INF/manifest.xml의 <odf:encryption-data> 존재 여부로 판단.
+    암호화된 경우 Contents/section0.xml이 암호문이어서 XML 파싱이 실패한다.
+    """
+    try:
+        with zipfile.ZipFile(filepath, 'r') as zf:
+            if 'META-INF/manifest.xml' not in zf.namelist():
+                return False
+            manifest = zf.read('META-INF/manifest.xml')
+            return b'encryption-data' in manifest
+    except (zipfile.BadZipFile, KeyError):
+        return False
+
+
+ENCRYPTION_HINT = (
+    "이 HWPX 파일은 암호화되어 있습니다 (AES-256-CBC).\n"
+    "XML 직접 파싱으로 처리할 수 없으므로 한컴 COM으로 암호를 먼저 제거해야 합니다.\n"
+    "\n"
+    "해결: 한컴오피스 설치된 Windows에서 아래 스크립트로 복호화하세요.\n"
+    "  hwp = win32.gencache.EnsureDispatch('HWPFrame.HwpObject')\n"
+    "  hwp.Open(abs_in, 'HWPX', 'password:<비밀번호>')\n"
+    "  act = hwp.CreateAction('FilePasswordChange')\n"
+    "  pset = act.CreateSet(); act.GetDefault(pset)\n"
+    "  pset.SetItem('String', ''); pset.SetItem('Ask', 0)\n"
+    "  pset.SetItem('ReadString', ''); pset.SetItem('WriteString', '')\n"
+    "  pset.SetItem('RWAsk', 0); act.Execute(pset)\n"
+    "  hwp.SaveAs(abs_out, 'HWPX', ''); hwp.Quit()\n"
+    "상세: reference/encrypted-hwpx.md 참조"
+)
+
+
 def open_hwpx(filepath):
     """HWPX 파일을 열어 section0.xml의 etree와 원본 ZIP 데이터를 반환"""
+    if is_encrypted_hwpx(filepath):
+        print(f"오류: {ENCRYPTION_HINT}", file=sys.stderr)
+        sys.exit(1)
+
     with zipfile.ZipFile(filepath, 'r') as zf:
         # section 파일 찾기
         section_files = [n for n in zf.namelist() if 'section' in n.lower() and n.endswith('.xml')]
@@ -110,10 +147,50 @@ def sanitize_header(all_files):
     return fixed
 
 
+def fix_empty_cells(root):
+    """표 셀에 <hp:p>가 없으면 기본 빈 문단을 자동 삽입.
+
+    Pandoc 기반 hwpx_convert.py 등으로 MD의 빈 표 셀(` | | `)이 HWPX로 변환될 때
+    <hp:subList>만 있고 내부 <hp:p>가 없는 구조가 생성됨. 한글 엔진은 이를 만나면
+    약 15초 로딩 후 안전 종료함(XSD 스키마는 통과하므로 hwpx-validate로는 탐지 불가).
+    이 함수는 빈 셀의 subList 안에 minimal <hp:p><hp:run/></hp:p>을 삽입해 한글이
+    정상 렌더링하도록 보정함. 중첩 표(subList 안 <hp:tbl>)가 있는 셀은 건너뜀.
+    """
+    HP_NS = NS['hp']
+    fixed = 0
+    for tc in root.findall('.//hp:tc', NS):
+        sub_list = tc.find('hp:subList', NS)
+        if sub_list is None:
+            continue
+        # 셀 내용이 이미 존재하면(p 또는 중첩 tbl) 건너뜀
+        if sub_list.find('hp:p', NS) is not None:
+            continue
+        if sub_list.find('hp:tbl', NS) is not None:
+            continue
+        # 빈 셀 — minimal 문단 삽입
+        p = etree.SubElement(sub_list, f'{{{HP_NS}}}p')
+        p.set('id', '0')
+        p.set('paraPrIDRef', '0')
+        p.set('styleIDRef', '0')
+        p.set('pageBreak', '0')
+        p.set('columnBreak', '0')
+        p.set('merged', '0')
+        run = etree.SubElement(p, f'{{{HP_NS}}}run')
+        run.set('charPrIDRef', '0')
+        fixed += 1
+    return fixed
+
+
 def save_hwpx(filepath, root, all_files, section_path, output=None):
     """수정된 section XML을 HWPX 파일에 저장"""
     if output is None:
         output = get_output_path(filepath)
+
+    # 저장 전 빈 셀 자동 보정 (Pandoc 변환물 등의 한글 크래시 방지)
+    empty_cells = fix_empty_cells(root)
+    if empty_cells > 0:
+        print(f"fix_empty_cells: 빈 셀 {empty_cells}개에 기본 문단 삽입")
+
     all_files[section_path] = etree.tostring(root, xml_declaration=True, encoding='UTF-8')
 
     # 저장 전 header.xml 자동 sanitize
@@ -150,6 +227,31 @@ def get_cell_text(cell):
     return ' '.join(texts)
 
 
+def get_cell_paragraph_texts(cell):
+    """셀 내부의 문단(<hp:p>)별 텍스트 리스트 반환.
+
+    get_cell_text는 모든 <hp:t>를 공백 하나로 합쳐 문단 경계를 잃지만,
+    이 함수는 각 문단을 별도 문자열로 유지한다. 긴 지문이 표 셀 안에
+    있는 고사 원안·보고서 등에서 문단 구조를 보존할 때 사용한다.
+    중첩 표(하위 <hp:tbl>)를 가진 문단은 건너뛴다 (중복 방지).
+    """
+    texts = []
+    sub_list = cell.find('hp:subList', NS)
+    if sub_list is None:
+        return texts
+    for para in sub_list.findall('hp:p', NS):
+        if para.find('.//hp:tbl', NS) is not None:
+            continue
+        parts = []
+        for t_elem in para.findall('.//hp:t', NS):
+            if t_elem.text:
+                parts.append(t_elem.text)
+        text = ''.join(parts).strip()
+        if text:
+            texts.append(text)
+    return texts
+
+
 def get_cell_span(cell):
     """셀의 cellAddr에서 rowSpan, colSpan 값 추출"""
     cell_addr = cell.find('hp:cellAddr', NS)
@@ -170,13 +272,23 @@ def get_para_direct_text(para):
     return ''.join(texts).strip()
 
 
-def parse_table_to_rows(table):
-    """표를 파싱하여 행별 셀 데이터 리스트 반환. [(텍스트, colSpan), ...]"""
+def parse_table_to_rows(table, cell_br=False):
+    """표를 파싱하여 행별 셀 데이터 리스트 반환. [(텍스트, colSpan), ...]
+
+    cell_br=True이면 셀 내부 문단(<hp:p>)을 <br>로 구분한다.
+    False이면 기존 동작(모든 <hp:t>를 공백 하나로 합침)을 유지한다.
+    """
     rows_data = []
     for row in get_table_rows(table):
         row_data = []
         for cell in get_row_cells(row):
-            cell_text = get_cell_text(cell).replace('\n', ' ').replace('|', '\\|')
+            if cell_br:
+                paras = get_cell_paragraph_texts(cell)
+                cell_text = '<br>'.join(
+                    p.replace('|', '\\|').replace('\n', ' ') for p in paras
+                )
+            else:
+                cell_text = get_cell_text(cell).replace('\n', ' ').replace('|', '\\|')
             _, col_span = get_cell_span(cell)
             row_data.append((cell_text, col_span))
         rows_data.append(row_data)
@@ -212,8 +324,16 @@ def table_to_markdown(rows_data):
     return '\n'.join(lines)
 
 
-def cmd_to_md(filepath, output=None):
-    """HWPX를 XML 직접 파싱하여 Markdown으로 변환 (API 불필요)"""
+def cmd_to_md(filepath, output=None, cell_br=False):
+    """HWPX를 XML 직접 파싱하여 Markdown으로 변환 (API 불필요).
+
+    cell_br=True이면 표 셀 내부 문단을 <br>로 구분한다 (고사지·보고서처럼
+    긴 지문이 셀 안에 있는 문서에서 문단 구조 보존).
+    """
+    if is_encrypted_hwpx(filepath):
+        print(f"오류: {ENCRYPTION_HINT}", file=sys.stderr)
+        sys.exit(1)
+
     with zipfile.ZipFile(filepath, 'r') as zf:
         section_files = sorted([
             n for n in zf.namelist()
@@ -233,7 +353,7 @@ def cmd_to_md(filepath, output=None):
                     if direct_text:
                         all_lines.append(direct_text)
                     for tbl in child.findall('.//hp:tbl', NS):
-                        rows_data = parse_table_to_rows(tbl)
+                        rows_data = parse_table_to_rows(tbl, cell_br=cell_br)
                         md_table = table_to_markdown(rows_data)
                         if md_table:
                             all_lines.append('')
@@ -545,6 +665,18 @@ def cmd_sanitize(filepath, output=None):
     print(f"저장: {output}")
 
 
+def cmd_fix_empty_cells(filepath, output=None):
+    """표 셀에 빠진 <hp:p>를 채워 한글 크래시 문제 수정 (Pandoc 변환물 후처리용)"""
+    root, all_files, section_path = open_hwpx(filepath)
+    fixed = fix_empty_cells(root)
+    if fixed == 0:
+        print("빈 셀이 없습니다 (추가 수정 불필요).")
+        return
+    # save_hwpx가 다시 fix_empty_cells를 호출하지만, 이미 보정되어 0건 반환 — 문제 없음
+    save_hwpx(filepath, root, all_files, section_path, output)
+    print(f"빈 셀 {fixed}개에 기본 문단 삽입 완료")
+
+
 def cmd_remove_text(filepath, search_text, output=None):
     """특정 텍스트를 포함하는 <hp:t> 요소를 완전히 제거"""
     root, all_files, section_path = open_hwpx(filepath)
@@ -596,6 +728,7 @@ def main():
   %(prog)s doc.hwpx --delete-rows 1 11,12
   %(prog)s doc.hwpx --remove-text "2027. 2. 28."
   %(prog)s doc.hwpx --sanitize
+  %(prog)s doc.hwpx --fix-empty-cells     # Pandoc 변환 후 한글 크래시 방지
   %(prog)s doc.hwpx --set-cell 0,1,0 "텍스트" -o output.hwpx
         """)
 
@@ -621,6 +754,11 @@ def main():
                         help='해당 텍스트를 포함하는 <hp:t> 요소를 완전히 제거')
     parser.add_argument('--sanitize', action='store_true',
                         help='header.xml의 문단 배경색 등 알려진 렌더링 문제 자동 수정')
+    parser.add_argument('--fix-empty-cells', action='store_true',
+                        help='표의 빈 셀에 기본 문단 삽입 (Pandoc/hwpx_convert.py 변환 후 한글 크래시 방지 필수)')
+    parser.add_argument('--cell-br', action='store_true',
+                        help='--to-md와 함께 사용: 표 셀 내부 문단을 <br>로 구분 '
+                             '(긴 지문이 셀 안에 있는 고사지·보고서에 권장)')
     parser.add_argument('-o', '--output', help='출력 파일 경로 (기본: _output/ 폴더)')
 
     args = parser.parse_args()
@@ -632,7 +770,7 @@ def main():
     if args.info:
         cmd_info(args.file)
     elif args.to_md:
-        cmd_to_md(args.file, args.output)
+        cmd_to_md(args.file, args.output, cell_br=args.cell_br)
     elif args.find is not None and args.replace is not None:
         cmd_find_replace(args.file, args.find, args.replace, args.output)
     elif args.set_cell:
@@ -656,6 +794,8 @@ def main():
         cmd_remove_text(args.file, args.remove_text, args.output)
     elif args.sanitize:
         cmd_sanitize(args.file, args.output)
+    elif args.fix_empty_cells:
+        cmd_fix_empty_cells(args.file, args.output)
     else:
         parser.print_help()
         sys.exit(1)
