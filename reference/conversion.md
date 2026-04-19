@@ -225,6 +225,99 @@ def adjust_font_size(header_xml, char_pr_id=0, new_height=1100):
 
 ## 스타일 후처리 — section0.xml 수정
 
+### 장 제목 박스 (표 박스 래퍼) 삽입
+
+장 제목 등 단락을 1행 1열 배경색 표로 감싸는 패턴.
+
+**⚠️ 핵심 주의사항 (2026-04 실측 확인)**
+
+1. **`<hp:ctrl>` 래퍼 금지**: 표를 단락 내부에 삽입할 때 `<hp:run><hp:ctrl><hp:tbl>…</hp:tbl></hp:ctrl></hp:run>` 구조는 XSD 스키마는 통과하지만 한컴 COM의 `Open()`에서 RPC 크래시(`-2147023170 — 원격 프로시저 호출 실패`) 발생. Pandoc 원본 표 구조와 동일하게 **`<hp:run>` 직계**에 `<hp:tbl>`을 두어야 함.
+
+   ```xml
+   <!-- ❌ 크래시 발생 -->
+   <hp:p><hp:run><hp:ctrl><hp:tbl …>…</hp:tbl></hp:ctrl></hp:run></hp:p>
+
+   <!-- ✅ 올바른 구조 (Pandoc 원본과 동일) -->
+   <hp:p><hp:run><hp:tbl …>…</hp:tbl></hp:run></hp:p>
+   ```
+
+2. **`<hp:subList id="">` 빈 id 금지**: 셀 내부 subList의 `id` 속성은 고유한 숫자(정수 문자열)를 반드시 부여해야 함. 빈 문자열은 COM Open 크래시의 원인.
+
+3. **Pandoc 출력의 heading styleIDRef 매핑** (기본값, 2026-04 실측):
+   - `#` (h1) → styleIDRef="2"
+   - `##` (h2) → styleIDRef="3"
+   - `###` (h3) → styleIDRef="4"
+   - `####` (h4) → styleIDRef="5"
+
+   **주의**: 중집위 회의자료 등 다른 템플릿에서는 `##`→4로 매핑되기도 함. 새 문서 작업 시 실제 분포를 먼저 확인할 것:
+
+   ```bash
+   python -c "import zipfile, re; s = zipfile.ZipFile('doc.hwpx').read('Contents/section0.xml').decode(); from collections import Counter; print(Counter(re.findall(r'styleIDRef=\"(\d+)\"', s)))"
+   ```
+
+**장 제목 박스 템플릿 (검증 완료)**:
+
+```python
+CHAPTER_BOX_TEMPLATE = (
+    '<hp:p paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">'
+    '<hp:run charPrIDRef="0">'
+    '<hp:tbl id="{tbl_id}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" '
+    'textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="CELL" repeatHeader="1" '
+    'rowCnt="1" colCnt="1" cellSpacing="0" borderFillIDRef="{bf_id}" noAdjust="0">'
+    '<hp:sz width="45000" widthRelTo="ABSOLUTE" height="1200" heightRelTo="ABSOLUTE" protect="0"/>'
+    '<hp:pos treatAsChar="0" affectLSpacing="0" flowWithText="1" allowOverlap="0" '
+    'holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" '
+    'horzAlign="LEFT" vertOffset="0" horzOffset="0"/>'
+    '<hp:outMargin left="0" right="0" top="200" bottom="600"/>'
+    '<hp:inMargin left="510" right="510" top="200" bottom="200"/>'
+    '<hp:tr>'
+    '<hp:tc name="" header="0" hasMargin="0" protect="0" editable="0" dirty="0" '
+    'borderFillIDRef="{bf_id}">'
+    '<hp:subList id="{sub_id}" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" '
+    'linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">'
+    '<hp:p paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">'
+    '<hp:run charPrIDRef="{char_id}"><hp:t>{title}</hp:t></hp:run>'
+    '</hp:p>'
+    '</hp:subList>'
+    '<hp:cellAddr colAddr="0" rowAddr="0"/>'
+    '<hp:cellSpan colSpan="1" rowSpan="1"/>'
+    '<hp:cellSz width="45000" height="1200"/>'
+    '<hp:cellMargin left="510" right="510" top="200" bottom="200"/>'
+    '</hp:tc></hp:tr></hp:tbl></hp:run></hp:p>'
+)
+
+
+def wrap_chapter_headings(section_xml, chapter_bf_id, chapter_char_id,
+                          target_style_id="3"):
+    """대상 heading 문단을 배경색 표 박스로 치환. target_style_id는 문서에 맞춰 지정 (## 은 보통 3)."""
+    pattern = re.compile(
+        rf'<hp:p([^>]*styleIDRef="{target_style_id}"[^>]*)>(.*?)</hp:p>',
+        re.DOTALL,
+    )
+    counter = {'n': 0}
+
+    def esc(s):
+        return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+    def repl(m):
+        texts = re.findall(r'<hp:t[^>]*>([^<]*)</hp:t>', m.group(2))
+        title = ''.join(texts).strip()
+        if not title:
+            return m.group(0)
+        counter['n'] += 1
+        return CHAPTER_BOX_TEMPLATE.format(
+            tbl_id=f"99000{counter['n']:03d}",
+            sub_id=f"98000{counter['n']:03d}",
+            bf_id=chapter_bf_id,
+            char_id=chapter_char_id,
+            title=esc(title),
+        )
+
+    return pattern.sub(repl, section_xml)
+```
+
+검증 경로: `hwpx-validate` 통과 + 한컴 COM `Open()` 통과 + 한글 수동 오픈 정상. 2026-04 장교조 교육감 후보자 정책제안서 5종(MD→HWPX) 재작업에서 확인.
+
 ### 표 헤더/합계 행 스타일링
 
 ```python
