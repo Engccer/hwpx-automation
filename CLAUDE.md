@@ -14,9 +14,11 @@ hwpx-automation/
 │   ├── Hwp2HwpxCLI.java  # 변환기 소스
 │   └── lib/              # hwplib-1.1.10.jar, hwpxlib-1.0.8.jar
 ├── reference/            # 상세 레퍼런스 (API, 구조적 편집, 파일 형식 등)
+├── vendor/               # 서드파티 바이너리 (한컴 FilePathChecker DLL 등, .gitignore 처리)
+│   └── README.md         # DLL 다운로드·레지스트리 등록 절차 + 라이선스 고지
 ├── requirements.txt      # python-hwpx, lxml
-├── LICENSE               # MIT
-├── NOTICE                # 서드파티 라이선스 고지
+├── LICENSE               # MIT (vendor/ 하위 바이너리는 제외)
+├── NOTICE                # 서드파티 라이선스 고지 (번들 JAR + vendor/ DLL)
 └── README.md
 ```
 
