@@ -27,3 +27,9 @@ Thumbs.db
 reference/action-table.md
 reference/hwp-automation.md
 reference/parameterset-table.md
+
+# Third-party proprietary binaries (see vendor/README.md for installation)
+vendor/*.dll
+
+# Maven build artifacts
+convert/META-INF/

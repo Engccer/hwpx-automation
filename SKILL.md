@@ -437,11 +437,11 @@ XML 직접 편집으로 불가능한 작업(이미지 삽입, PDF 변환)에 사
 
 한컴 COM으로 파일을 열거나 저장할 때 "접근 허용" 보안 대화상자가 반복 표시된다. 이를 제거하려면:
 
-1. **DLL**: `C:\Users\pc\Windows-Projects\tools\hancom-automation\FilePathCheckerModuleExample.dll` (한컴디벨로퍼 GitHub에서 다운로드)
+1. **DLL**: `<repo>/vendor/FilePathCheckerModuleExample.dll` — 저장소에 커밋되지 않음 (한컴 독점 라이선스). 설치: `vendor/README.md` 참조
 2. **레지스트리**: `HKCU\SOFTWARE\HNC\HwpAutomation\Modules` → 문자열 값 `FilePathCheckerModule` = DLL 전체 경로
 3. **코드**: `hwp.RegisterModule('FilePathCheckDLL', 'FilePathCheckerModule')`
 
-> 재설치 시: `https://github.com/hancom-io/devcenter-archive/raw/main/hwp-automation/보안모듈(Automation).zip` 에서 DLL 다운로드 → 레지스트리 등록
+> 다운로드 출처: `https://github.com/hancom-io/devcenter-archive/raw/main/hwp-automation/보안모듈(Automation).zip` → 압축 해제 후 `vendor/`에 배치 → 레지스트리 등록
 
 > **경로 일치 주의**: 레지스트리에 등록된 DLL 경로와 실제 DLL 파일 경로가 일치해야 한다. 레지스트리는 남아 있지만 DLL이 다른 위치에만 있으면(예: 프로젝트 이동 후) 보안 팝업이 계속 뜨며 `RegisterModule` 호출도 무시된다. 증상: 스크립트가 매 Open/SaveAs마다 멈춤. 진단: `reg query "HKCU\SOFTWARE\HNC\HwpAutomation\Modules"`로 경로 확인 후 실제 DLL 존재 여부 검증.
 
