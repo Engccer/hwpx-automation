@@ -9,6 +9,7 @@ description: "HWP/HWPX/PDF 문서 읽기, 변환, 편집을 위한 통합 워크
 
 이 SKILL.md와 같은 디렉토리에 모든 도구가 포함되어 있다:
 - **hwpx_edit.py**: 이 디렉토리의 `hwpx_edit.py`
+- **hwpx_convert.py**: 이 디렉토리의 `convert/hwpx_convert.py` (MD/DOCX/HTML/RST/TEX/TXT → HWPX 변환, `pip install pypandoc-hwpx` 필요)
 - **hwp2hwpx.bat**: 이 디렉토리의 `convert/hwp2hwpx.bat`
 - **python-hwpx CLI**: `pip install python-hwpx` (v2.9.0+) — `hwpx-validate`, `hwpx-page-guard` 등
 
@@ -188,7 +189,7 @@ convert/hwp2hwpx.bat <입력.hwp> [출력.hwpx]
 
 1. **사전 요구사항 확인**: `pip install pypandoc-hwpx` (미설치 시 ModuleNotFoundError)
 2. **전처리** (필수!): (a) 따옴표(`"…"`, `'…'`, `"…"`, `'…'`) → PUA 마커(U+FFF0~3) 치환 (Pandoc HWPX writer가 따옴표 안 텍스트를 통째 누락시킴) 또는 `「…」` 한글 괄호로 대체, (b) `> ` blockquote → `【인용】` 마커 치환 또는 일반 문단으로 변환. **둘 다 필수.**
-3. **기본 변환**: `python hwpx_convert.py <입력.md> -o <출력.hwpx>`
+3. **기본 변환**: `python convert/hwpx_convert.py <입력.md> -o <출력.hwpx>`
 4. **빈 셀 수정** (필수!): `python hwpx_edit.py <출력.hwpx> --fix-empty-cells` — MD 표의 빈 셀(` | | `)이 HWPX에서 `<hp:subList>`만 있고 `<hp:p>`가 없는 상태로 변환됨. 한글 엔진이 이를 만나면 약 15초 로딩 후 안전 종료함(XSD 스키마는 통과하므로 `hwpx-validate`로는 탐지 불가). `hwpx_convert.py`는 이 보정을 자동 적용하지 않으므로 **변환 직후 반드시 실행**.
 5. **스타일 후처리** (raw XML 편집):
    - header.xml: borderFill 추가 (표 배경색), charPr 추가 (굵은/이탤릭), 본문 글꼴 크기 변경

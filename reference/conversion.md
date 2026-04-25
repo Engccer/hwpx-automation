@@ -14,7 +14,7 @@ pip install pypandoc-hwpx   # pypandoc + HWPX 변환 지원
 ### 기본 사용법
 
 ```bash
-python C:/Users/pc/Converters/x-to-hwpx-scripts/hwpx_convert.py <입력.md> -o <출력.hwpx>
+python <스킬디렉토리>/convert/hwpx_convert.py <입력.md> -o <출력.hwpx>
 ```
 
 ### 알려진 제한사항
@@ -437,7 +437,7 @@ import zipfile, re, os, subprocess, sys
 INPUT_MD = "report.md"
 OUTPUT_HWPX = "report.hwpx"
 TEMP_MD = "_temp_for_hwpx.md"
-CONVERTER = "C:/Users/pc/Converters/x-to-hwpx-scripts/hwpx_convert.py"
+CONVERTER = "C:/Users/pc/Windows-Projects/tools/hwpx-automation/convert/hwpx_convert.py"
 
 # 1. 전처리: 따옴표 마커 치환 + blockquote 마커 삽입
 # (preprocess_md 안에서 preprocess_quotes 호출 필수)
