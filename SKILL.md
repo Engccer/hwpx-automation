@@ -1,6 +1,6 @@
 ---
 name: hwpx-automation
-description: "HWP/HWPX/PDF 문서 읽기, 변환, 편집을 위한 통합 워크플로우. HWP 또는 HWPX 파일을 다룰 때 사용. 트리거: (1) HWP/HWPX/PDF 파일 읽기/파싱 요청 (2) HWP에서 HWPX 변환 요청 (3) HWPX 문서 편집(텍스트 치환, 표 셀 채우기, 양식 작성) (4) 한글 문서 템플릿 기반 자동화 작업 (5) HWPX 구조적 편집(행/표/단락 추가) (6) HWPX에 이미지 삽입 (7) HWPX→PDF 변환 (8) 한컴 COM 자동화"
+description: "HWP/HWPX 문서 읽기, 변환, 편집을 위한 통합 워크플로우. HWP 또는 HWPX 파일을 다룰 때 사용. HWP 파일은 모두 HWPX로 변환 후 처리한다. 트리거: (1) HWP/HWPX 파일 읽기/파싱 요청 (2) HWP→HWPX 변환 요청 (3) HWPX 문서 편집(텍스트 치환, 표 셀 채우기, 양식 작성) (4) 한글 문서 템플릿 기반 자동화 작업 (5) HWPX 구조적 편집(행/표/단락 추가) (6) HWPX에 이미지 삽입 (7) HWPX→PDF 변환 (8) 한컴 COM 자동화"
 ---
 
 # HWP/HWPX 작업 자동화 스킬
@@ -20,16 +20,16 @@ description: "HWP/HWPX/PDF 문서 읽기, 변환, 편집을 위한 통합 워크
 ```
 HWP/HWPX 작업 요청
 ├── 읽기 (내용 파악)
-│   ├── HWPX 파일
-│   │   ├── 암호화 감지(META-INF/manifest.xml에 encryption-data 존재)
-│   │   │   → 한컴 COM으로 먼저 암호 제거 (reference/encrypted-hwpx.md 참조)
-│   │   ├── 표 셀 안에 긴 지문이 있는 문서(고사지·보고서)
-│   │   │   → hwpx_edit.py --to-md --cell-br (셀 내부 문단을 <br>로 구분)
-│   │   └── 그 외 → hwpx_edit.py --to-md (XML 직접 파싱, 무료, 정확)
-│   ├── HWP 파일 → kordoc (HWP 5.x 바이너리 직접 파싱, 로컬, API 불필요)
-│   │     npx kordoc <파일.hwp>
-│   └── PDF 파일 → kordoc (빠른 읽기) 또는 /docparse (고품질 퓨전)
-│         npx kordoc <파일.pdf>
+│   ├── HWP 파일 → 먼저 HWPX로 변환 (convert/hwp2hwpx.bat) → 이후 HWPX 읽기 단계로
+│   │   ※ HWP 직접 파싱 도구(예: kordoc)는 표/텍스트 박스가 복잡한 출판사
+│   │     워크시트·고사지에서 바이너리 잔여 문자 leak, 행 누락, 셀 내용 손실이
+│   │     발생하므로 사용하지 않는다 (2026-04-30 검증)
+│   └── HWPX 파일
+│       ├── 암호화 감지(META-INF/manifest.xml에 encryption-data 존재)
+│       │   → 한컴 COM으로 먼저 암호 제거 (reference/encrypted-hwpx.md 참조)
+│       ├── 표 셀 안에 긴 지문이 있는 문서(고사지·보고서)
+│       │   → hwpx_edit.py --to-md --cell-br (셀 내부 문단을 <br>로 구분)
+│       └── 그 외 → hwpx_edit.py --to-md (XML 직접 파싱, 무료, 정확)
 ├── 편집 (기존 문서 수정)
 │   ├── HWP 파일 → 먼저 HWPX로 변환 → 이후 HWPX 편집
 │   └── HWPX 파일
@@ -121,34 +121,27 @@ python hwpx_edit.py <파일.hwpx> --fix-empty-cells
 python hwpx_edit.py <파일.hwpx> --set-cell 0,1,0 "텍스트" -o output.hwpx
 ```
 
-## kordoc 사용법 (HWP/HWPX/PDF 읽기)
+## HWP 읽기 (HWPX 변환 경유)
+
+HWP 바이너리 직접 파싱(예: kordoc)은 다음과 같은 손실이 발생하므로 사용하지 않는다:
+- 출판사 워크시트·고사지처럼 **중첩 표·텍스트 박스가 있는 문서**에서 바이너리 잔여 문자 leak (수십 자~수백 자)
+- 매칭 표나 다열 표에서 **행 통째 누락**, 셀 내용 손실
+- 변경 추적(track changes) 처리가 거칠어 원본·수정본 텍스트가 그대로 concatenate
+
+따라서 **HWP는 먼저 HWPX로 변환한 뒤** `hwpx_edit.py --to-md`로 읽는다:
 
 ```bash
-# HWP → Markdown (HWP 5.x 바이너리 직접 파싱, API 불필요, 오프라인)
-npx kordoc <파일.hwp>
+# 1. HWP → HWPX 변환 (서식 100% 보존)
+convert/hwp2hwpx.bat <파일.hwp> <파일.hwpx>
 
-# HWPX → Markdown
-npx kordoc <파일.hwpx>
+# 2. HWPX → Markdown
+python hwpx_edit.py <파일.hwpx> --to-md -o output.md
 
-# PDF → Markdown (표 감지 포함)
-npx kordoc <파일.pdf>
-
-# JSON 구조화 출력 (블록+메타데이터)
-npx kordoc <파일.hwp> --format json
-
-# 파일로 저장
-npx kordoc <파일.hwp> -o output.md
-
-# 특정 페이지만 파싱
-npx kordoc <파일.pdf> --pages 1-5
-
-# 배치 변환
-npx kordoc *.pdf -d ./converted/
+# 표 셀에 긴 지문이 있는 경우 (고사지·보고서)
+python hwpx_edit.py <파일.hwpx> --to-md --cell-br -o output.md
 ```
 
-> kordoc는 npm 패키지. HWP 5.x 바이너리를 직접 파싱하므로 한컴오피스 불필요.
-> HWPX 읽기는 hwpx_edit.py --to-md와 kordoc 모두 가능. 편집 워크플로우 연계 시 hwpx_edit.py 권장.
-> PDF 고품질 파싱은 /docparse 스킬 사용 (다중 파서 퓨전).
+> **PDF 읽기**: 이 스킬의 범위가 아니다. 단순 PDF는 Claude Code 내장 Read 도구 사용, 표·복합 레이아웃은 `/docparse` 스킬(다중 파서 퓨전) 사용.
 
 ## python-hwpx CLI 도구 (v2.9.0+)
 
