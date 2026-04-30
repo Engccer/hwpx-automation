@@ -367,6 +367,91 @@ def style_table_rows(section_xml, header_bf_id, summary_bf_id, bold_char_id,
     return section_xml
 ```
 
+### 표 열 너비 조정 (가독성)
+
+**문제**: Pandoc HWPX 기본 변환은 모든 표의 열을 **균등 너비**로 생성한다. 내용 길이와 무관하게 일률 너비가 적용되어, 짧은 헤더(예: `순위`, `응답률`)와 긴 헤더(예: `개선 과제`)가 같은 폭을 차지하며 여백만 남고 내용이 눈에 들어오지 않는다(2026-04-20 소통실 피드백).
+
+**해결**: 표별로 열 너비 비율을 배정하는 후처리 함수를 적용한다. 총 너비(기본 45000 HWPUNIT)는 유지하고, `colAddr` 기준으로 각 셀의 `<hp:cellSz width="..."/>`를 덮어쓴다.
+
+```python
+import re
+
+TABLE_TOTAL_W = 45000  # hp:sz width 기본값 (A4 본문폭)
+
+def apply_column_widths(section_xml: str, widths_by_table: dict,
+                        skip_single_col: bool = True) -> str:
+    """표 열 너비를 내용 기반 비율로 조정.
+
+    Args:
+        widths_by_table: {content_table_index: [col0_width, col1_width, ...]}
+                         content_table_index는 1열짜리 장 제목 박스를 제외한
+                         실제 내용 표(colCnt > 1)의 0-based 순번.
+                         각 너비 리스트의 합은 TABLE_TOTAL_W(45000)가 되어야 함.
+        skip_single_col: 1열 박스 표(장 제목 등)는 건드리지 않음 (기본 True).
+
+    예시:
+        apply_column_widths(section, {
+            0: [13500, 31500],          # 항목/내용 30:70
+            1: [31500, 13500],          # 지표/수치 70:30
+            2: [6000, 30000, 9000],     # 순위/과제/응답률 13:67:20
+        })
+    """
+    content_idx = 0
+    out, cursor = [], 0
+    for m in re.finditer(r'<hp:tbl\b[^>]*colCnt="(\d+)"[^>]*>', section_xml):
+        col_cnt = int(m.group(1))
+        tbl_start = m.start()
+        tbl_end = section_xml.find('</hp:tbl>', tbl_start) + len('</hp:tbl>')
+        out.append(section_xml[cursor:tbl_start])
+        tbl = section_xml[tbl_start:tbl_end]
+
+        if skip_single_col and col_cnt == 1:
+            out.append(tbl)
+        elif col_cnt > 1:
+            widths = widths_by_table.get(content_idx)
+            content_idx += 1
+            if widths and len(widths) == col_cnt:
+                assert sum(widths) == TABLE_TOTAL_W, (
+                    f"표 {content_idx - 1} 너비 합계 {sum(widths)} != {TABLE_TOTAL_W}")
+                def _repl(cell_m):
+                    cell = cell_m.group(0)
+                    ca = re.search(r'<hp:cellAddr colAddr="(\d+)"', cell)
+                    if not ca:
+                        return cell
+                    col = int(ca.group(1))
+                    return re.sub(
+                        r'(<hp:cellSz width=")\d+(")',
+                        rf'\g<1>{widths[col]}\g<2>',
+                        cell, count=1,
+                    )
+                tbl = re.sub(r'<hp:tc\b.*?</hp:tc>', _repl, tbl, flags=re.DOTALL)
+            out.append(tbl)
+        else:
+            out.append(tbl)
+        cursor = tbl_end
+    out.append(section_xml[cursor:])
+    return ''.join(out)
+```
+
+**너비 배정 가이드라인** (내용 비례):
+
+| 열 유형 | 권장 비율 | 예 (총 45000 기준) |
+|:---|:---:|:---|
+| 순위·번호 (1~2자리) | 12~15% | 6000 |
+| 짧은 라벨 (지표·항목·주제 등) | 25~35% | 13500 |
+| 수치·퍼센트 | 18~25% | 9000 ~ 11000 |
+| 긴 설명·과제명 | 60~70% | 30000 ~ 31500 |
+| 2열 표 (라벨/값) | 30:70 또는 70:30 | 13500/31500 |
+| 3열 표 (순위/과제/수치) | 13:67:20 내외 | 6000/30000/9000 |
+
+**원칙**:
+1. **열의 합은 `TABLE_TOTAL_W`(45000)**. 분모 유지 안 하면 `<hp:sz>` 와 불일치해 한글이 재계산.
+2. **모든 행의 cellSz를 같은 colAddr끼리 일치시킬 것**. 일부 행만 바꾸면 한글이 첫 행 기준으로 표시해 나머지 행이 찌그러짐.
+3. **1열 박스 표(장 제목)는 건드리지 않음**. `skip_single_col=True` 기본값 유지.
+4. **검증**: 적용 후 `hwpx-validate` 통과 + COM `Open/SaveAs` 왕복 확인.
+
+**적용 사례**: 2026-04-20 장교조 근로지원인 설문조사 붙임 요약 HWPX (표 4개, 2·3열 혼재). 조사 개요 30:70, 8대 지표 70:30, TOP 5 13:67:20, 주제별 언급 70:30 적용 후 가독성 확인.
+
 ### 인용문 (blockquote) 스타일링
 
 ```python
