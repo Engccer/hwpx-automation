@@ -175,6 +175,7 @@ convert/hwp2hwpx.bat <입력.hwp> [출력.hwpx]
 - 출력 파일 미지정 시 같은 폴더에 `.hwpx` 확장자로 생성
 - 서식 100% 보존 (Java 기반, hwplib + hwpxlib)
 - 요구사항: JDK 21 (`C:/Program Files/Eclipse Adoptium/jdk-21.0.10.7-hotspot`)
+- 입력 경로에 cp949 외 문자(en-dash, em-dash 등)가 있어도 내부에서 `%TEMP%`로 staging해 처리. 호출 측에서 별도 staging 불필요
 
 ## 핵심 워크플로우: MD → HWPX 변환 (Pandoc 방식)
 
