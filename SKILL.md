@@ -249,7 +249,7 @@ convert/hwp2hwpx.bat <입력.hwp> [출력.hwpx]
 7. **쪽수 드리프트 감지**: `hwpx-page-guard -r output.hwpx -o result.hwpx`
 8. **내용 확인**: `--to-md`로 최종 텍스트 검증
 
-## python-hwpx API (v2.9.0) — 주요 패턴
+## python-hwpx API (v2.9.1) — 주요 패턴
 
 ### 기본 구조
 
@@ -378,7 +378,7 @@ doc.set_columns(2)      # 다단 설정
 cp_id = doc.ensure_run_style(bold=True, italic=False)
 ```
 
-> **lxml 6.0.4 호환성**: python-hwpx의 `requires lxml<6` 제약이 있으나 실제 동작은 정상 (2026.4 확인). pip 경고만 발생.
+> **lxml 6.x 호환성**: python-hwpx 2.9.1의 `requires lxml<6` 제약이 유지되지만, 실측상 lxml 6.1.0에서도 정상 동작한다 (2026-05-04 `HwpxDocument.open()` + `hwpx_edit.py --to-md` 재검증 완료). pip 경고만 발생. 다운그레이드 가드 정책은 `~/.claude/skills/check-stack-updates/references/known_overrides.md` 참조.
 
 ## 구조적 편집 (행/표/단락 추가) — raw lxml 필요
 

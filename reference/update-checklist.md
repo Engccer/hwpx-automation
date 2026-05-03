@@ -74,3 +74,4 @@ hwpx-page-guard --help
 | 날짜 | python-hwpx 버전 | 주요 변경 |
 |------|-----------------|----------|
 | 2026-03-10 | v2.8.2 | Table API, 검증 CLI, 머리글/바닥글, 서식 검색 추가. SKILL.md/GUIDE.md 전면 개편 |
+| 2026-05-04 | v2.9.1 | `requires lxml<6` 핀 신규 도입 — 실측상 lxml 6.x에서도 정상 동작 검증, `check-stack-updates/references/known_overrides.md`에 `restore_after` 정책 등재. SKILL.md lxml 호환성 노트 + reference/api.md 버전 라벨 갱신 |
