@@ -679,3 +679,5 @@ header_xml = re.sub(r'(<hc:lineSpacing[^/]*?)value="\d+"', r'\1value="160"', hea
 5. **`re.sub` 역참조 함정**: 비-raw 문자열에서 `'\uXXXX\\1\uYYYY'` 형태의 replacement를 사용하면 `\1`이 그룹 역참조가 아닌 SOH 제어문자(U+0001)로 해석됨. 반드시 `lambda m: ... + m.group(1) + ...` 사용
 6. **변환 결과 검증**: `hwpx_edit.py --to-md`도 따옴표 안 텍스트를 누락시킬 수 있으므로 검증에 부적합. `<hp:t>` 텍스트를 join하여 검증 (위 "HWPX 변환 결과 텍스트 검증" 참조)
 7. **변환 스크립트 보존**: MD→HWPX 변환 시 생성한 Python 스크립트는 삭제하지 않고 프로젝트 폴더에 보관한다 (향후 재변환·수정 용도). 사용자가 명시적으로 삭제를 요청한 경우에만 삭제
+8. **`pypandoc.convert_file()` 입력 경로 대괄호 함정**: pypandoc은 내부에서 `glob.glob(str(source))`를 `glob.escape` 없이 호출하므로, 파일명/경로의 `[`, `]`, `*`, `?`가 glob 문자 클래스로 오인되어 매칭 실패 → `WindowsPath` fallback → `TypeError: 'WindowsPath' object is not iterable`. 한글과 무관한 라이브러리 자체 버그. 대표 재현 파일명 패턴: `[붙임]`, `[공고]`, `[수정]`, `2. [안건]` 등.
+   **해결**: MD→HWPX 변환 시 입력 MD를 항상 `tempfile.TemporaryDirectory()` 안에 ASCII-safe 이름(`input.md`)으로 쓴 뒤 `hwpx_convert.py`에 넘긴다. 출력 경로는 대괄호가 있어도 안전 (`--output=`은 glob 대상이 아님). (2026-04-20 검증)
