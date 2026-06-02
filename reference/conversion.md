@@ -670,6 +670,38 @@ header_xml = re.sub(r'(lineSpacing[^/]*?)value="180"', r'\1value="160"', header_
 header_xml = re.sub(r'(<hc:lineSpacing[^/]*?)value="\d+"', r'\1value="160"', header_xml)
 ```
 
+## 인쇄용 배포 문서 디자인 (실측 교훈, 2026-06-01)
+
+`hwpx_convert.py`(Pandoc 경로)·build-from-scratch가 찍어내는 기본 스타일은 **화면 가독성 기준**이라, 안내문·가정통신문·고사지처럼 **인쇄·배포**가 목적인 문서에서는 페이지 수를 부풀리고 표를 페이지 경계에서 자른다. 자동 생성 초안과 교사가 한글에서 인쇄용으로 수동 완성한 최종본을 XML 단위로 비교해 도출한 4가지 교훈:
+
+| 축 | 자동 생성 기본값 | 인쇄 최종본 | 교훈 |
+|----|-----------------|------------|------|
+| 줄간격 | 전 문단 균일 **180%** | 본문·불릿 **100~130%**, 제목 **160~170%**, 표 셀 적정 유지 | 용도별 차등화 |
+| 섹션 제목 크기 | 본문(10~11pt) 대비 **+4pt 이상**(14pt 등) | 본문과 근접(10pt) + 굵게·색으로만 구분 | 1~2장 목표 문서는 제목 과대 금지 |
+| 페이지 나눔 | 없음(자연 흐름 → 표가 경계에서 잘림) | 주요 논리 구획 앞 `pageBreak="1"` 수동 삽입 | 표·루브릭이 페이지 머리에서 시작하도록 강제 |
+| 기입란 글자 | 본문과 동일 | 본문보다 **+2pt**(손글씨 공간 확보) | `Student No.( ) Name( )` 등은 키움 |
+
+### 적용 패턴 (변환 후처리)
+
+```python
+# 1) 줄간격 용도별 차등화 — 균일 180%를 본문은 조이고 제목만 살린다
+#    paraPr별로 다른 값을 주려면 header.xml의 paraProperties에 항목을 복제·추가한 뒤
+#    section0.xml의 paraPrIDRef를 교체한다 (단일 sub로 전부 바꾸면 표까지 조여짐 주의)
+header_xml = re.sub(r'(lineSpacing[^/]*?)value="180"', r'\1value="130"', header_xml)  # 본문 기준
+
+# 2) 논리 구획 앞 수동 페이지 나눔 — 해당 <hp:p>의 pageBreak="0" → "1"
+#    예: "4. 평가 일정" 문단을 2페이지 머리로 보내 일정표가 잘리지 않게
+section_xml = section_xml.replace(
+    '<hp:p id="ID..." paraPrIDRef="N" styleIDRef="M" pageBreak="0"',
+    '<hp:p id="ID..." paraPrIDRef="N" styleIDRef="M" pageBreak="1"', 1)
+```
+
+### 점검
+
+- 변환 직후 `hwpx-page-guard`로 드리프트뿐 아니라 **의도한 페이지 수**(보통 1~2장)에 맞는지 확인
+- 표가 시작되는 문단 직전이 페이지 끝 부근이면 그 표 머리 문단에 `pageBreak="1"` 부여
+- 자동 생성물을 그대로 배포하지 말고, 인쇄 목적이면 위 4축을 반드시 손볼 것
+
 ## 주의사항
 
 1. **hwpx_convert.py blockquote 누락**: `>` blockquote 내용이 변환 시 완전히 누락됨. 반드시 전처리로 마커 치환 필요
