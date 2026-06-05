@@ -670,37 +670,121 @@ header_xml = re.sub(r'(lineSpacing[^/]*?)value="180"', r'\1value="160"', header_
 header_xml = re.sub(r'(<hc:lineSpacing[^/]*?)value="\d+"', r'\1value="160"', header_xml)
 ```
 
-## 인쇄용 배포 문서 디자인 (실측 교훈, 2026-06-01)
+## 인쇄용 배포 문서 디자인 (실측 교훈, 2026-06-01, 2026-06-05 보강)
 
-`hwpx_convert.py`(Pandoc 경로)·build-from-scratch가 찍어내는 기본 스타일은 **화면 가독성 기준**이라, 안내문·가정통신문·고사지처럼 **인쇄·배포**가 목적인 문서에서는 페이지 수를 부풀리고 표를 페이지 경계에서 자른다. 자동 생성 초안과 교사가 한글에서 인쇄용으로 수동 완성한 최종본을 XML 단위로 비교해 도출한 4가지 교훈:
+`hwpx_convert.py`(Pandoc 경로)·build-from-scratch가 찍어내는 기본 스타일은 **화면 가독성 기준**이라, 안내문·가정통신문·고사지·**학생 작성용 양식**처럼 **인쇄·배포**가 목적인 문서에서는 페이지 수를 부풀리고 표를 페이지 경계에서 자른다. 자동 생성 초안과 교사가 한글에서 인쇄용으로 수동 완성한 최종본을 XML 단위로 비교해 도출한 교훈(2026-06-05 성취경험 글쓰기 양식·예시문 비교로 3개 축과 rect 박스 패턴 추가):
 
 | 축 | 자동 생성 기본값 | 인쇄 최종본 | 교훈 |
 |----|-----------------|------------|------|
-| 줄간격 | 전 문단 균일 **180%** | 본문·불릿 **100~130%**, 제목 **160~170%**, 표 셀 적정 유지 | 용도별 차등화 |
+| 줄간격 | 전 문단 균일 **180%** | 읽는 본문·불릿 **100~140%**, 제목 **160~170%**, 학생이 손으로 쓰는 **작성·기입 영역 200~215%** | 용도별 차등화: 읽는 곳은 조이고 **쓰는 곳은 넓힌다** |
 | 섹션 제목 크기 | 본문(10~11pt) 대비 **+4pt 이상**(14pt 등) | 본문과 근접(10pt) + 굵게·색으로만 구분 | 1~2장 목표 문서는 제목 과대 금지 |
 | 페이지 나눔 | 없음(자연 흐름 → 표가 경계에서 잘림) | 주요 논리 구획 앞 `pageBreak="1"` 수동 삽입 | 표·루브릭이 페이지 머리에서 시작하도록 강제 |
 | 기입란 글자 | 본문과 동일 | 본문보다 **+2pt**(손글씨 공간 확보) | `Student No.( ) Name( )` 등은 키움 |
+| **용지 여백** | 변환 기본(위·헤더 약 4250 HWPUNIT) | **위·헤더 여백 축소**(top 4255 → 2834, header 4250 → 2834 등) | 1~2장 양식은 여백을 줄여 작성 공간을 확보 |
+| **핵심 평가어 강조** | 평문 | 평가 포인트를 **굵게+밑줄**(charPr `underline type="BOTTOM"`) | `성취경험 2가지`·`1가지 이상`·`과거시제 동사` 등 채점 기준어를 시선에 박는다 |
+| **점검 목록** | `☐` 평문 나열 | **번호 목록(1~5)** + 항목별 핵심어 강조 | 학생이 빠짐없이 자가 점검하도록 유도 |
 
 ### 적용 패턴 (변환 후처리)
 
 ```python
-# 1) 줄간격 용도별 차등화 — 균일 180%를 본문은 조이고 제목만 살린다
+# 1) 줄간격 용도별 차등화: 균일 180%를 "읽는 곳은 조이고, 쓰는 곳은 넓힌다"
 #    paraPr별로 다른 값을 주려면 header.xml의 paraProperties에 항목을 복제·추가한 뒤
 #    section0.xml의 paraPrIDRef를 교체한다 (단일 sub로 전부 바꾸면 표까지 조여짐 주의)
 header_xml = re.sub(r'(lineSpacing[^/]*?)value="180"', r'\1value="130"', header_xml)  # 본문 기준
+#    손글씨 작성칸용 paraPr만 215%로: rect 박스 안 빈 줄 문단이 참조하는 paraPr의 value를 215로
 
-# 2) 논리 구획 앞 수동 페이지 나눔 — 해당 <hp:p>의 pageBreak="0" → "1"
+# 2) 논리 구획 앞 수동 페이지 나눔: 해당 <hp:p>의 pageBreak="0" → "1"
 #    예: "4. 평가 일정" 문단을 2페이지 머리로 보내 일정표가 잘리지 않게
 section_xml = section_xml.replace(
     '<hp:p id="ID..." paraPrIDRef="N" styleIDRef="M" pageBreak="0"',
     '<hp:p id="ID..." paraPrIDRef="N" styleIDRef="M" pageBreak="1"', 1)
+
+# 3) 용지 위·헤더 여백 축소: section0.xml의 hp:margin 속성 (HWPUNIT, 283≈1mm)
+section_xml = re.sub(r'(<hp:margin[^>]*?)header="\d+"', r'\1header="2834"', section_xml)
+section_xml = re.sub(r'(<hp:margin[^>]*?)top="\d+"',    r'\1top="2834"',    section_xml)
+
+# 4) 핵심 평가어 굵게+밑줄: header.xml에 underline charPr를 추가한 뒤 해당 run의 charPrIDRef 교체
+#    underline charPr 본문: <hh:bold/> + <hh:underline type="BOTTOM" shape="SOLID" color="#000000"/>
 ```
+
+### 학생 작성용 양식: `hp:rect` 작성칸/구획 박스 (2026-06-05)
+
+학생이 **손으로 쓸 빈 영역**(편지 작성칸)이나 **내용 구획**(예시문 영어/해석 분리)은 표(`tbl`)가 아니라 **`hp:rect` 사각형 도형**으로 만든다. 표 셀은 페이지 경계에서 잘리고 행 추가가 까다롭지만, rect는 `pos`를 **PAPER 절대좌표**로 고정해 원하는 위치·크기에 테두리 박스를 띄우고 그 안에 안내 텍스트(`Dear ___,` ... `Best,`)와 빈 줄을 담는다. 실측: 성취경험 글쓰기 양식(rect 1개, 편지칸)·예시문(rect 2개, 영어/해석 박스).
+
+**구조 요약** (HWPUNIT: 1inch=7200, 1mm≈283):
+- floating object: `textWrap="IN_FRONT_OF_TEXT"`, `pos vertRelTo/horzRelTo="PAPER"`
+- 테두리: `hp:lineShape`(color, width는 1/100mm 단위. 33이면 약 0.33mm 얇은 선)
+- 배경: `hc:winBrush`(faceColor, `alpha="0"`은 불투명 채움이라 뒤 텍스트를 가림)
+- 박스 안 텍스트: `hp:drawText > hp:subList(vertAlign) > hp:p...`
+- 내부 여백: `hp:textMargin`(283≈1mm)
+- 크기/좌표: `hp:sz`·`hp:pos`·`hc:pt0~3` (모두 HWPUNIT)
+
+**재사용 함수** (lineseg는 생략. 한글이 열 때 자동 재계산):
+
+```python
+def make_rect_box(lines, *, x_mm, y_mm, w_mm, h_mm,
+                  border_color="#000000", border_w=33,
+                  fill="#FFFFFF", fill_alpha=0,
+                  char_id=0, para_id=0, vert_align="TOP",
+                  rect_id=1106931494, inst_id=33189671):
+    """테두리 사각형 박스 XML 반환. lines의 각 항목이 박스 안 한 줄(''이면 빈 작성 줄).
+    반환 문자열을 본문 임의의 <hp:run charPrIDRef="N">{여기}</hp:run> 안에 삽입한다.
+    floating이라 anchor 문단 위치와 무관하게 pos 좌표대로 배치된다."""
+    MM = 283
+    W, H = int(w_mm * MM), int(h_mm * MM)
+    X, Y = int(x_mm * MM), int(y_mm * MM)
+    ps = ''.join(
+        f'<hp:p id="0" paraPrIDRef="{para_id}" styleIDRef="0" pageBreak="0" '
+        f'columnBreak="0" merged="0"><hp:run charPrIDRef="{char_id}">'
+        f'<hp:t>{t or " "}</hp:t></hp:run></hp:p>' for t in lines)
+    return (
+      f'<hp:rect id="{rect_id}" zOrder="0" numberingType="PICTURE" '
+      f'textWrap="IN_FRONT_OF_TEXT" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" '
+      f'href="" groupLevel="0" instid="{inst_id}" ratio="0">'
+      f'<hp:offset x="0" y="0"/><hp:orgSz width="{W}" height="{H}"/>'
+      f'<hp:curSz width="0" height="{H}"/><hp:flip horizontal="0" vertical="0"/>'
+      f'<hp:rotationInfo angle="0" centerX="{W//2}" centerY="{H//2}" rotateimage="1"/>'
+      f'<hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/>'
+      f'<hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/>'
+      f'<hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>'
+      f'<hp:lineShape color="{border_color}" width="{border_w}" style="SOLID" endCap="FLAT" '
+      f'headStyle="NORMAL" tailStyle="NORMAL" headfill="1" tailfill="1" '
+      f'headSz="MEDIUM_MEDIUM" tailSz="MEDIUM_MEDIUM" outlineStyle="NORMAL" alpha="0"/>'
+      f'<hc:fillBrush><hc:winBrush faceColor="{fill}" hatchColor="#000000" '
+      f'alpha="{fill_alpha}"/></hc:fillBrush>'
+      f'<hp:shadow type="NONE" color="#B2B2B2" offsetX="0" offsetY="0" alpha="0"/>'
+      f'<hp:drawText lastWidth="{W}" name="" editable="0">'
+      f'<hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="{vert_align}" '
+      f'linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" '
+      f'hasTextRef="0" hasNumRef="0">{ps}</hp:subList>'
+      f'<hp:textMargin left="283" right="283" top="283" bottom="283"/></hp:drawText>'
+      f'<hc:pt0 x="0" y="0"/><hc:pt1 x="{W}" y="0"/>'
+      f'<hc:pt2 x="{W}" y="{H}"/><hc:pt3 x="0" y="{H}"/>'
+      f'<hp:sz width="{W}" widthRelTo="ABSOLUTE" height="{H}" heightRelTo="ABSOLUTE" protect="0"/>'
+      f'<hp:pos treatAsChar="0" affectLSpacing="0" flowWithText="0" allowOverlap="1" '
+      f'holdAnchorAndSO="0" vertRelTo="PAPER" horzRelTo="PAPER" vertAlign="TOP" '
+      f'horzAlign="LEFT" vertOffset="{Y}" horzOffset="{X}"/>'
+      f'<hp:outMargin left="0" right="0" top="0" bottom="0"/>'
+      f'<hp:shapeComment>사각형입니다.</hp:shapeComment></hp:rect>')
+
+# 예: A4 본문폭 163mm 편지 작성칸을 위에서 60mm, 왼쪽 26mm에 띄우기
+box = make_rect_box(
+    [" Dear                 ,"] + [""] * 13 + [" Best ,"],
+    x_mm=26, y_mm=60, w_mm=163, h_mm=166, char_id=16, para_id=12)
+```
+
+**주의**:
+- `rect_id`·`inst_id`는 문서 내 **고유**해야 한다(다른 도형과 충돌하면 무한 로딩).
+- `char_id`·`para_id`는 **대상 문서 header.xml에 존재하는 ID**를 써야 한다. 빈 작성 줄의 높이 = 그 char 글자 크기 × para 줄간격이므로, **손글씨 공간을 키우려면 줄간격 큰 paraPr**(위 215%)를 가리키게 한다.
+- `fill_alpha="0"`은 **불투명**(흰 배경으로 뒤를 가림), `"255"`는 투명. 본문 위에 겹칠 땐 0으로 가린다.
+- lineseg를 생략했으므로 저장 후 한글이 자동 재계산한다. raw로 직접 넣었다면 rect를 담은 anchor 문단의 lineseg도 함께 제거(`reference/structural.md`).
 
 ### 점검
 
 - 변환 직후 `hwpx-page-guard`로 드리프트뿐 아니라 **의도한 페이지 수**(보통 1~2장)에 맞는지 확인
 - 표가 시작되는 문단 직전이 페이지 끝 부근이면 그 표 머리 문단에 `pageBreak="1"` 부여
-- 자동 생성물을 그대로 배포하지 말고, 인쇄 목적이면 위 4축을 반드시 손볼 것
+- rect 박스 삽입 후 `hwpx-validate`(XSD)는 통과해도 **한글에서 실제로 열어** 테두리·위치·작성 공간을 눈으로 확인
+- 자동 생성물을 그대로 배포하지 말고, 인쇄·작성 목적이면 위 축들을 반드시 손볼 것
 
 ## 주의사항
 
