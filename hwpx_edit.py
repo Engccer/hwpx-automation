@@ -4,12 +4,15 @@ hwpx_edit.py - HWPX 파일 편집 유틸리티
 
 사용법:
   python hwpx_edit.py <파일.hwpx> --info                       # 표 구조 출력
-  python hwpx_edit.py <파일.hwpx> --to-md                      # HWPX → Markdown 변환 (XML 직접 파싱, API 불필요)
+  python hwpx_edit.py <파일.hwpx> --to-md                      # HWPX → Markdown 변환 (hwpx-tomd 엔진, API 불필요)
   python hwpx_edit.py <파일.hwpx> --find "이전" --replace "이후"  # 텍스트 치환
   python hwpx_edit.py <파일.hwpx> --set-cell 0,1,0 "텍스트"     # 표 셀에 텍스트 입력
   python hwpx_edit.py <파일.hwpx> --split-cell 0,1,0            # 병합 셀 분할
 
-의존성: python-hwpx, lxml
+의존성:
+  - 편집 명령(--find/--set-cell 등): python-hwpx, lxml
+  - 변환(--to-md): hwpx-tomd 패키지 (pip install hwpx-tomd). 변환 엔진은 이 패키지가
+    단일 소스로 관리하며, 본 파일은 출력 경로·콘솔 메시지 등 CLI 래퍼만 담당한다.
 """
 
 import argparse
@@ -249,28 +252,6 @@ def get_cell_text(cell):
     return ' '.join(t for t in texts if t)
 
 
-def get_cell_paragraph_texts(cell):
-    """셀 내부의 문단(<hp:p>)별 텍스트 리스트 반환.
-
-    get_cell_text는 모든 <hp:t>를 공백 하나로 합쳐 문단 경계를 잃지만,
-    이 함수는 각 문단을 별도 문자열로 유지한다. 긴 지문이 표 셀 안에
-    있는 고사 원안·보고서 등에서 문단 구조를 보존할 때 사용한다.
-    중첩 표(하위 <hp:tbl>)를 가진 문단은 건너뛴다 (중복 방지).
-    """
-    texts = []
-    sub_list = cell.find('hp:subList', NS)
-    if sub_list is None:
-        return texts
-    for para in sub_list.findall('hp:p', NS):
-        if para.find('.//hp:tbl', NS) is not None:
-            continue
-        parts = [t_full_text(t) for t in para.findall('.//hp:t', NS)]
-        text = ''.join(parts).strip()
-        if text:
-            texts.append(text)
-    return texts
-
-
 def get_cell_span(cell):
     """셀의 rowSpan, colSpan 값 추출.
 
@@ -285,274 +266,51 @@ def get_cell_span(cell):
     return int(span.get('rowSpan', '1')), int(span.get('colSpan', '1'))
 
 
-def get_cell_addr(cell):
-    """셀의 cellAddr 요소에서 (colAddr, rowAddr) 논리 위치를 추출. 없으면 (None, None)."""
-    addr = cell.find('hp:cellAddr', NS)
-    if addr is None:
-        return None, None
-    return int(addr.get('colAddr', '0')), int(addr.get('rowAddr', '0'))
+def cmd_to_md(filepath, output=None, cell_br=False, merge_fill=False):
+    """HWPX를 Markdown으로 변환 (hwpx-tomd 패키지 엔진 호출, 외부 API 불필요).
 
+    변환 엔진(글상자 reading-order 수집, <hp:t> tail 보존, 표 cellAddr/cellSpan
+    그리드 배치, 자가검증)은 독립 패키지 hwpx-tomd가 단일 소스로 보유한다. 이
+    함수는 출력 경로(_output/.md)와 콘솔 메시지 등 기존 CLI 동작만 감싼다.
+    설치: pip install hwpx-tomd
+      (로컬 개발: pip install -e C:/Users/pc/Windows-Projects/tools/hwpx-tomd)
 
-def get_para_direct_text(para):
-    """단락에서 직접 텍스트만 추출 (중첩 표 제외, tail 포함)"""
-    texts = []
-    for run in para.findall('hp:run', NS):
-        for t_elem in run.findall('hp:t', NS):
-            texts.append(t_full_text(t_elem))
-    return ''.join(texts).strip()
-
-
-def parse_table_to_rows(table, cell_br=False):
-    """표를 파싱하여 행별 셀 데이터 리스트 반환. [(텍스트, colSpan), ...]
-
-    cell_br=True이면 셀 내부 문단(<hp:p>)을 <br>로 구분한다.
-    False이면 기존 동작(모든 <hp:t>를 공백 하나로 합침)을 유지한다.
+    cell_br=True이면 표 셀 내부 문단을 <br>로 구분한다(긴 지문이 셀 안에 있는
+    고사지·보고서에 권장). merge_fill=True이면 병합으로 덮인 칸을 시작 칸 값으로
+    채운다(행 단위 파싱·LLM 입력용; 기본은 GFM 정렬 보존).
     """
-    rows_data = []
-    for row in get_table_rows(table):
-        row_data = []
-        for cell in get_row_cells(row):
-            if cell_br:
-                paras = get_cell_paragraph_texts(cell)
-                cell_text = '<br>'.join(
-                    p.replace('|', '\\|').replace('\n', ' ') for p in paras
-                )
-            else:
-                cell_text = get_cell_text(cell).replace('\n', ' ').replace('|', '\\|')
-            _, col_span = get_cell_span(cell)
-            row_data.append((cell_text, col_span))
-        rows_data.append(row_data)
-    return rows_data
+    try:
+        from hwpx_tomd import convert, HwpxEncryptedError, HwpxError
+    except ImportError:
+        print(
+            "오류: --to-md에는 hwpx-tomd 패키지가 필요합니다.\n"
+            "  설치: pip install hwpx-tomd\n"
+            "  (로컬 개발: pip install -e C:/Users/pc/Windows-Projects/tools/hwpx-tomd)\n"
+            "변환 엔진은 hwpx-tomd 패키지가 단일 소스로 관리합니다(코드 분기 방지).",
+            file=sys.stderr,
+        )
+        sys.exit(3)
 
-
-def table_to_markdown(rows_data):
-    """파싱된 표 데이터를 Markdown 표 형식으로 변환"""
-    if not rows_data:
-        return ''
-
-    max_cols = max(sum(cs for _, cs in row) for row in rows_data)
-    if max_cols == 0:
-        return ''
-
-    lines = []
-    for row_idx, row in enumerate(rows_data):
-        expanded = []
-        for text, col_span in row:
-            expanded.append(text)
-            for _ in range(col_span - 1):
-                expanded.append('')
-        while len(expanded) < max_cols:
-            expanded.append('')
-
-        line = '| ' + ' | '.join(expanded[:max_cols]) + ' |'
-        lines.append(line)
-
-        if row_idx == 0:
-            sep = '| ' + ' | '.join(['---'] * max_cols) + ' |'
-            lines.append(sep)
-
-    return '\n'.join(lines)
-
-
-def render_cell_lines(cell):
-    """표 셀 안의 텍스트를 문단별 라인 리스트로 추출 (reading order 근사).
-
-    중첩표(셀 안의 표)와 글상자(drawText)까지 진입하고, tail 텍스트를 보존한다.
-    중첩표는 구조를 평탄화하여 텍스트만 인라인 수집한다.
-    """
-    lines, buf = [], []
-
-    def flush():
-        if buf:
-            s = ' '.join(' '.join(x for x in buf if x).split())
-            if s:
-                lines.append(s)
-            buf.clear()
-
-    def rec(node):
-        for child in node:
-            tag = localname(child.tag)
-            if tag == 'p':
-                flush(); rec(child); flush()
-            elif tag == 't':
-                buf.append(t_full_text(child))
-            elif tag == 'tbl':
-                for t in child.iter():
-                    if localname(t.tag) == 't':
-                        buf.append(t_full_text(t))
-            else:
-                rec(child)
-
-    rec(cell)
-    flush()
-    return lines
-
-
-def render_table_md(tbl, cell_br=False):
-    """표를 markdown으로 변환.
-
-    cellAddr(colAddr/rowAddr) + cellSpan(rowSpan/colSpan) 기반으로 셀을 정확한
-    그리드 위치에 배치한다. 세로(rowSpan)·가로(colSpan) 병합이 있어도 병합으로
-    덮인 칸을 빈 칸으로 남겨 열 정렬을 유지한다(GFM은 병합 자체를 표현 못하므로
-    텍스트는 시작 칸에 두고 나머지는 빈 칸). cellAddr가 없으면 행 순차 방식으로
-    폴백한다. 셀 텍스트는 render_cell_lines로 추출(tail·글상자·중첩표 포함).
-    """
-    sep = '<br>' if cell_br else ' '
-
-    def cell_text(cell):
-        return sep.join(render_cell_lines(cell)).replace('|', '\\|')
-
-    cells = []
-    max_r = max_c = 0
-    use_grid = True
-    for row in get_table_rows(tbl):
-        for cell in get_row_cells(row):
-            col, r = get_cell_addr(cell)
-            if col is None or r is None:
-                use_grid = False
-                break
-            rs, cs = get_cell_span(cell)
-            cells.append((r, col, rs, cs, cell_text(cell)))
-            max_r = max(max_r, r + rs)
-            max_c = max(max_c, col + cs)
-        if not use_grid:
-            break
-
-    # 폴백: 위치 정보가 없으면 행 순차 방식 (colSpan만 펼침)
-    if not use_grid or max_r == 0 or max_c == 0:
-        rows_data = []
-        for row in get_table_rows(tbl):
-            row_data = []
-            for cell in get_row_cells(row):
-                _, col_span = get_cell_span(cell)
-                row_data.append((cell_text(cell), col_span))
-            rows_data.append(row_data)
-        return table_to_markdown(rows_data)
-
-    grid = [['' for _ in range(max_c)] for _ in range(max_r)]
-    for (r, col, rs, cs, text) in cells:
-        if 0 <= r < max_r and 0 <= col < max_c:
-            grid[r][col] = text  # 병합으로 덮인 칸은 '' 유지 → 정렬 보존
-
-    lines = []
-    for ri in range(max_r):
-        lines.append('| ' + ' | '.join(grid[ri]) + ' |')
-        if ri == 0:
-            lines.append('| ' + ' | '.join(['---'] * max_c) + ' |')
-    return '\n'.join(lines)
-
-
-def render_block_lines(para, cell_br=False):
-    """최상위 문단을 reading order로 순회하며 라인 리스트 생성.
-
-    글상자(drawText) 내부 문단까지 진입하고, 표는 markdown으로 렌더한다.
-    표 서브트리는 재방문하지 않아 본문/표 텍스트 중복을 막는다.
-    (2026-06-05 재검증: 기존 구현은 최상위 p의 run>t 직속과 .//tbl만 보아
-     글상자 내부 본문을 통째로 누락했다. Workbook류 recall 17~33% → 100%.)
-    """
-    lines, buf = [], []
-
-    def flush():
-        if buf:
-            s = ' '.join(' '.join(x for x in buf if x).split())
-            if s:
-                lines.append(s)
-            buf.clear()
-
-    def rec(node):
-        for child in node:
-            tag = localname(child.tag)
-            if tag == 'tbl':
-                flush()
-                md = render_table_md(child, cell_br=cell_br)
-                if md:
-                    lines.append('')
-                    lines.append(md)
-                    lines.append('')
-            elif tag == 'p':
-                flush(); rec(child); flush()
-            elif tag == 't':
-                buf.append(t_full_text(child))
-            else:
-                rec(child)
-
-    rec(para)
-    flush()
-    return lines
-
-
-def cmd_to_md(filepath, output=None, cell_br=False):
-    """HWPX를 XML 직접 파싱하여 Markdown으로 변환 (API 불필요).
-
-    reading-order 재귀 순회로 글상자(drawText) 내부 본문까지 수집하고,
-    <hp:t> 내부 tail 텍스트(선택지 ②③⑤ 등)를 보존한다. 표는 markdown으로
-    변환하며 표 서브트리는 재방문하지 않는다. 변환 후 원본 대비 단어 recall을
-    자가검증하여 0.95 미만이면 stderr로 경고한다(조용한 누락 방지).
-
-    cell_br=True이면 표 셀 내부 문단을 <br>로 구분한다 (고사지·보고서처럼
-    긴 지문이 셀 안에 있는 문서에서 문단 구조 보존).
-    """
-    import re as _re
-    if is_encrypted_hwpx(filepath):
-        print(f"오류: {ENCRYPTION_HINT}", file=sys.stderr)
+    try:
+        result = convert(filepath, cell_br=cell_br, merge_fill=merge_fill)
+    except HwpxEncryptedError as e:
+        print(f"오류: {e}", file=sys.stderr)
         sys.exit(1)
-
-    with zipfile.ZipFile(filepath, 'r') as zf:
-        section_files = sorted([
-            n for n in zf.namelist()
-            if 'section' in n.lower() and n.endswith('.xml') and 'Contents/' in n
-        ])
-        if not section_files:
-            print("오류: section XML 파일을 찾을 수 없습니다.", file=sys.stderr)
-            sys.exit(1)
-        roots = [etree.fromstring(zf.read(sf)) for sf in section_files]
-
-    def _words(s):
-        return set(w.lower() for w in _re.findall(r'[A-Za-z]{3,}|[가-힣]{2,}', s))
-
-    all_lines = []
-    gt_words = set()
-    for root in roots:
-        for t in root.iter():
-            if localname(t.tag) == 't':
-                gt_words |= _words(t_full_text(t))
-        for child in root:
-            if localname(child.tag) == 'p':
-                all_lines += render_block_lines(child, cell_br=cell_br)
-
-    # 연속 빈 줄 정리
-    cleaned = []
-    prev_blank = False
-    for line in all_lines:
-        if line.strip() == '':
-            if not prev_blank:
-                cleaned.append('')
-            prev_blank = True
-        else:
-            cleaned.append(line)
-            prev_blank = False
-
-    md_content = '\n'.join(cleaned)
+    except HwpxError as e:
+        print(f"오류: {e}", file=sys.stderr)
+        sys.exit(1)
 
     if output is None:
         output = get_output_path(filepath, '.md')
-
     with open(output, 'w', encoding='utf-8') as f:
-        f.write(md_content)
+        f.write(result.markdown)
 
     print(f"변환 완료: {output}")
-    print(f"크기: {len(md_content)} 글자")
-
-    # 자가검증: 원본 단어 대비 출력 recall (조용한 누락 탐지)
-    if gt_words:
-        out_words = _words(md_content)
-        recall = len(gt_words & out_words) / len(gt_words)
-        if recall < 0.95:
-            missing = sorted(gt_words - out_words)[:20]
-            print(f"경고: 원본 단어 recall {recall:.1%} (<95%) — 일부 텍스트 누락 가능. "
-                  f"누락 의심: {missing}", file=sys.stderr)
-        else:
-            print(f"자가검증 recall: {recall:.1%}")
+    print(f"크기: {len(result.markdown)} 글자")
+    for w in result.warnings:
+        print(f"경고: {w}", file=sys.stderr)
+    if not result.warnings:
+        print(f"자가검증 recall: 단어 {result.recall:.1%} · 글자 {result.char_recall:.1%}")
 
 
 def cmd_info(filepath):
@@ -930,6 +688,9 @@ def main():
     parser.add_argument('--cell-br', action='store_true',
                         help='--to-md와 함께 사용: 표 셀 내부 문단을 <br>로 구분 '
                              '(긴 지문이 셀 안에 있는 고사지·보고서에 권장)')
+    parser.add_argument('--merge-fill', action='store_true',
+                        help='--to-md와 함께 사용: 병합으로 덮인 칸을 시작 칸 값으로 채움 '
+                             '(행 단위 파싱·LLM 입력용; 기본은 GFM 정렬 보존)')
     parser.add_argument('-o', '--output', help='출력 파일 경로 (기본: _output/ 폴더)')
 
     args = parser.parse_args()
@@ -941,7 +702,7 @@ def main():
     if args.info:
         cmd_info(args.file)
     elif args.to_md:
-        cmd_to_md(args.file, args.output, cell_br=args.cell_br)
+        cmd_to_md(args.file, args.output, cell_br=args.cell_br, merge_fill=args.merge_fill)
     elif args.find is not None and args.replace is not None:
         cmd_find_replace(args.file, args.find, args.replace, args.output)
     elif args.set_cell:

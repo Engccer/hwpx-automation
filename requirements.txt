@@ -1,2 +1,7 @@
+# 편집 명령(--find/--set-cell/--split-cell 등)
 python-hwpx>=2.8.3
 lxml>=5.4,<6
+
+# 변환(--to-md): 엔진을 단일 소스로 관리하는 독립 패키지
+# 공개 전에는 로컬 editable 설치: pip install -e C:/Users/pc/Windows-Projects/tools/hwpx-tomd
+hwpx-tomd>=0.1.0
