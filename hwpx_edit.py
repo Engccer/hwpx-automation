@@ -218,13 +218,35 @@ def get_row_cells(row):
     return row.findall('hp:tc', NS)
 
 
+def localname(tag):
+    """네임스페이스를 제거한 태그 로컬명"""
+    return tag.split('}')[-1] if '}' in tag else tag
+
+
+def t_full_text(t_elem):
+    """<hp:t>의 전체 텍스트를 추출.
+
+    핵심: t_elem.text만 읽으면 <hp:t> 내부의 <hp:tab>/<hp:lineBreak> 등
+    자식 요소의 tail 텍스트를 통째로 잃는다(객관식 선택지 ②③⑤가 tab.tail에
+    들어있는 경우 등). itertext로 전체를 모으되 tab/lineBreak는 공백으로
+    치환해 단어 경계를 보존한다.
+    (2026-06-05 재검증으로 확인·수정된 핵심 결함. 상세:
+     Windows-Projects/docs/DocumentParse/HWPX_파서비교_2026-06-05/)
+    """
+    parts = [t_elem.text or '']
+    for child in t_elem:
+        if localname(child.tag) in ('tab', 'lineBreak', 'br'):
+            parts.append(' ')
+        else:
+            parts.append(''.join(child.itertext()))
+        parts.append(child.tail or '')
+    return ''.join(parts)
+
+
 def get_cell_text(cell):
-    """셀의 텍스트 내용 추출 (모든 <hp:t> 요소 결합)"""
-    texts = []
-    for t_elem in cell.findall('.//hp:t', NS):
-        if t_elem.text:
-            texts.append(t_elem.text)
-    return ' '.join(texts)
+    """셀의 텍스트 내용 추출 (모든 <hp:t> 요소 결합, tail 포함)"""
+    texts = [t_full_text(t) for t in cell.findall('.//hp:t', NS)]
+    return ' '.join(t for t in texts if t)
 
 
 def get_cell_paragraph_texts(cell):
@@ -242,10 +264,7 @@ def get_cell_paragraph_texts(cell):
     for para in sub_list.findall('hp:p', NS):
         if para.find('.//hp:tbl', NS) is not None:
             continue
-        parts = []
-        for t_elem in para.findall('.//hp:t', NS):
-            if t_elem.text:
-                parts.append(t_elem.text)
+        parts = [t_full_text(t) for t in para.findall('.//hp:t', NS)]
         text = ''.join(parts).strip()
         if text:
             texts.append(text)
@@ -253,22 +272,33 @@ def get_cell_paragraph_texts(cell):
 
 
 def get_cell_span(cell):
-    """셀의 cellAddr에서 rowSpan, colSpan 값 추출"""
-    cell_addr = cell.find('hp:cellAddr', NS)
-    if cell_addr is None:
+    """셀의 rowSpan, colSpan 값 추출.
+
+    주의: span은 cellAddr가 아니라 별도 <hp:cellSpan> 요소에 있다. cellAddr에는
+    colAddr/rowAddr(논리 위치)만 있다. 과거 구현은 cellAddr.get('rowSpan')을
+    읽어 항상 (1,1)을 반환했고, 그 결과 가로·세로 병합이 모두 무시되어 표 정렬이
+    깨졌다(2026-06-05 이질 문서 검증으로 발견·수정).
+    """
+    span = cell.find('hp:cellSpan', NS)
+    if span is None:
         return 1, 1
-    row_span = int(cell_addr.get('rowSpan', '1'))
-    col_span = int(cell_addr.get('colSpan', '1'))
-    return row_span, col_span
+    return int(span.get('rowSpan', '1')), int(span.get('colSpan', '1'))
+
+
+def get_cell_addr(cell):
+    """셀의 cellAddr 요소에서 (colAddr, rowAddr) 논리 위치를 추출. 없으면 (None, None)."""
+    addr = cell.find('hp:cellAddr', NS)
+    if addr is None:
+        return None, None
+    return int(addr.get('colAddr', '0')), int(addr.get('rowAddr', '0'))
 
 
 def get_para_direct_text(para):
-    """단락에서 직접 텍스트만 추출 (중첩 표 제외)"""
+    """단락에서 직접 텍스트만 추출 (중첩 표 제외, tail 포함)"""
     texts = []
     for run in para.findall('hp:run', NS):
         for t_elem in run.findall('hp:t', NS):
-            if t_elem.text:
-                texts.append(t_elem.text)
+            texts.append(t_full_text(t_elem))
     return ''.join(texts).strip()
 
 
@@ -324,12 +354,145 @@ def table_to_markdown(rows_data):
     return '\n'.join(lines)
 
 
+def render_cell_lines(cell):
+    """표 셀 안의 텍스트를 문단별 라인 리스트로 추출 (reading order 근사).
+
+    중첩표(셀 안의 표)와 글상자(drawText)까지 진입하고, tail 텍스트를 보존한다.
+    중첩표는 구조를 평탄화하여 텍스트만 인라인 수집한다.
+    """
+    lines, buf = [], []
+
+    def flush():
+        if buf:
+            s = ' '.join(' '.join(x for x in buf if x).split())
+            if s:
+                lines.append(s)
+            buf.clear()
+
+    def rec(node):
+        for child in node:
+            tag = localname(child.tag)
+            if tag == 'p':
+                flush(); rec(child); flush()
+            elif tag == 't':
+                buf.append(t_full_text(child))
+            elif tag == 'tbl':
+                for t in child.iter():
+                    if localname(t.tag) == 't':
+                        buf.append(t_full_text(t))
+            else:
+                rec(child)
+
+    rec(cell)
+    flush()
+    return lines
+
+
+def render_table_md(tbl, cell_br=False):
+    """표를 markdown으로 변환.
+
+    cellAddr(colAddr/rowAddr) + cellSpan(rowSpan/colSpan) 기반으로 셀을 정확한
+    그리드 위치에 배치한다. 세로(rowSpan)·가로(colSpan) 병합이 있어도 병합으로
+    덮인 칸을 빈 칸으로 남겨 열 정렬을 유지한다(GFM은 병합 자체를 표현 못하므로
+    텍스트는 시작 칸에 두고 나머지는 빈 칸). cellAddr가 없으면 행 순차 방식으로
+    폴백한다. 셀 텍스트는 render_cell_lines로 추출(tail·글상자·중첩표 포함).
+    """
+    sep = '<br>' if cell_br else ' '
+
+    def cell_text(cell):
+        return sep.join(render_cell_lines(cell)).replace('|', '\\|')
+
+    cells = []
+    max_r = max_c = 0
+    use_grid = True
+    for row in get_table_rows(tbl):
+        for cell in get_row_cells(row):
+            col, r = get_cell_addr(cell)
+            if col is None or r is None:
+                use_grid = False
+                break
+            rs, cs = get_cell_span(cell)
+            cells.append((r, col, rs, cs, cell_text(cell)))
+            max_r = max(max_r, r + rs)
+            max_c = max(max_c, col + cs)
+        if not use_grid:
+            break
+
+    # 폴백: 위치 정보가 없으면 행 순차 방식 (colSpan만 펼침)
+    if not use_grid or max_r == 0 or max_c == 0:
+        rows_data = []
+        for row in get_table_rows(tbl):
+            row_data = []
+            for cell in get_row_cells(row):
+                _, col_span = get_cell_span(cell)
+                row_data.append((cell_text(cell), col_span))
+            rows_data.append(row_data)
+        return table_to_markdown(rows_data)
+
+    grid = [['' for _ in range(max_c)] for _ in range(max_r)]
+    for (r, col, rs, cs, text) in cells:
+        if 0 <= r < max_r and 0 <= col < max_c:
+            grid[r][col] = text  # 병합으로 덮인 칸은 '' 유지 → 정렬 보존
+
+    lines = []
+    for ri in range(max_r):
+        lines.append('| ' + ' | '.join(grid[ri]) + ' |')
+        if ri == 0:
+            lines.append('| ' + ' | '.join(['---'] * max_c) + ' |')
+    return '\n'.join(lines)
+
+
+def render_block_lines(para, cell_br=False):
+    """최상위 문단을 reading order로 순회하며 라인 리스트 생성.
+
+    글상자(drawText) 내부 문단까지 진입하고, 표는 markdown으로 렌더한다.
+    표 서브트리는 재방문하지 않아 본문/표 텍스트 중복을 막는다.
+    (2026-06-05 재검증: 기존 구현은 최상위 p의 run>t 직속과 .//tbl만 보아
+     글상자 내부 본문을 통째로 누락했다. Workbook류 recall 17~33% → 100%.)
+    """
+    lines, buf = [], []
+
+    def flush():
+        if buf:
+            s = ' '.join(' '.join(x for x in buf if x).split())
+            if s:
+                lines.append(s)
+            buf.clear()
+
+    def rec(node):
+        for child in node:
+            tag = localname(child.tag)
+            if tag == 'tbl':
+                flush()
+                md = render_table_md(child, cell_br=cell_br)
+                if md:
+                    lines.append('')
+                    lines.append(md)
+                    lines.append('')
+            elif tag == 'p':
+                flush(); rec(child); flush()
+            elif tag == 't':
+                buf.append(t_full_text(child))
+            else:
+                rec(child)
+
+    rec(para)
+    flush()
+    return lines
+
+
 def cmd_to_md(filepath, output=None, cell_br=False):
     """HWPX를 XML 직접 파싱하여 Markdown으로 변환 (API 불필요).
+
+    reading-order 재귀 순회로 글상자(drawText) 내부 본문까지 수집하고,
+    <hp:t> 내부 tail 텍스트(선택지 ②③⑤ 등)를 보존한다. 표는 markdown으로
+    변환하며 표 서브트리는 재방문하지 않는다. 변환 후 원본 대비 단어 recall을
+    자가검증하여 0.95 미만이면 stderr로 경고한다(조용한 누락 방지).
 
     cell_br=True이면 표 셀 내부 문단을 <br>로 구분한다 (고사지·보고서처럼
     긴 지문이 셀 안에 있는 문서에서 문단 구조 보존).
     """
+    import re as _re
     if is_encrypted_hwpx(filepath):
         print(f"오류: {ENCRYPTION_HINT}", file=sys.stderr)
         sys.exit(1)
@@ -342,23 +505,20 @@ def cmd_to_md(filepath, output=None, cell_br=False):
         if not section_files:
             print("오류: section XML 파일을 찾을 수 없습니다.", file=sys.stderr)
             sys.exit(1)
+        roots = [etree.fromstring(zf.read(sf)) for sf in section_files]
 
-        all_lines = []
-        for section_file in section_files:
-            root = etree.fromstring(zf.read(section_file))
-            for child in root:
-                tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
-                if tag == 'p':
-                    direct_text = get_para_direct_text(child)
-                    if direct_text:
-                        all_lines.append(direct_text)
-                    for tbl in child.findall('.//hp:tbl', NS):
-                        rows_data = parse_table_to_rows(tbl, cell_br=cell_br)
-                        md_table = table_to_markdown(rows_data)
-                        if md_table:
-                            all_lines.append('')
-                            all_lines.append(md_table)
-                            all_lines.append('')
+    def _words(s):
+        return set(w.lower() for w in _re.findall(r'[A-Za-z]{3,}|[가-힣]{2,}', s))
+
+    all_lines = []
+    gt_words = set()
+    for root in roots:
+        for t in root.iter():
+            if localname(t.tag) == 't':
+                gt_words |= _words(t_full_text(t))
+        for child in root:
+            if localname(child.tag) == 'p':
+                all_lines += render_block_lines(child, cell_br=cell_br)
 
     # 연속 빈 줄 정리
     cleaned = []
@@ -382,6 +542,17 @@ def cmd_to_md(filepath, output=None, cell_br=False):
 
     print(f"변환 완료: {output}")
     print(f"크기: {len(md_content)} 글자")
+
+    # 자가검증: 원본 단어 대비 출력 recall (조용한 누락 탐지)
+    if gt_words:
+        out_words = _words(md_content)
+        recall = len(gt_words & out_words) / len(gt_words)
+        if recall < 0.95:
+            missing = sorted(gt_words - out_words)[:20]
+            print(f"경고: 원본 단어 recall {recall:.1%} (<95%) — 일부 텍스트 누락 가능. "
+                  f"누락 의심: {missing}", file=sys.stderr)
+        else:
+            print(f"자가검증 recall: {recall:.1%}")
 
 
 def cmd_info(filepath):

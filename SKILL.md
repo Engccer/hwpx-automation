@@ -69,10 +69,13 @@ HWP/HWPX 작업 요청
 
 ```bash
 # HWPX → Markdown 변환 (XML 직접 파싱, API 불필요, 오프라인 사용 가능)
+#  - reading-order 재귀 순회: 글상자(drawText)·그리기 개체 내부 본문까지 수집
+#  - <hp:t> 내부 tail 보존: <tab>/<lineBreak>로 구분된 선택지 ②③⑤ 등 누락 없음
+#  - 자가검증: 변환 후 원본 대비 단어 recall을 stderr에 출력, 95% 미만이면 경고
 python hwpx_edit.py <파일.hwpx> --to-md [-o output.md]
 
 # 표 셀 안에 긴 지문(일기·본문)이 있는 문서는 --cell-br 권장
-#  - 기본(--to-md만): 셀 내 모든 <hp:t>를 공백 하나로 합침 (문단 경계 손실)
+#  - 기본(--to-md만): 셀 내 문단을 공백으로 합침
 #  - --cell-br:      셀 내 <hp:p> 문단을 <br>로 구분 (고사지·보고서 권장)
 python hwpx_edit.py <파일.hwpx> --to-md --cell-br [-o output.md]
 
@@ -120,6 +123,20 @@ python hwpx_edit.py <파일.hwpx> --fix-empty-cells
 # 별도 파일로 저장
 python hwpx_edit.py <파일.hwpx> --set-cell 0,1,0 "텍스트" -o output.hwpx
 ```
+
+> **`--to-md` 보장과 한계** (2026-06-05 재검증): **텍스트 완전성은 보장**한다.
+> 워크시트 5종 + 이질 문서 5종(고사 원안·평가계획·체크리스트·채점기준표·읽기
+> 안내문)에서 단어 recall 100%이며, 글상자 비중 86%·표 셀 중첩 선택지·복잡한 셀
+> 병합 문서까지 누락이 없다(상용 파서 Upstage와 동급 또는 초과). 수정된 결함:
+> ① `<hp:t>` tail에 든 선택지 ②③⑤ 누락, ② 글상자(drawText) 본문 대량 누락,
+> ③ cellSpan 오독으로 rowSpan·colSpan이 모두 무시되던 표 정렬 붕괴. 표는 이제
+> cellAddr/cellSpan 기반 그리드 배치로 세로·가로 병합 시에도 열 정렬을 유지한다.
+> **단 레이아웃은 근사**다: 글상자는 XML anchor 위치(문서 순서)에 삽입되어 시각적
+> 배치와 다를 수 있고(예: 빈칸이 지시문보다 먼저), 중첩표(셀 안의 표)는 텍스트로
+> 평탄화된다. 암호화(AES) 배포본은 파싱 불가하며 자동 감지해 안내한다. 시각적
+> 배치 재현이 중요하면 `/docparse`(Upstage) 병행. 자가검증 recall이 95% 미만으로
+> 경고되면 docparse로 교차검증할 것.
+> 상세: `Windows-Projects/docs/DocumentParse/HWPX_파서비교_2026-06-05/`
 
 ## HWP 읽기 (HWPX 변환 경유)
 
