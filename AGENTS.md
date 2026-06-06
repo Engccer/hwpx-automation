@@ -49,6 +49,10 @@ python hwpx_edit.py <파일.hwpx> --delete-after "텍스트"     # 특정 위치
 python hwpx_edit.py <파일.hwpx> --delete-empty-rows 0      # 빈 행 삭제
 python hwpx_edit.py <파일.hwpx> --delete-rows 0,3,5        # 특정 행 삭제
 python hwpx_edit.py <파일.hwpx> --sanitize                 # 검은 배경 등 수정
+
+# 한컴 COM 자동화 (Windows + 한컴오피스)
+python hwpx_edit.py --diagnose-com                         # COM 사용 가능 여부 진단
+python hwpx_edit.py <파일.hwpx> --to-pdf                    # HWPX/HWP → PDF
 ```
 
 ### convert/hwp2hwpx.bat
@@ -64,6 +68,7 @@ convert/hwp2hwpx.bat input.hwp [output.hwpx]
 - **Python**: `python-hwpx` (비상업 라이선스), `lxml` (BSD-3-Clause), 편집 명령에 사용
 - **hwpx-tomd** (MIT): `--to-md` 변환 엔진. `pip install hwpx-tomd` (공개 전 로컬 editable). 라이브러리로도 직접 사용 가능
 - **Java**: JDK 21 (HWP→HWPX 변환 시에만)
+- **Windows + 한컴오피스 + pywin32**: `--to-pdf`, `--diagnose-com` 등 COM 자동화 기능에 사용
 - **번들된 JAR**: hwplib, hwpxlib, hwp2hwpx (모두 Apache-2.0)
 
 ## 스킬 사용

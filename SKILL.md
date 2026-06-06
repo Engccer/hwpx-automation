@@ -459,6 +459,22 @@ document.hwpx (ZIP)
 한컴오피스가 설치된 Windows 환경에서 `HWPFrame.HwpObject` COM을 통해 HWPX를 조작할 수 있다.
 XML 직접 편집으로 불가능한 작업(이미지 삽입, PDF 변환)에 사용.
 
+### 빠른 진단 및 PDF 변환
+
+```bash
+# pywin32, 보안 모듈 레지스트리, HWPFrame.HwpObject 생성 가능 여부 확인
+python hwpx_edit.py --diagnose-com
+
+# 기본 출력: 원본 폴더의 _output/<파일명>.pdf
+python hwpx_edit.py <파일.hwpx> --to-pdf
+
+# 출력 경로 지정
+python hwpx_edit.py <파일.hwpx> --to-pdf -o <파일.pdf>
+
+# 암호화된 HWPX/HWP를 PDF로 저장
+python hwpx_edit.py <파일.hwpx> --to-pdf --password "<비밀번호>" -o <파일.pdf>
+```
+
 ### 보안모듈 (팝업 제거)
 
 한컴 COM으로 파일을 열거나 저장할 때 "접근 허용" 보안 대화상자가 반복 표시된다. 이를 제거하려면:
@@ -513,9 +529,8 @@ pythoncom.CoUninitialize()
 
 ### HWPX → PDF 변환
 
-```python
-hwp.Open(abs_path, 'HWPX', '')
-hwp.SaveAs(abs_pdf_path, 'PDF', '')
+```bash
+python hwpx_edit.py <파일.hwpx> --to-pdf [-o output.pdf]
 ```
 
 ### 이미지 삽입

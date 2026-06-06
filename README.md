@@ -6,6 +6,7 @@ HWP/HWPX 문서 읽기, 변환, 편집을 위한 CLI 도구 + Claude Code 스킬
 
 - **HWPX → Markdown 변환**: XML 직접 파싱, API 불필요, 무료
 - **HWP → HWPX 변환**: Java 기반, 서식 100% 보존
+- **HWPX/HWP → PDF 변환**: 한컴오피스 COM 자동화 기반, 원본 조판 보존
 - **HWPX 편집**: 텍스트 치환, 표 셀 채우기, 병합 셀 분할
 - **Claude Code 스킬**: `SKILL.md`를 통한 AI 에이전트 자동화 워크플로우
 
@@ -29,6 +30,13 @@ python hwpx_edit.py document.hwpx --set-cell 0,1,0 "내용"
 
 # 병합 셀 분할
 python hwpx_edit.py document.hwpx --split-cell 0,1,0
+
+# 한컴 COM 자동화 진단 (Windows + 한컴오피스 필요)
+python hwpx_edit.py --diagnose-com
+
+# HWPX/HWP → PDF 저장
+python hwpx_edit.py document.hwpx --to-pdf
+python hwpx_edit.py document.hwpx --to-pdf -o document.pdf
 ```
 
 ## HWP → HWPX 변환
@@ -52,6 +60,7 @@ ln -s /path/to/hwpx-automation ~/.claude/skills/hwpx-automation
 - Python 3.10+
 - JDK 21 (HWP → HWPX 변환 시)
 - `python-hwpx`, `lxml`
+- Windows + 한컴오피스 + `pywin32` (HWPX/HWP → PDF 변환 시)
 
 ## 프로젝트 구조
 

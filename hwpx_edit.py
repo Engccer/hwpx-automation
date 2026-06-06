@@ -5,6 +5,8 @@ hwpx_edit.py - HWPX 파일 편집 유틸리티
 사용법:
   python hwpx_edit.py <파일.hwpx> --info                       # 표 구조 출력
   python hwpx_edit.py <파일.hwpx> --to-md                      # HWPX → Markdown 변환 (hwpx-tomd 엔진, API 불필요)
+  python hwpx_edit.py --diagnose-com                         # 한컴 COM 자동화 진단
+  python hwpx_edit.py <파일.hwpx> --to-pdf                    # 한컴 COM으로 HWPX/HWP → PDF
   python hwpx_edit.py <파일.hwpx> --find "이전" --replace "이후"  # 텍스트 치환
   python hwpx_edit.py <파일.hwpx> --set-cell 0,1,0 "텍스트"     # 표 셀에 텍스트 입력
   python hwpx_edit.py <파일.hwpx> --split-cell 0,1,0            # 병합 셀 분할
@@ -13,6 +15,7 @@ hwpx_edit.py - HWPX 파일 편집 유틸리티
   - 편집 명령(--find/--set-cell 등): python-hwpx, lxml
   - 변환(--to-md): hwpx-tomd 패키지 (pip install hwpx-tomd). 변환 엔진은 이 패키지가
     단일 소스로 관리하며, 본 파일은 출력 경로·콘솔 메시지 등 CLI 래퍼만 담당한다.
+  - PDF 변환(--to-pdf): Windows + 한컴오피스 + pywin32
 """
 
 import argparse
@@ -22,6 +25,11 @@ import sys
 import zipfile
 from io import BytesIO
 from lxml import etree
+
+try:
+    import winreg
+except ImportError:
+    winreg = None
 
 
 # HWPX 네임스페이스
@@ -606,6 +614,125 @@ def cmd_fix_empty_cells(filepath, output=None):
     print(f"빈 셀 {fixed}개에 기본 문단 삽입 완료")
 
 
+def get_hwp_automation_module_path():
+    """한컴 자동화 보안 모듈 레지스트리 경로를 반환."""
+    if winreg is None:
+        return None
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"SOFTWARE\HNC\HwpAutomation\Modules") as key:
+            value, _ = winreg.QueryValueEx(key, "FilePathCheckerModule")
+            return value
+    except OSError:
+        return None
+
+
+def create_hwp_com():
+    """HWPFrame.HwpObject COM 객체를 생성하고 필요한 모듈을 등록."""
+    try:
+        import pythoncom
+        import win32com.client as win32
+    except ImportError as exc:
+        raise RuntimeError("pywin32가 필요합니다. `pip install pywin32` 후 다시 실행하세요.") from exc
+
+    pythoncom.CoInitialize()
+    hwp = None
+    try:
+        hwp = win32.gencache.EnsureDispatch("HWPFrame.HwpObject")
+        module_path = get_hwp_automation_module_path()
+        if module_path and os.path.exists(module_path):
+            # 보안 팝업 없이 로컬 파일을 열고 저장하기 위한 한컴 공식 샘플 모듈.
+            try:
+                hwp.RegisterModule("FilePathCheckDLL", "FilePathCheckerModule")
+            except Exception as exc:
+                print(f"경고: FilePathCheckerModule 등록 실패: {exc}", file=sys.stderr)
+        return pythoncom, hwp
+    except Exception:
+        pythoncom.CoUninitialize()
+        raise
+
+
+def close_hwp_com(pythoncom, hwp):
+    """COM 객체와 COM apartment를 정리."""
+    if hwp is not None:
+        try:
+            hwp.Quit()
+        except Exception:
+            pass
+    if pythoncom is not None:
+        pythoncom.CoUninitialize()
+
+
+def cmd_diagnose_com():
+    """한컴 COM 기반 작업 가능 여부를 점검."""
+    print("한컴 COM 진단")
+    try:
+        import win32com.client  # noqa: F401
+        import pythoncom  # noqa: F401
+        print("- pywin32: OK")
+    except ImportError as exc:
+        print(f"- pywin32: 오류 ({exc})")
+        return 1
+
+    module_path = get_hwp_automation_module_path()
+    if module_path:
+        status = "OK" if os.path.exists(module_path) else "경고: 파일 없음"
+        print(f"- FilePathCheckerModule: {status}")
+        print(f"  {module_path}")
+    else:
+        print("- FilePathCheckerModule: 경고: 레지스트리 등록 없음")
+
+    pythoncom_mod = None
+    hwp = None
+    try:
+        pythoncom_mod, hwp = create_hwp_com()
+        try:
+            version = hwp.Version
+        except Exception:
+            version = "(버전 확인 실패)"
+        print("- HWPFrame.HwpObject: OK")
+        print(f"- 한컴 버전: {version}")
+        return 0
+    except Exception as exc:
+        print(f"- HWPFrame.HwpObject: 오류 ({exc})")
+        return 1
+    finally:
+        close_hwp_com(pythoncom_mod, hwp)
+
+
+def cmd_to_pdf(filepath, output=None, password=None):
+    """한컴오피스 COM으로 HWP/HWPX를 PDF로 저장."""
+    if output is None:
+        output = get_output_path(filepath, ".pdf")
+
+    abs_input = os.path.abspath(filepath)
+    abs_output = os.path.abspath(output)
+    os.makedirs(os.path.dirname(abs_output), exist_ok=True)
+
+    ext = os.path.splitext(filepath)[1].lower()
+    fmt = "HWP" if ext == ".hwp" else "HWPX"
+    open_arg = f"password:{password}" if password else ""
+
+    pythoncom_mod = None
+    hwp = None
+    try:
+        pythoncom_mod, hwp = create_hwp_com()
+        opened = hwp.Open(abs_input, fmt, open_arg)
+        if not opened:
+            raise RuntimeError(f"한컴 COM이 파일을 열지 못했습니다: {abs_input}")
+        hwp.SaveAs(abs_output, "PDF", "")
+    except Exception as exc:
+        print(f"오류: PDF 저장 실패: {exc}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        close_hwp_com(pythoncom_mod, hwp)
+
+    if not os.path.exists(abs_output) or os.path.getsize(abs_output) == 0:
+        print(f"오류: PDF 출력 파일이 생성되지 않았습니다: {abs_output}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"PDF 저장: {abs_output}")
+
+
 def cmd_remove_text(filepath, search_text, output=None):
     """특정 텍스트를 포함하는 <hp:t> 요소를 완전히 제거"""
     root, all_files, section_path = open_hwpx(filepath)
@@ -658,13 +785,21 @@ def main():
   %(prog)s doc.hwpx --remove-text "2027. 2. 28."
   %(prog)s doc.hwpx --sanitize
   %(prog)s doc.hwpx --fix-empty-cells     # Pandoc 변환 후 한글 크래시 방지
+  %(prog)s --diagnose-com                 # 한컴 COM 자동화 진단
+  %(prog)s doc.hwpx --to-pdf              # 한컴 COM으로 PDF 저장
   %(prog)s doc.hwpx --set-cell 0,1,0 "텍스트" -o output.hwpx
         """)
 
-    parser.add_argument('file', help='HWPX 파일 경로')
+    parser.add_argument('file', nargs='?', help='HWPX 파일 경로')
     parser.add_argument('--info', action='store_true', help='표 구조 정보 출력')
     parser.add_argument('--to-md', action='store_true',
                         help='HWPX → Markdown 변환 (XML 직접 파싱, API 불필요)')
+    parser.add_argument('--to-pdf', action='store_true',
+                        help='한컴오피스 COM으로 HWPX/HWP → PDF 저장 (Windows + 한컴오피스 필요)')
+    parser.add_argument('--diagnose-com', action='store_true',
+                        help='한컴오피스 COM 자동화 사용 가능 여부 진단')
+    parser.add_argument('--password',
+                        help='--to-pdf에서 암호화된 HWPX/HWP를 열 때 사용할 비밀번호')
     parser.add_argument('--find', help='찾을 텍스트')
     parser.add_argument('--replace', help='바꿀 텍스트')
     parser.add_argument('--set-cell', nargs=2, metavar=('TABLE,ROW,COL', 'TEXT'),
@@ -695,6 +830,13 @@ def main():
 
     args = parser.parse_args()
 
+    if args.diagnose_com:
+        sys.exit(cmd_diagnose_com())
+
+    if not args.file:
+        parser.print_help()
+        sys.exit(1)
+
     if not os.path.exists(args.file):
         print(f"오류: 파일을 찾을 수 없습니다: {args.file}", file=sys.stderr)
         sys.exit(1)
@@ -703,6 +845,8 @@ def main():
         cmd_info(args.file)
     elif args.to_md:
         cmd_to_md(args.file, args.output, cell_br=args.cell_br, merge_fill=args.merge_fill)
+    elif args.to_pdf:
+        cmd_to_pdf(args.file, args.output, password=args.password)
     elif args.find is not None and args.replace is not None:
         cmd_find_replace(args.file, args.find, args.replace, args.output)
     elif args.set_cell:
