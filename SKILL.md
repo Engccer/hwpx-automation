@@ -66,6 +66,27 @@ HWP/HWPX 작업 요청
 | MD → HWPX 직접 빌드 (보고서급) | python-hwpx API + raw XML | **수동 제거 필수** |
 | 무결성 검증, 쪽수 드리프트 감지 | python-hwpx CLI | N/A |
 
+## 출력·정리 규칙 (결과물 vs 부산물)
+
+**원칙**: 도구(`hwpx_edit.py`, `hwp2hwpx.bat`)는 "원본을 덮어쓰지 않는다"만 책임진다. 무엇이 최종 결과물이고 무엇이 부산물인지는 도구가 알 수 없으므로(같은 `--to-md`도 워크플로우에 따라 결과물이거나 부산물이다), **호출하는 워크플로우가 판단**한다.
+
+- **도구 기본 출력**: `-o` 미지정 시 입력 폴더의 `_work-hwpx-automation/`에 저장한다(원본 비파괴). docparse 스킬의 `_work-docparse/`와 접미사 규칙이 통일된다.
+- **작업 마무리**: 작업 종료 시 **최종 결과물은 작업 폴더로** 옮기고(또는 처음부터 `-o`로 작업 폴더를 지정), 그 전까지의 **중간 부산물은 `_work-hwpx-automation/`에 잔류**시킨다. 작업 폴더에는 원본과 최종 결과물만 남아 깔끔하게 유지된다.
+
+### 시나리오별 결과물/부산물
+
+| 시작점 | 작업 | 최종 결과물(작업 폴더) | 부산물(`_work-hwpx-automation/`) |
+|--------|------|----------------------|----------------------------------|
+| HWP | 읽기 →md | `<이름>.md` | `<이름>.hwpx`(변환 중간물) |
+| HWP | 편집 →HWPX | `<이름>.hwpx`(편집본) | 변환·단계별 중간 HWPX |
+| HWPX | 읽기 →md | `<이름>.md` | (없음) |
+| HWPX | 편집 | 편집본 HWPX | 단계별 중간본 |
+| HWPX/HWP | →PDF | `<이름>.pdf` | (PDF가 최종이면 없음) |
+| MD | →HWPX | `<이름>.hwpx` | 빈셀보정 전 중간본 |
+| 없음 | build-from-scratch | `<이름>.hwpx` | 템플릿 중간물 |
+
+> 도구를 SKILL 워크플로우 없이 순수 CLI로 단독 사용하면 결과물이 `_work-hwpx-automation/`에 생긴다. 이때는 `-o`로 작업 폴더를 직접 지정하면 된다.
+
 ## hwpx_edit.py 사용법
 
 ```bash
@@ -200,7 +221,7 @@ hwpx-pack <디렉토리> <출력.hwpx>
 convert/hwp2hwpx.bat <입력.hwp> [출력.hwpx]
 ```
 
-- 출력 파일 미지정 시 같은 폴더에 `.hwpx` 확장자로 생성
+- 출력 파일 미지정 시 입력 폴더의 `_work-hwpx-automation/` 하위에 `.hwpx`로 생성(원본 비파괴). HWPX가 이후 단계의 입력일 뿐이면 부산물이므로 거기 두고, HWP→HWPX 변환 자체가 목적이면 작업 폴더로 옮긴다(아래 "작업 마무리" 참조). 출력 경로를 직접 지정하려면 두 번째 인자로 명시
 - 서식 100% 보존 (Java 기반, hwplib + hwpxlib)
 - 요구사항: JDK 21 (`C:/Program Files/Eclipse Adoptium/jdk-21.0.10.7-hotspot`)
 - 입력 경로에 cp949 외 문자(en-dash, em-dash 등)가 있어도 내부에서 `%TEMP%`로 staging해 처리. 호출 측에서 별도 staging 불필요
@@ -465,7 +486,8 @@ XML 직접 편집으로 불가능한 작업(이미지 삽입, PDF 변환)에 사
 # pywin32, 보안 모듈 레지스트리, HWPFrame.HwpObject 생성 가능 여부 확인
 python hwpx_edit.py --diagnose-com
 
-# 기본 출력: 원본 폴더의 _output/<파일명>.pdf
+# 기본 출력: 원본 폴더의 _work-hwpx-automation/<파일명>.pdf (원본 비파괴)
+# PDF가 최종 결과물이면 작업 폴더로 옮기거나 -o로 작업 폴더를 직접 지정
 python hwpx_edit.py <파일.hwpx> --to-pdf
 
 # 출력 경로 지정

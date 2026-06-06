@@ -43,14 +43,21 @@ NS = {
 }
 
 
+# 도구가 자동 저장하는 출력 폴더(원본 비파괴용). 결과물/부산물 구분은 도구가 하지
+# 않으며, 무엇이 최종 결과물인지는 호출하는 워크플로우(SKILL.md 절차)가 판단해
+# 작업 폴더로 승격한다. 폴더명은 출처(hwpx-automation) + 성격(work=중간 작업물)을
+# 드러내고 docparse 스킬의 `_work-docparse`와 접미사 규칙이 통일된다.
+BYPRODUCT_DIR = '_work-hwpx-automation'
+
+
 def get_output_path(filepath, ext=None):
-    """입력 파일 기준 _output/ 폴더에 출력 경로 생성. ext가 None이면 원래 확장자 유지.
-    이미 _output/ 안에 있으면 같은 폴더에 출력 (중첩 방지)."""
+    """입력 파일 기준 BYPRODUCT_DIR 폴더에 출력 경로 생성. ext가 None이면 원래 확장자 유지.
+    이미 BYPRODUCT_DIR 안에 있으면 같은 폴더에 출력 (중첩 방지)."""
     input_dir = os.path.dirname(os.path.abspath(filepath))
-    if os.path.basename(input_dir) == '_output':
+    if os.path.basename(input_dir) == BYPRODUCT_DIR:
         output_dir = input_dir
     else:
-        output_dir = os.path.join(input_dir, '_output')
+        output_dir = os.path.join(input_dir, BYPRODUCT_DIR)
     os.makedirs(output_dir, exist_ok=True)
     base = os.path.splitext(os.path.basename(filepath))[0]
     if ext:
@@ -279,7 +286,7 @@ def cmd_to_md(filepath, output=None, cell_br=False, merge_fill=False):
 
     변환 엔진(글상자 reading-order 수집, <hp:t> tail 보존, 표 cellAddr/cellSpan
     그리드 배치, 자가검증)은 독립 패키지 hwpx-tomd가 단일 소스로 보유한다. 이
-    함수는 출력 경로(_output/.md)와 콘솔 메시지 등 기존 CLI 동작만 감싼다.
+    함수는 출력 경로(BYPRODUCT_DIR/.md)와 콘솔 메시지 등 기존 CLI 동작만 감싼다.
     설치: pip install hwpx-tomd
       (로컬 개발: pip install -e C:/Users/pc/Windows-Projects/tools/hwpx-tomd)
 
@@ -826,7 +833,9 @@ def main():
     parser.add_argument('--merge-fill', action='store_true',
                         help='--to-md와 함께 사용: 병합으로 덮인 칸을 시작 칸 값으로 채움 '
                              '(행 단위 파싱·LLM 입력용; 기본은 GFM 정렬 보존)')
-    parser.add_argument('-o', '--output', help='출력 파일 경로 (기본: _output/ 폴더)')
+    parser.add_argument('-o', '--output',
+                        help='출력 파일 경로 (기본: _work-hwpx-automation/ 폴더). '
+                             '최종 결과물을 작업 폴더에 바로 두려면 -o로 지정')
 
     args = parser.parse_args()
 

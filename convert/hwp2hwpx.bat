@@ -19,7 +19,7 @@ if "%INPUT%"=="" (
 if "%OUTPUT%"=="" (
     set "INPUT_DIR=%~dp1"
     set "INPUT_NAME=%~n1"
-    set "OUTPUT_DIR=%~dp1_output"
+    set "OUTPUT_DIR=%~dp1_work-hwpx-automation"
     if not exist "!OUTPUT_DIR!" mkdir "!OUTPUT_DIR!"
     set "OUTPUT=!OUTPUT_DIR!\!INPUT_NAME!.hwpx"
 )
