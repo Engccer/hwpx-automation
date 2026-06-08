@@ -645,6 +645,10 @@ hwp.HAction.Execute('RepeatFind', fr.HSet)
 **승격·반영 판단**:
 1. 같은 교훈이 2회 이상 재현되거나 데이터 손실·문서 손상을 막는 패턴이면, `lessons.md`에만 두지 말고 SKILL.md 본문(의사결정 트리·도구 용도 표·주의사항)이나 해당 `reference/*.md`로 **승격**하고 로그에 "승격됨" 표시.
 2. 우회가 반복되면 `hwpx_edit.py`에 옵션·기능으로 흡수할지 검토한다(예: hp:t 분할 치환, 문단째 제거). 채택 시 로그에 "도구 반영됨" 표시.
-3. **변환 자체의 결함**(파싱 누락·표 정렬·마커 손실 등 `--to-md`/self-recall로 드러나는 출력 오류)은 `hwpx_edit.py`가 아니라 **공유 변환 엔진 `hwpx-tomd`** 소관이다. 이 엔진은 docparse 스킬의 `parsers/hwpx_local_parse.py`와 동일 소스(`core.py`)를 공유하므로, 변환 정확도 문제는 두 스킬 어느 쪽에서 발견하든 같은 엔진을 고쳐야 한다. `hwpx-tomd`의 `tests/test_hwpx_tomd.py`에 **실패하는 회귀 테스트를 먼저 추가**하고 `core.py`를 고친 뒤 버전(`_version.py`)·GitHub(Engccer/hwpx-tomd)에 반영한다. editable 설치라 수정 즉시 양쪽 스킬에 전파된다. 로그 상태는 "도구 반영(hwpx-tomd vX.Y)"으로 표시. (편집·생성·CLI 함정은 1·2번대로 이 스킬에 남기고, **변환 함정만 엔진으로** 보낸다.)
+3. **변환 자체의 결함**(파싱 누락·표 정렬·마커 손실 등 `--to-md`/self-recall로 드러나는 출력 오류)은 `hwpx_edit.py`가 아니라 **공유 변환 엔진 `hwpx-tomd`** 소관이다. 이 엔진은 docparse 스킬의 `parsers/hwpx_local_parse.py`와 동일 소스(`core.py`)를 공유하므로, 변환 정확도 문제는 두 스킬 어느 쪽에서 발견하든 같은 엔진을 고쳐야 한다. 엔진은 PyPI·GitHub(Engccer/hwpx-tomd)로 공개돼 있고 **GitHub가 단일 진실 원천(SSoT)**이다. 개선 경로는 **누가 실행하느냐**로 갈린다(엔진 repo의 `CONTRIBUTING.md`가 정본):
+   - **유지보수자(엔진을 editable git 체크아웃으로 보유, `pip install -e`)**: `hwpx-tomd`의 `tests/test_hwpx_tomd.py`에 **실패하는 회귀 테스트를 먼저 추가** → `core.py` 수정 → 버전(`_version.py`) bump → `git push` → PyPI publish. editable이라 수정이 양쪽 스킬에 즉시 라이브 전파된다. 로그 상태는 "도구 반영(hwpx-tomd vX.Y)".
+   - **다운스트림 사용자(`pip install hwpx-tomd`로 설치)**: site-packages를 직접 고치면 재설치 때 사라지고 upstream에도 반영되지 않으며 push 권한도 없다. 대신 **최소 재현 HWPX(또는 그 구조)와 기대·실제 마크다운을 첨부해 `github.com/Engccer/hwpx-tomd`에 이슈를 열거나, 실패 테스트+`core.py` 패치로 PR**을 보낸다(엔진 개선이 반영되는 유일한 경로). 로그 상태는 "upstream 이슈/PR #N".
+
+   (편집·생성·CLI 함정은 1·2번대로 이 스킬에 남기고, **변환 함정만 엔진으로** 보낸다.)
 
 > **구분**: 외부 의존성 최신화(python-hwpx·hwplib 버전, GitHub 인사이트)는 `update-checklist.md`, 우리 도구의 내부 실전 교훈은 `lessons.md`가 담당한다. 둘을 섞지 않는다. 한편 `lessons.md`는 응용(편집·생성)과 엔진(변환) 양쪽 교훈을 받는 분기점이며, 위 3번 기준으로 변환 교훈은 `hwpx-tomd`로 라우팅한다.
