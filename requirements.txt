@@ -1,7 +1,12 @@
 # 편집 명령(--find/--set-cell/--split-cell 등)
 python-hwpx>=2.8.3
-lxml>=5.4,<6
+# lxml: 6.x 호환 검증 완료(hwpx_edit.py가 lxml.etree를 직접 사용). 상한 제거.
+# python-hwpx가 metadata에 lxml<6를 강제하지만 실측상 lxml 6에서 정상 동작하므로
+# pip의 의존성 충돌 경고는 무시 가능(check-stack-updates known_overrides restore_after 참조).
+lxml>=5.4
 
 # 변환(--to-md): 엔진을 단일 소스로 관리하는 독립 패키지
 # PyPI·GitHub(Engccer/hwpx-tomd) 공개. 엔진 자체를 수정할 때만 로컬 editable: pip install -e C:/Users/pc/Windows-Projects/tools/hwpx-tomd
-hwpx-tomd>=0.1.0
+# 버전 핀: alpha(0.x) 단계라 minor 올림(0.2.0)에서 API가 바뀔 수 있어 패치(0.1.x)만 자동 허용한다.
+# 0.2.0 이상을 낼 때는 이 핀과 docparse/requirements.txt의 hwpx-tomd 핀을 함께 올린다.
+hwpx-tomd>=0.1.0,<0.2.0
