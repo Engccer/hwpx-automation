@@ -615,7 +615,8 @@ hwp.HAction.Execute('RepeatFind', fr.HSet)
 | MD → HWPX 생성 (Build) | `reference/build-from-scratch.md` | 5단계 워크플로우, 디자인 토큰, precompute_styles 패턴, 주요 함정 (lineSpacing/fontRef/set_cell_text) |
 | 구조적 편집 코드 | `reference/structural.md` | lineseg 원리, 행 추가/단락 복제 코드, ZIP 패키징, XML 직렬화 |
 | HWPX 파일 구조 | `reference/format.md` | ZIP 내부 구조, section0.xml 요소, 네임스페이스 딕셔너리 |
-| 스킬 업데이트 | `reference/update-checklist.md` | python-hwpx 업데이트, GitHub 인사이트 수집, 반영 기준 |
+| 스킬 업데이트 (외부 의존성) | `reference/update-checklist.md` | python-hwpx 업데이트, GitHub 인사이트 수집, 반영 기준 |
+| 실전 교훈 로그 (자가 진화) | `reference/lessons.md` | 실사용 중 발견한 함정·우회·실측 누적. SKILL.md 본문 승격 후보 관리 |
 | 암호화 HWPX 해제 | `reference/encrypted-hwpx.md` | 암호화 감지, 한컴 COM 암호 해제 전체 스크립트, 주의사항 |
 | 한컴 COM 액션 테이블 | `reference/action-table.md` | 모든 HAction ID와 대응 ParameterSet ID (공식, 2025.04). Gemini 파싱, "한글"→"호글" 오인식 있으나 API명 검색에 무영향 |
 | 한컴 COM API 가이드 | `reference/hwp-automation.md` | IHwpObject 전체 API — 프로퍼티, 메서드, 이벤트, ParameterSet 상세 (공식, 2025.04). Gemini 파싱, 다이어그램은 텍스트 설명으로 대체됨 |
@@ -628,3 +629,21 @@ hwp.HAction.Execute('RepeatFind', fr.HSet)
 - **MD → HWPX 변환**: `reference/conversion.md` 하단 — blockquote 누락, 각주 변환, 인코딩, 스크립트 보존
 - **Build-from-scratch**: `reference/build-from-scratch.md` 하단 — lineSpacing 단위, fontRef, set_cell_text, style_tables_xml 루프
 - **한컴 COM 자동화**: `reference/warnings-com.md` — 이미지 XML 삽입 불가, 양식+이미지 워크플로우, PDF 변환
+
+## 자가 진화 (실사용 교훈 누적)
+
+이 스킬은 학교·장교조·개인 업무의 실제 hwpx 작업(파싱·편집·생성·변환)에서 **반복 사용되며 검증·진화**하는 GitHub 공개 자산(Engccer/hwpx-automation)이다. 매 작업에서 발견한 함정·우회·실측을 `reference/lessons.md`에 누적하고, 일반화 가치가 생기면 본문으로 끌어올린다. **스케일이 크고 완성도 요구가 높은 작업(고사 원안 출제·인쇄본 등)일수록 검증 가치가 크므로 기록을 빠뜨리지 않는다.**
+
+**기록 트리거** (하나라도 해당하면 `reference/lessons.md`에 한 항목 추가):
+- 도구(`hwpx_edit.py`·python-hwpx)로 안 돼서 직접 zipfile·lxml·COM으로 우회한 경우
+- 예상과 다른 동작(파싱 누락, 치환 실패, 구조 깨짐, 무한 로딩 등)
+- 새 문서 유형(출판사 워크시트·고사 원안·교무부 양식 등)에서의 실측 결과
+- 검증(`hwpx-validate` / `--to-md` self-recall)으로 잡아낸 결함
+
+**항목 형식**: 날짜 · 작업 맥락 · 증상 · 원인 · 해결/우회 · 도구 개선 제안 · 상태(기록 / 승격 / 도구 반영)
+
+**승격·반영 판단**:
+1. 같은 교훈이 2회 이상 재현되거나 데이터 손실·문서 손상을 막는 패턴이면, `lessons.md`에만 두지 말고 SKILL.md 본문(의사결정 트리·도구 용도 표·주의사항)이나 해당 `reference/*.md`로 **승격**하고 로그에 "승격됨" 표시.
+2. 우회가 반복되면 `hwpx_edit.py`에 옵션·기능으로 흡수할지 검토한다(예: hp:t 분할 치환, 문단째 제거). 채택 시 로그에 "도구 반영됨" 표시.
+
+> **구분**: 외부 의존성 최신화(python-hwpx·hwplib 버전, GitHub 인사이트)는 `update-checklist.md`, 우리 도구의 내부 실전 교훈은 `lessons.md`가 담당한다. 둘을 섞지 않는다.
