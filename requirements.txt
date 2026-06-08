@@ -7,6 +7,6 @@ lxml>=5.4
 
 # 변환(--to-md): 엔진을 단일 소스로 관리하는 독립 패키지
 # PyPI·GitHub(Engccer/hwpx-tomd) 공개. 엔진 자체를 수정할 때만 로컬 editable: pip install -e C:/Users/pc/Windows-Projects/tools/hwpx-tomd
-# 버전 핀: alpha(0.x) 단계라 minor 올림(0.2.0)에서 API가 바뀔 수 있어 패치(0.1.x)만 자동 허용한다.
-# 0.2.0 이상을 낼 때는 이 핀과 docparse/requirements.txt의 hwpx-tomd 핀을 함께 올린다.
-hwpx-tomd>=0.1.0,<0.2.0
+# 버전 핀: 0.x 동안 minor 올림을 자동 수용(<1.0.0). 엔진(hwpx-tomd)·소비자를 같은 작성자가
+# 관리하므로 breaking 변경 시 함께 대응한다. 1.0.0(stable) 도달 시 >=1.0.0,<2.0.0 등으로 다시 조인다.
+hwpx-tomd>=0.2.0,<1.0.0
