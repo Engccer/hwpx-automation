@@ -369,6 +369,8 @@ def style_table_rows(section_xml, header_bf_id, summary_bf_id, bold_char_id,
 
 ### 표 열 너비 조정 (가독성)
 
+> **열 너비뿐 아니라 행 높이·셀 다문단도 같은 raw 후처리로 조정한다(lessons 교훈 9).** 예: 서답형 답안지 답란 확장 — `colAddr`별 `cellSz width` 재배분(답란 열 넓게)·`rowAddr`별 `cellSz height` 확대(작성 공간)·답란 셀의 `<hp:p>`를 deepcopy로 복제해 "(1)"·빈·"(2)"·빈 다문단으로 분리(텍스트 바꾼 문단은 `<hp:linesegarray>` 제거, 재패키징 시 mimetype 첫 항목·ZIP_STORED). 표 식별은 헤더 셀 텍스트로 한다.
+
 **문제**: Pandoc HWPX 기본 변환은 모든 표의 열을 **균등 너비**로 생성한다. 내용 길이와 무관하게 일률 너비가 적용되어, 짧은 헤더(예: `순위`, `응답률`)와 긴 헤더(예: `개선 과제`)가 같은 폭을 차지하며 여백만 남고 내용이 눈에 들어오지 않는다(2026-04-20 소통실 피드백).
 
 **해결**: 표별로 열 너비 비율을 배정하는 후처리 함수를 적용한다. 총 너비(기본 45000 HWPUNIT)는 유지하고, `colAddr` 기준으로 각 셀의 `<hp:cellSz width="..."/>`를 덮어쓴다.

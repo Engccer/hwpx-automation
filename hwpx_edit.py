@@ -621,6 +621,63 @@ def cmd_fix_empty_cells(filepath, output=None):
     print(f"빈 셀 {fixed}개에 기본 문단 삽입 완료")
 
 
+def cmd_add_preview(filepath, output=None):
+    """container.xml이 선언했지만 누락된 Preview/PrvText.txt를 section 텍스트로
+    생성해 주입한다.
+
+    hwp2hwpx.bat(hwpxlib) 변환물은 container.xml의 <ocf:rootfiles>가
+    Preview/PrvText.txt를 rootfile로 선언하면서도 ZIP에 Preview/ 항목을 만들지
+    않는다. 한글은 정상적으로 열고 --to-md recall도 100%지만, python-hwpx의
+    hwpx-validate는 'Root content Preview/PrvText.txt is missing'으로 실패한다.
+    변환물을 정본·배포·검증 대상으로 쓸 때만 보정하면 된다(읽기·편집엔 무해).
+
+    section XML은 재직렬화하지 않고 원본 바이트를 그대로 보존한다(최소 침습).
+    mimetype을 첫 항목·ZIP_STORED로 재패키징한다(hwpx 규칙).
+    """
+    if is_encrypted_hwpx(filepath):
+        print(f"오류: {ENCRYPTION_HINT}", file=sys.stderr)
+        sys.exit(1)
+
+    with zipfile.ZipFile(filepath, 'r') as zf:
+        names = zf.namelist()
+        data = {n: zf.read(n) for n in names}
+
+    if 'Preview/PrvText.txt' in data:
+        print("Preview/PrvText.txt가 이미 있습니다. 변경 없음.")
+        return
+
+    # section 텍스트로 미리보기 본문 생성 (재직렬화 없이 파싱만)
+    section_files = [n for n in names
+                     if 'section' in n.lower() and n.endswith('.xml')]
+    lines = []
+    if section_files:
+        sroot = etree.fromstring(data[section_files[0]])
+        for t_elem in sroot.findall('.//hp:t', NS):
+            s = t_full_text(t_elem)
+            if s and s.strip():
+                lines.append(s.strip())
+    prv = '\n'.join(lines)
+
+    if output is None:
+        output = get_output_path(filepath)
+
+    # mimetype 첫 항목·ZIP_STORED, 나머지는 원본 바이트 그대로 + PrvText 추가
+    tmp = output + '.tmp'
+    with zipfile.ZipFile(tmp, 'w') as zf:
+        if 'mimetype' in data:
+            zi = zipfile.ZipInfo('mimetype')
+            zi.compress_type = zipfile.ZIP_STORED
+            zf.writestr(zi, data['mimetype'])
+        for name in names:
+            if name == 'mimetype':
+                continue
+            zf.writestr(name, data[name], zipfile.ZIP_DEFLATED)
+        zf.writestr('Preview/PrvText.txt', prv.encode('utf-8'),
+                    zipfile.ZIP_DEFLATED)
+    os.replace(tmp, output)
+    print(f"add-preview: Preview/PrvText.txt 생성 ({len(prv)}자) → {output}")
+
+
 def get_hwp_automation_module_path():
     """한컴 자동화 보안 모듈 레지스트리 경로를 반환."""
     if winreg is None:
@@ -827,6 +884,9 @@ def main():
                         help='header.xml의 문단 배경색 등 알려진 렌더링 문제 자동 수정')
     parser.add_argument('--fix-empty-cells', action='store_true',
                         help='표의 빈 셀에 기본 문단 삽입 (Pandoc/hwpx_convert.py 변환 후 한글 크래시 방지 필수)')
+    parser.add_argument('--add-preview', action='store_true',
+                        help='누락된 Preview/PrvText.txt를 section 텍스트로 생성·주입 '
+                             '(hwp2hwpx 변환물의 hwpx-validate 실패 보정. section 무변형)')
     parser.add_argument('--cell-br', action='store_true',
                         help='--to-md와 함께 사용: 표 셀 내부 문단을 <br>로 구분 '
                              '(긴 지문이 셀 안에 있는 고사지·보고서에 권장)')
@@ -881,6 +941,8 @@ def main():
         cmd_sanitize(args.file, args.output)
     elif args.fix_empty_cells:
         cmd_fix_empty_cells(args.file, args.output)
+    elif args.add_preview:
+        cmd_add_preview(args.file, args.output)
     else:
         parser.print_help()
         sys.exit(1)

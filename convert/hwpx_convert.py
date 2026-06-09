@@ -24,6 +24,8 @@ import argparse
 import glob
 import os
 import sys
+import tempfile
+import zipfile
 
 from pypandoc_hwpx.PandocToHwpx import PandocToHwpx
 from pypandoc_hwpx.PandocToHtml import PandocToHtml
@@ -38,6 +40,58 @@ SUPPORTED_EXTENSIONS = {
     '.tex',              # LaTeX
     '.txt',              # Plain text
 }
+
+
+# ── 따옴표 보호 (Pandoc HWPX writer 버그 우회) ─────────────────────────────
+# Pandoc HWPX writer는 따옴표 "쌍" 안의 텍스트를 통째로 누락시킨다(예:
+#   "일어나서 ~ 즐길" → 본문에서 사라짐).
+# recall은 hwpx→md 방향만 검증하므로 이 손실을 못 잡아, 실제 제출 산출물이
+# 조용히 손상된다(2026-06-09 서답형 채점기준표에서 실측).
+# 우회: 변환 전 각 따옴표를 고유 PUA 문자로 치환해 Pandoc이 "쌍"으로 인식하지
+# 못하게 하고(따라서 누락 안 됨), 변환 후 hwpx의 Contents/*.xml에서 PUA를 원래
+# 따옴표로 정확히 원복한다. 아포스트로피(’ in doesn't)도 같은 왕복을 거쳐
+# 원형 그대로 복원되므로 안전하다. PUA(U+E000~)는 Pandoc을 그대로 통과한다.
+# 보호 대상 따옴표 코드포인트 → PUA(U+E000~) 매핑(리터럴 PUA 타이핑 회피).
+_QUOTE_CODEPOINTS = [0x201c, 0x201d, 0x2018, 0x2019, 0x0022, 0x0027]
+_QUOTE_TO_PUA = {chr(cp): chr(0xE000 + i) for i, cp in enumerate(_QUOTE_CODEPOINTS)}
+_PUA_TO_QUOTE = {v: k for k, v in _QUOTE_TO_PUA.items()}
+
+
+def _protect_quotes(text):
+    for q, p in _QUOTE_TO_PUA.items():
+        text = text.replace(q, p)
+    return text
+
+
+def _restore_quotes_in_hwpx(hwpx_path):
+    """변환된 hwpx의 Contents/*.xml에서 PUA 마커를 원래 따옴표로 원복하고
+    재패키징한다(mimetype 첫 항목·ZIP_STORED 유지). 변경 없으면 그대로 둔다."""
+    with zipfile.ZipFile(hwpx_path, 'r') as zf:
+        names = zf.namelist()
+        data = {n: zf.read(n) for n in names}
+    changed = False
+    for n in names:
+        if n.startswith('Contents/') and n.endswith('.xml'):
+            txt = data[n].decode('utf-8')
+            new = txt
+            for p, q in _PUA_TO_QUOTE.items():
+                new = new.replace(p, q)
+            if new != txt:
+                data[n] = new.encode('utf-8')
+                changed = True
+    if not changed:
+        return
+    tmp = hwpx_path + '.qtmp'
+    with zipfile.ZipFile(tmp, 'w') as zf:
+        if 'mimetype' in data:
+            zi = zipfile.ZipInfo('mimetype')
+            zi.compress_type = zipfile.ZIP_STORED
+            zf.writestr(zi, data['mimetype'])
+        for n in names:
+            if n == 'mimetype':
+                continue
+            zf.writestr(n, data[n], zipfile.ZIP_DEFLATED)
+    os.replace(tmp, hwpx_path)
 
 
 def get_default_reference():
@@ -60,14 +114,34 @@ def find_input_files(input_dir, recursive=False):
     return sorted(set(files))
 
 
-def convert_file(input_path, output_path, ref_doc, output_format, verbose=False):
+def convert_file(input_path, output_path, ref_doc, output_format,
+                 verbose=False, quote_fix=True):
     """단일 파일 변환"""
     if verbose:
         print(f"  변환: {input_path} -> {output_path}")
 
     try:
         if output_format == 'hwpx':
-            PandocToHwpx.convert_to_hwpx(input_path, output_path, ref_doc)
+            # 따옴표 보호: 입력에 따옴표가 있으면 PUA로 치환한 임시 파일로
+            # 변환한 뒤 결과 hwpx에서 원복한다(Pandoc 따옴표 쌍 누락 우회).
+            src = None
+            if quote_fix:
+                with open(input_path, 'r', encoding='utf-8') as f:
+                    src = f.read()
+            protected = _protect_quotes(src) if src is not None else None
+            if protected is not None and protected != src:
+                ext = os.path.splitext(input_path)[1] or '.md'
+                tf = tempfile.NamedTemporaryFile(
+                    'w', encoding='utf-8', suffix=ext, delete=False)
+                try:
+                    tf.write(protected)
+                    tf.close()
+                    PandocToHwpx.convert_to_hwpx(tf.name, output_path, ref_doc)
+                finally:
+                    os.unlink(tf.name)
+                _restore_quotes_in_hwpx(output_path)
+            else:
+                PandocToHwpx.convert_to_hwpx(input_path, output_path, ref_doc)
         else:  # html
             PandocToHtml.convert_to_html(input_path, output_path)
         return True
@@ -111,6 +185,8 @@ Supported input formats: MD, DOCX, HTML, RST, TEX, TXT
                         help="상세 출력")
     parser.add_argument("--dry-run", action="store_true",
                         help="변환 없이 미리보기만 표시")
+    parser.add_argument("--no-quote-fix", action="store_true",
+                        help="따옴표 보호 비활성화(Pandoc 따옴표 쌍 누락 우회 끄기)")
 
     args = parser.parse_args()
 
@@ -197,7 +273,8 @@ Supported input formats: MD, DOCX, HTML, RST, TEX, TXT
             if output_dir:
                 os.makedirs(output_dir, exist_ok=True)
 
-            if convert_file(input_file, output_file, ref_doc, args.format, args.verbose):
+            if convert_file(input_file, output_file, ref_doc, args.format,
+                            args.verbose, quote_fix=not args.no_quote_fix):
                 success_count += 1
             else:
                 fail_count += 1

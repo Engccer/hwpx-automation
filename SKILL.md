@@ -149,6 +149,14 @@ python hwpx_edit.py <파일.hwpx> --sanitize
 # 만든 HWPX는 이 명령을 단독 실행해야 함)
 python hwpx_edit.py <파일.hwpx> --fix-empty-cells
 
+# 누락된 Preview/PrvText.txt 생성·주입 (hwp2hwpx 변환물의 hwpx-validate 실패 보정.
+# hwpxlib 변환물은 container.xml이 Preview/PrvText.txt를 rootfile로 선언하면서도
+# ZIP에 Preview/ 항목을 안 만들어 hwpx-validate가 'Root content ... missing'으로
+# 실패한다. 한글은 정상 열림·--to-md recall 100%라 읽기·편집엔 무해하므로, 변환물을
+# 정본·배포·검증 대상으로 쓸 때만 실행. section XML은 재직렬화하지 않고 원본 바이트를
+# 보존하며 PrvText만 추가한다. -o 미지정 시 _work-hwpx-automation/에 출력)
+python hwpx_edit.py <파일.hwpx> --add-preview [-o output.hwpx]
+
 # 별도 파일로 저장
 python hwpx_edit.py <파일.hwpx> --set-cell 0,1,0 "텍스트" -o output.hwpx
 ```
@@ -225,14 +233,15 @@ convert/hwp2hwpx.bat <입력.hwp> [출력.hwpx]
 - 서식 100% 보존 (Java 기반, hwplib + hwpxlib)
 - 요구사항: JDK 21 (`C:/Program Files/Eclipse Adoptium/jdk-21.0.10.7-hotspot`)
 - 입력 경로에 cp949 외 문자(en-dash, em-dash 등)가 있어도 내부에서 `%TEMP%`로 staging해 처리. 호출 측에서 별도 staging 불필요
+- ⚠ **변환물은 `hwpx-validate`가 `Preview/PrvText.txt` 누락으로 실패한다**(container.xml은 선언, ZIP엔 Preview/ 없음). 한글은 정상 열림·`--to-md` recall 100%라 읽기·편집엔 무해. 변환물을 **정본·배포·검증 대상**으로 쓸 때만 `python hwpx_edit.py <파일.hwpx> --add-preview`로 보정한다(section 무변형, 교훈 10).
 
 ## 핵심 워크플로우: MD → HWPX 변환 (Pandoc 방식)
 
 > 간단한 문서에 적합. 복잡한 보고서는 아래 "Build-from-scratch 방식" 참조.
 
 1. **사전 요구사항 확인**: `pip install pypandoc-hwpx` (미설치 시 ModuleNotFoundError)
-2. **전처리** (필수!): (a) 따옴표(`"…"`, `'…'`, `"…"`, `'…'`) → PUA 마커(U+FFF0~3) 치환 (Pandoc HWPX writer가 따옴표 안 텍스트를 통째 누락시킴) 또는 `「…」` 한글 괄호로 대체, (b) `> ` blockquote → `【인용】` 마커 치환 또는 일반 문단으로 변환. **둘 다 필수.**
-3. **기본 변환**: `python convert/hwpx_convert.py <입력.md> -o <출력.hwpx>`
+2. **전처리**: (a) 따옴표(`"…"`, `'…'`, `"…"`, `'…'`)는 **`hwpx_convert.py`가 자동 보호한다**(변환 단계에 내장, 2026-06-09 도구 반영). Pandoc HWPX writer가 따옴표 쌍 안 텍스트를 통째 누락시키는 버그를 변환 전 PUA(U+E000~) 치환 → 변환 후 Contents/*.xml에서 원복으로 우회한다(아포스트로피도 안전 왕복). 끄려면 `--no-quote-fix`. **수동 PUA 전처리 더는 불필요.** (b) `> ` blockquote → `【인용】` 마커 치환 또는 일반 문단으로 변환은 **여전히 수동 필수**.
+3. **기본 변환**: `python convert/hwpx_convert.py <입력.md> -o <출력.hwpx>` (따옴표 보호 자동 적용)
 4. **빈 셀 수정** (필수!): `python hwpx_edit.py <출력.hwpx> --fix-empty-cells` — MD 표의 빈 셀(` | | `)이 HWPX에서 `<hp:subList>`만 있고 `<hp:p>`가 없는 상태로 변환됨. 한글 엔진이 이를 만나면 약 15초 로딩 후 안전 종료함(XSD 스키마는 통과하므로 `hwpx-validate`로는 탐지 불가). `hwpx_convert.py`는 이 보정을 자동 적용하지 않으므로 **변환 직후 반드시 실행**.
 5. **스타일 후처리** (raw XML 편집):
    - header.xml: borderFill 추가 (표 배경색), charPr 추가 (굵은/이탤릭), 본문 글꼴 크기 변경
@@ -256,7 +265,7 @@ convert/hwp2hwpx.bat <입력.hwp> [출력.hwpx]
 | 조건 | Pandoc 방식 | Build-from-scratch |
 |------|------------|-------------------|
 | 표 스타일 (헤더 배경, 교대 행, 볼드 셀) | 후처리 필요 | 직접 제어 |
-| 따옴표 안 텍스트 (`"…"`, `'…'`) | 누락 → PUA 마커 전처리+후처리 필수 | 직접 제어 (문제 없음) |
+| 따옴표 안 텍스트 (`"…"`, `'…'`) | `hwpx_convert.py` 자동 보호(내장) | 직접 제어 (문제 없음) |
 | 인용문 (blockquote) | 누락 → 마커 전처리 필요 | 좌측 컬러바 + 배경색 직접 적용 |
 | 각주 | 문서 끝 일반 텍스트 | 위첨자 + 각주 섹션 분리 |
 | 커스텀 글꼴 | 제한적 | fontface 직접 추가 |
@@ -339,6 +348,11 @@ cell = table.cell(1, 0)
 cell.text = "새 텍스트"           # getter/setter
 cell.add_paragraph("추가 문단")   # 셀 안에 문단 추가
 
+# 셀 문단 정렬 — add_table(para_pr_id_ref=)는 셀에 적용 안 됨(셀 기본 paraPr=0=CENTER).
+# 문단별로 직접 지정. 정렬값은 header.xml <hh:align horizontal="LEFT|CENTER|JUSTIFY|RIGHT"> 확인
+cell.paragraphs[0].para_pr_id_ref = 3            # 첫 문단(예: 3=JUSTIFY 양쪽정렬)
+cell.add_paragraph("", para_pr_id_ref=3)         # 추가 문단
+
 # 셀 맵 (병합 포함, 논리 좌표 → 물리 좌표)
 cell_map = table.get_cell_map()
 
@@ -348,6 +362,20 @@ table.split_merged_cell(1, 0)
 # 새 표 생성
 doc.add_table(3, 4)  # 3행 4열
 ```
+
+### 부분 서식 — 밑줄·이탤릭·볼드 (run 단위)
+
+문단 일부만 서식을 주려면 텍스트 대신 run으로 추가한다. `add_run`이 charPr를 자동 생성·재사용하므로 `ensure_run_style`을 따로 부르지 않아도 된다.
+
+```python
+p = doc.add_paragraph("")
+p.add_run("일치하지 ")
+p.add_run("않는", bold=True, underline=True)   # 볼드+밑줄(부정 발문·어법·지문 밑줄)
+p.add_run(" 것은?")
+p.add_run("Sunflowers", italic=True)            # 이탤릭(작품·매체 제목)
+```
+
+표 셀도 동일: `cell.paragraphs[0].add_run(...)` / `cell.add_paragraph("").add_run(...)`.
 
 ### 머리글/바닥글
 
