@@ -256,6 +256,39 @@ def cmd_get_text(filepath, password=None):
         print("경고: COM이 본문을 0자로 읽었습니다. Pandoc 생성 HWPX일 가능성이 큽니다 (warnings-com.md 4번).", file=sys.stderr)
 
 
+def cmd_normalize(filepath, output=None, password=None):
+    """COM으로 열어 '별도 파일'로 재저장 (한컴 정규화).
+
+    XML 파이프라인(python-hwpx 등)으로 생성·편집한 HWPX를 한컴이 직접 다시
+    저장하게 하여 lineseg·미리보기(PrvText/PrvImage)·내부 캐시를 모두 한컴
+    네이티브 상태로 재계산한다. 인쇄·배포 직전 마무리 단계로 사용.
+    in-place 저장은 지원하지 않는다 (warnings-com.md 4번 사고 방지).
+    """
+    if output is None:
+        output = get_output_path(filepath, "norm", ".hwpx")
+    abs_output = os.path.abspath(output)
+    if abs_output == os.path.abspath(filepath):
+        raise SystemExit("오류: 입력과 같은 경로로는 저장할 수 없습니다 (in-place 금지).")
+    os.makedirs(os.path.dirname(abs_output) or ".", exist_ok=True)
+
+    # 같은 프로세스에서 Hwp 인스턴스를 두 번 만들면 COM 재초기화 segfault/연결
+    # 오류가 난다(주의사항 2번). 검증까지 한 인스턴스로 처리한다.
+    hwp = create_hwp(visible=False)
+    try:
+        open_for_com(hwp, filepath, password)
+        n_before = len(extract_full_text(hwp))
+        if not hwp.save_as(abs_output, format="HWPX"):
+            raise SystemExit(f"오류: HWPX 저장 실패: {abs_output}")
+        # save_as 후 현재 문서가 출력본이므로 같은 인스턴스에서 재열어 검증
+        open_for_com(hwp, abs_output)
+        n_after = len(extract_full_text(hwp))
+    finally:
+        hwp.quit()
+    if n_before and not n_after:
+        raise SystemExit("오류: 정규화 후 본문이 0자입니다. 입력이 COM 비호환(예: Pandoc 생성물)일 수 있습니다.")
+    print(f"정규화 완료: {abs_output} (본문 {n_before}자 → {n_after}자)")
+
+
 def cmd_to_pdf(filepath, output=None, password=None):
     """HWP/HWPX → PDF (한컴 COM SaveAs)."""
     if output is None:
@@ -286,6 +319,7 @@ def main():
   %(prog)s doc.hwpx --insert-image stamp.png        # 문서 끝에 이미지 삽입 (doc_img.hwpx)
   %(prog)s doc.hwpx --insert-image s.png --image-width 40 --image-height 20
   %(prog)s doc.hwpx --get-text                      # COM 기준 본문 추출 (호환성 점검)
+  %(prog)s doc.hwpx --normalize -o final.hwpx       # 한컴 재저장 정규화 (인쇄 직전 마무리)
   %(prog)s doc.hwpx --to-pdf                        # PDF 저장
 주의: 입력 파일은 절대 in-place로 덮어쓰지 않는다. Pandoc 생성 HWPX는
       COM이 본문을 0자로 읽으므로(--get-text로 확인) 이 파이프라인에 넣지 말 것.
@@ -298,6 +332,8 @@ def main():
     parser.add_argument("--image-width", type=int, default=0, help="이미지 너비(mm), --insert-image와 함께")
     parser.add_argument("--image-height", type=int, default=0, help="이미지 높이(mm), --insert-image와 함께")
     parser.add_argument("--get-text", action="store_true", help="COM 기준 본문 텍스트 출력")
+    parser.add_argument("--normalize", action="store_true",
+                        help="COM으로 열어 별도 HWPX로 재저장 (lineseg·미리보기 한컴 재계산)")
     parser.add_argument("--to-pdf", action="store_true", help="PDF로 저장")
     parser.add_argument("--password", help="암호화된 문서의 열기 암호")
     parser.add_argument("-o", "--output", help="출력 파일 경로")
@@ -315,6 +351,8 @@ def main():
     elif args.insert_image:
         cmd_insert_image(args.file, args.insert_image, args.output,
                          args.image_width, args.image_height, args.password)
+    elif args.normalize:
+        cmd_normalize(args.file, args.output, args.password)
     elif args.get_text:
         cmd_get_text(args.file, args.password)
     elif args.to_pdf:
