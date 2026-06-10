@@ -10,3 +10,7 @@ lxml>=5.4
 # 버전 핀: 0.x 동안 minor 올림을 자동 수용(<1.0.0). 엔진(hwpx-tomd)·소비자를 같은 작성자가
 # 관리하므로 breaking 변경 시 함께 대응한다. 1.0.0(stable) 도달 시 >=1.0.0,<2.0.0 등으로 다시 조인다.
 hwpx-tomd>=0.2.0,<1.0.0
+
+# 선택: COM 네이티브 파이프라인(hwpx_com.py) — Windows + 한컴오피스 전용.
+# pyhwpx가 pywin32·pandas·openpyxl 등을 함께 끌어오므로 기본 설치에 포함하지 않는다.
+# 필요 시: pip install pyhwpx   (1.7.2에서 검증, 2026-06-10)

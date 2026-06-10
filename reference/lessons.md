@@ -109,3 +109,22 @@
 - **해결(도구 반영)**: `hwpx_convert.py`에 **따옴표 보호를 기본 내장**. 변환 전 6종 따옴표(“”‘’"')를 고유 PUA(U+E000~E005)로 치환해 Pandoc이 쌍으로 인식하지 못하게 하고, 변환 후 결과 hwpx의 `Contents/*.xml`에서 PUA를 원래 따옴표로 정확히 원복한다(mimetype 첫 항목·ZIP_STORED 유지, 교훈 4). 입력에 따옴표가 없으면 무동작, `--no-quote-fix`로 비활성화. 재생성 후 따옴표 12종 구절 전부 보존·recall 100%·validate 통과 확인.
 - **검증 보강 메모**: recall이 100%여도 **md→hwpx 방향 손실은 별도 확인**이 필요하다. 제출/정본 산출물은 변환 후 소스 md의 따옴표 쌍 구절이 hwpx 텍스트에 모두 있는지 대조한다(주석 `<!-- -->` 제외 후 검사). 같은 점검으로 고사 원안.hwpx는 12개 구절 누락 0(양식 채우기/API 경로라 무손상)으로 확인.
 - **상태**: **도구 반영됨** (`hwpx_convert.py` 따옴표 자동 보호, 2026-06-09). SKILL.md "MD → HWPX 변환(Pandoc 방식)" 전처리 단계·비교표에 반영. 남은 후보: ① `_restore_quotes_in_hwpx` 후처리를 `--to-md` 자가검증처럼 "소스 대비 따옴표 구절 보존" 가드로 옵션화, ② `--add-preview -o` 무변경 시에도 출력 파일을 생성하도록 보완(이번에 cg3 미생성).
+
+---
+
+## 2026-06-10 · COM 네이티브 파이프라인 신설 (hwpx_com.py)
+
+작업 맥락: "프로덕션급 HWPX 생성·편집" 요구에 대한 구조적 답으로, 기존에 진단·PDF로만 좁혀 두었던 COM 분기를 pyhwpx 기반의 두 번째 백엔드로 정식 확장. 기존 hwpx_edit.py에 플래그를 얹지 않고 별도 스크립트로 분리해 두 파이프라인 혼용을 파일 수준에서 차단.
+
+### 교훈 12 — 호환성은 단방향: COM 생성물은 양쪽에서 유효, Pandoc 생성물만 COM 금지
+
+- **실측**: pyhwpx 1.7.2로 "새 문서 + 텍스트 + 2x3 표 + SaveAs(HWPX)" 왕복 테스트. ① COM 재오픈 시 본문 전체 정상(0자 문제 없음) ② hwpx-tomd 변환 recall 단어·글자 100%, 표 구조 보존. MD 부분집합(제목 3단계·굵게 인라인·불릿·파이프 표) 렌더링도 recall 100%.
+- **결론**: 금지 방향은 "Pandoc 생성물 → COM"(기존 교훈) 하나뿐. COM 생성물은 XML 파이프라인에서 자유롭게 읽기·편집 가능. hwpx_com.py는 사고 방지를 위해 입력 in-place 저장을 코드에서 금지(별도 출력 강제).
+- **상태**: **도구 반영됨** (`hwpx_com.py` 신설: --diagnose/--from-md/--insert-image/--get-text/--to-pdf). SKILL.md "두 파이프라인 분리 원칙"·의사결정 트리·warnings-com.md 6번에 반영.
+
+### 교훈 13 — pyhwpx get_text_file()은 기본이 saveblock:true (선택 없으면 None)
+
+- **증상**: COM으로 연 문서에서 `hwp.get_text_file()`이 None 반환 → `len()` 크래시.
+- **원인**: 래퍼 기본 인자가 `option='saveblock:true'`(선택 블록만). 선택이 없으면 빈 결과.
+- **해결**: 전체 본문은 저수준 `hwp.hwp.GetTextFile("TEXT", "")` 직접 호출. hwpx_com.py --get-text가 이 방식.
+- **상태**: **도구 반영됨** + warnings-com.md 7번 승격.
