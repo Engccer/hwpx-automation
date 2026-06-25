@@ -1,0 +1,24 @@
+This project includes the following third-party software:
+
+hwplib v1.1.10
+  Copyright (c) neolord0
+  License: Apache License 2.0
+  https://github.com/neolord0/hwplib
+
+hwpxlib v1.0.8
+  Copyright (c) neolord0
+  License: Apache License 2.0
+  https://github.com/neolord0/hwpxlib
+
+hwp2hwpx v1.0.0
+  Copyright (c) niceharu
+  License: Apache License 2.0
+  https://github.com/niceharu/hwp2hwpx
+
+FilePathCheckerModuleExample.dll (optional, not distributed with this repo)
+  Copyright (c) Hancom Inc.
+  Hancom Developer sample binary, redistributed under Hancom's own terms.
+  Not covered by this project's MIT License.
+  Users must download separately from the official source:
+  https://github.com/hancom-io/devcenter-archive/tree/main/hwp-automation
+  See vendor/README.md for installation instructions.
