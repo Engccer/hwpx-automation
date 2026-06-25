@@ -239,7 +239,8 @@ convert/hwp2hwpx.bat <입력.hwp> [출력.hwpx]
 - 출력 파일 미지정 시 입력 폴더의 `_work-hwpx-automation/` 하위에 `.hwpx`로 생성(원본 비파괴). HWPX가 이후 단계의 입력일 뿐이면 부산물이므로 거기 두고, HWP→HWPX 변환 자체가 목적이면 작업 폴더로 옮긴다(아래 "작업 마무리" 참조). 출력 경로를 직접 지정하려면 두 번째 인자로 명시
 - 서식 100% 보존 (Java 기반, hwplib + hwpxlib)
 - 요구사항: JDK 21 (`C:/Program Files/Eclipse Adoptium/jdk-21.0.10.7-hotspot`)
-- 입력 경로에 cp949 외 문자(en-dash, em-dash 등)가 있어도 내부에서 `%TEMP%`로 staging해 처리. 호출 측에서 별도 staging 불필요
+- 입력 경로에 cp949 외 문자(en-dash, em-dash 등)가 있어도 내부에서 `%TEMP%`로 staging해 처리
+- ⚠ **Git Bash에서 호출 금지**: `cmd.exe /c`를 거치는 Git Bash에서 한글·공백 경로 인자를 넘기면 cp949 이중 셸 해석으로 깨져(`Exit code 2` + 깨진 바이트) Usage 분기로 빠진다. bat 내부 `%TEMP%` staging은 JVM argv 문제만 막을 뿐 그 앞단 cmd.exe 인자 전달 깨짐은 못 막는다. **PowerShell에서 직접 호출**하거나, 정 Bash가 필요하면 입력을 ASCII 경로 임시 폴더에 복사한 뒤 `java -cp "<convert>/hwp2hwpx-1.0.0.jar;<convert>/lib/hwplib-*.jar;<convert>/lib/hwpxlib-*.jar;<convert>" Hwp2HwpxCLI in.hwp out.hwpx`를 직접 실행한다
 - ⚠ **변환물은 `hwpx-validate`가 `Preview/PrvText.txt` 누락으로 실패한다**(container.xml은 선언, ZIP엔 Preview/ 없음). 한글은 정상 열림·`--to-md` recall 100%라 읽기·편집엔 무해. 변환물을 **정본·배포·검증 대상**으로 쓸 때만 `python hwpx_edit.py <파일.hwpx> --add-preview`로 보정한다(section 무변형, 교훈 10).
 
 ## 핵심 워크플로우: MD → HWPX 변환 (Pandoc 방식)
