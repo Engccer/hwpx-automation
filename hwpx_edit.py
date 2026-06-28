@@ -3,6 +3,7 @@
 hwpx_edit.py - HWPX 파일 편집 유틸리티
 
 사용법:
+  python hwpx_edit.py --check-env                            # 기능 계층별 의존성·런타임 점검 (첫 실행 시)
   python hwpx_edit.py <파일.hwpx> --info                       # 표 구조 출력
   python hwpx_edit.py <파일.hwpx> --to-md                      # HWPX → Markdown 변환 (hwpx-tomd 엔진, API 불필요)
   python hwpx_edit.py --diagnose-com                         # 한컴 COM 자동화 진단
@@ -763,6 +764,146 @@ def cmd_diagnose_com():
         close_hwp_com(pythoncom_mod, hwp)
 
 
+def cmd_check_env():
+    """기능 계층(tier)별 의존성·런타임 준비 상태를 한 번에 리포트.
+
+    처음 클론한 사용자가 어느 워크플로우까지 바로 쓸 수 있는지, 무엇을 더
+    설치해야 하는지 한눈에 확인한다. 읽기 전용이며 아무것도 설치·변경하지 않는다.
+    이 스킬은 API 키를 쓰지 않으므로(전부 로컬 도구) 점검 대상은 pip 패키지와
+    시스템 런타임(JDK, Pandoc, 한컴오피스 COM)이다. COM 계층의 상세 진단(보안모듈
+    DLL·레지스트리·한컴 기동)은 중복하지 않고 --diagnose-com으로 위임한다.
+    """
+    import glob as _glob
+    import importlib.util
+    import re as _re
+    import shutil
+    import subprocess
+
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # Windows cp949 안전
+    except Exception:
+        pass
+
+    def installed(module):
+        try:
+            return importlib.util.find_spec(module) is not None
+        except (ImportError, ModuleNotFoundError, ValueError):
+            return False
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    convert_dir = os.path.join(here, "convert")
+    ready = []  # 바로 사용 가능한 tier 이름
+
+    print("hwpx-automation 환경 점검")
+    print("=" * 48)
+
+    # Tier 1: 읽기·편집 (필수, pip만)
+    print("\n[Tier 1] 읽기·편집 (필수 · pip)")
+    tier1 = [
+        ("python-hwpx", "hwpx", "편집 명령(--find/--set-cell 등)"),
+        ("lxml", "lxml", "XML 파이프라인 전반"),
+        ("hwpx-tomd", "hwpx_tomd", "--to-md 변환 엔진"),
+    ]
+    t1_ok = True
+    for pip_name, module, use in tier1:
+        if installed(module):
+            print(f"  [O] {pip_name:<14} {use}")
+        else:
+            print(f"  [설치] {pip_name:<12} pip install {pip_name}  ({use})")
+            t1_ok = False
+    if t1_ok:
+        ready.append("읽기·편집")
+
+    # Tier 2: HWP → HWPX 변환 (JDK 21 + 번들 JAR)
+    print("\n[Tier 2] HWP→HWPX 변환 (JDK 21 + 번들 JAR)")
+    t2_ok = True
+    # hwp2hwpx.bat이 실제로 사용하는 JAVA_HOME을 단일 소스로 읽는다(경로가 바뀌면
+    # 점검도 따라간다). 없으면 PATH의 java로 폴백 점검.
+    java_home = None
+    bat_path = os.path.join(convert_dir, "hwp2hwpx.bat")
+    if os.path.exists(bat_path):
+        try:
+            with open(bat_path, encoding="utf-8", errors="ignore") as fh:
+                for line in fh:
+                    m = _re.search(r'set\s+"JAVA_HOME=([^"]+)"', line, _re.IGNORECASE)
+                    if m:
+                        java_home = m.group(1).strip()
+                        break
+        except OSError:
+            pass
+    java_exe = os.path.join(java_home, "bin", "java.exe") if java_home else None
+    if java_exe and os.path.exists(java_exe):
+        print(f"  [O] JDK          {java_home}")
+    else:
+        path_java = shutil.which("java")
+        if path_java:
+            ver = ""
+            try:
+                out = subprocess.run([path_java, "-version"], capture_output=True,
+                                     text=True, timeout=10)
+                lines = (out.stderr or out.stdout or "").splitlines()
+                ver = lines[0].strip() if lines else ""
+            except Exception:
+                pass
+            print(f"  [경고] JDK        hwp2hwpx.bat의 JAVA_HOME 경로 없음 → PATH의 java 사용 가능")
+            print(f"          {path_java}{('  ·  ' + ver) if ver else ''}")
+            print(f"          JDK 21 권장. 경로가 다르면 convert/hwp2hwpx.bat의 JAVA_HOME을 수정")
+        else:
+            print(f"  [설치] JDK        JDK 21 설치 후 convert/hwp2hwpx.bat의 JAVA_HOME 지정")
+            print(f"          다운로드: https://adoptium.net/ (Temurin 21)")
+        t2_ok = False
+    for name, pattern in [
+        ("hwp2hwpx", os.path.join(convert_dir, "hwp2hwpx*.jar")),
+        ("hwplib", os.path.join(convert_dir, "lib", "hwplib*.jar")),
+        ("hwpxlib", os.path.join(convert_dir, "lib", "hwpxlib*.jar")),
+    ]:
+        if _glob.glob(pattern):
+            print(f"  [O] {name:<14} JAR 번들됨")
+        else:
+            print(f"  [경고] {name:<12} JAR 없음: {pattern}")
+            t2_ok = False
+    if t2_ok:
+        ready.append("HWP→HWPX 변환")
+
+    # Tier 3: MD/DOCX/HTML → HWPX 변환 (pip + Pandoc)
+    print("\n[Tier 3] MD/DOCX/HTML→HWPX 변환 (pip + Pandoc)")
+    t3_ok = True
+    if installed("pypandoc_hwpx"):
+        print(f"  [O] pypandoc-hwpx  convert/hwpx_convert.py 변환")
+    else:
+        print(f"  [설치] pypandoc-hwpx  pip install pypandoc-hwpx")
+        t3_ok = False
+    pandoc = shutil.which("pandoc")
+    if pandoc:
+        print(f"  [O] pandoc         {pandoc}")
+    else:
+        print(f"  [경고] pandoc       Pandoc 바이너리 없음 (pypandoc-hwpx가 번들 제공할 수도 있음)")
+        print(f"          필요 시 설치: https://pandoc.org/installing.html")
+    if t3_ok:
+        ready.append("MD→HWPX 변환")
+
+    # Tier 4: PDF·이미지·서명 (Windows + 한컴오피스 COM)
+    print("\n[Tier 4] PDF·이미지·서명 (Windows + 한컴오피스 COM)")
+    if sys.platform != "win32":
+        print("  [-] 이 플랫폼에서는 해당 없음 (Windows + 한컴오피스 전용)")
+    else:
+        if installed("win32com"):
+            print(f"  [O] pywin32        COM 기본 의존성(--to-pdf, hwpx_sign.py 등)")
+        else:
+            print(f"  [설치] pywin32      pip install pywin32")
+        if installed("pyhwpx"):
+            print(f"  [O] pyhwpx         hwpx_com.py 네이티브 파이프라인(선택)")
+        else:
+            print(f"  [선택] pyhwpx       pip install pyhwpx (hwpx_com.py 사용 시에만)")
+        print("  상세(보안모듈 DLL·레지스트리·한컴 기동): python hwpx_edit.py --diagnose-com")
+
+    print("\n" + "=" * 48)
+    print("바로 사용 가능: " + (", ".join(ready) if ready else "(없음) — 최소 Tier 1을 먼저 설치"))
+    print("핵심 한 번에 설치: pip install -r requirements.txt")
+    print("API 키는 필요 없음(전부 로컬 도구). Tier 2~4는 필요한 워크플로우에서만 설치하면 된다.")
+    return 0
+
+
 def cmd_to_pdf(filepath, output=None, password=None):
     """한컴오피스 COM으로 HWP/HWPX를 PDF로 저장."""
     if output is None:
@@ -836,6 +977,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 예시:
+  %(prog)s --check-env                    # 기능 계층별 의존성·런타임 점검
   %(prog)s doc.hwpx --info
   %(prog)s doc.hwpx --to-md
   %(prog)s doc.hwpx --to-md -o output.md
@@ -860,6 +1002,8 @@ def main():
                         help='HWPX → Markdown 변환 (XML 직접 파싱, API 불필요)')
     parser.add_argument('--to-pdf', action='store_true',
                         help='한컴오피스 COM으로 HWPX/HWP → PDF 저장 (Windows + 한컴오피스 필요)')
+    parser.add_argument('--check-env', action='store_true',
+                        help='기능 계층(tier)별 의존성·런타임 준비 상태 점검 (첫 실행·의존성 의심 시, 읽기 전용)')
     parser.add_argument('--diagnose-com', action='store_true',
                         help='한컴오피스 COM 자동화 사용 가능 여부 진단')
     parser.add_argument('--password',
@@ -898,6 +1042,9 @@ def main():
                              '최종 결과물을 작업 폴더에 바로 두려면 -o로 지정')
 
     args = parser.parse_args()
+
+    if args.check_env:
+        sys.exit(cmd_check_env())
 
     if args.diagnose_com:
         sys.exit(cmd_diagnose_com())

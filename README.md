@@ -13,8 +13,11 @@ HWP/HWPX 문서 읽기, 변환, 편집을 위한 CLI 도구 + Claude Code 스킬
 ## 빠른 시작
 
 ```bash
-# 의존성 설치
-pip install python-hwpx lxml
+# 의존성 설치 (읽기·편집 핵심: python-hwpx, lxml, hwpx-tomd)
+pip install -r requirements.txt
+
+# 환경 점검: 기능 계층별로 무엇이 바로 되는지 확인 (읽기 전용, 첫 실행 시 권장)
+python hwpx_edit.py --check-env
 
 # HWPX → Markdown 변환
 python hwpx_edit.py document.hwpx --to-md
