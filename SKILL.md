@@ -92,7 +92,7 @@ HWP/HWPX 작업 요청
 
 **원칙**: 도구(`hwpx_edit.py`, `hwp2hwpx.bat`)는 "원본을 덮어쓰지 않는다"만 책임진다. 무엇이 최종 결과물이고 무엇이 부산물인지는 도구가 알 수 없으므로(같은 `--to-md`도 워크플로우에 따라 결과물이거나 부산물이다), **호출하는 워크플로우가 판단**한다.
 
-- **도구 기본 출력**: `-o` 미지정 시 입력 폴더의 `_work-hwpx-automation/`에 저장한다(원본 비파괴). docparse 스킬의 `_work-docparse/`와 접미사 규칙이 통일된다.
+- **도구 기본 출력**: `-o` 미지정 시 입력 폴더의 `_work-hwpx-automation/`에 저장한다(원본 비파괴).
 - **작업 마무리**: 작업 종료 시 **최종 결과물은 작업 폴더로** 옮기고(또는 처음부터 `-o`로 작업 폴더를 지정), 그 전까지의 **중간 부산물은 `_work-hwpx-automation/`에 잔류**시킨다. 작업 폴더에는 원본과 최종 결과물만 남아 깔끔하게 유지된다.
 
 ### 시나리오별 결과물/부산물
@@ -197,8 +197,8 @@ python hwpx_edit.py <파일.hwpx> --set-cell 0,1,0 "텍스트" -o output.hwpx
 > 평탄화된다. **이미지 내 텍스트(제목·도표·캡션)는 추출 범위 밖**이며, 본문에
 > 이미지가 있으면 stderr 경고로 고지한다(필요 시 OCR 파서 병용). 암호화(AES)
 > 배포본은 파싱 불가하며 자동 감지해 안내한다. 시각적 배치 재현이 중요하거나
-> 이미지 경고·recall 경고가 나면 `/docparse`(Upstage)로 교차검증할 것.
-> 상세: `Windows-Projects/docs/DocumentParse/HWPX_파서비교_2026-06-05/`
+> 이미지 경고·recall 경고가 나면 OCR·레이아웃 인식 파서(Upstage 등 상용 문서
+> 파서)로 교차검증할 것.
 
 ## HWP 읽기 (HWPX 변환 경유)
 
@@ -220,7 +220,7 @@ python hwpx_edit.py <파일.hwpx> --to-md -o output.md
 python hwpx_edit.py <파일.hwpx> --to-md --cell-br -o output.md
 ```
 
-> **PDF 읽기**: 이 스킬의 범위가 아니다. 단순 PDF는 Claude Code 내장 Read 도구 사용, 표·복합 레이아웃은 `/docparse` 스킬(다중 파서 퓨전) 사용.
+> **PDF 읽기**: 이 스킬의 범위가 아니다. 단순 PDF는 일반 텍스트 추출 도구로 읽고, 표·복합 레이아웃은 별도의 PDF/문서 파서(다중 파서 퓨전 도구 등)를 사용한다.
 
 ## python-hwpx CLI 도구 (v2.9.0+)
 
@@ -482,7 +482,7 @@ doc.set_columns(2)      # 다단 설정
 cp_id = doc.ensure_run_style(bold=True, italic=False)
 ```
 
-> **lxml 6.x 호환성**: python-hwpx 2.9.1의 `requires lxml<6` 제약이 유지되지만, 실측상 lxml 6.1.0에서도 정상 동작한다 (2026-05-04 `HwpxDocument.open()` + `hwpx_edit.py --to-md` 재검증 완료). pip 경고만 발생. 다운그레이드 가드 정책은 `~/.claude/skills/check-stack-updates/references/known_overrides.md` 참조.
+> **lxml 6.x 호환성**: python-hwpx 2.9.1의 `requires lxml<6` 제약이 유지되지만, 실측상 lxml 6.1.0에서도 정상 동작한다 (2026-05-04 `HwpxDocument.open()` + `hwpx_edit.py --to-md` 재검증 완료). pip 경고만 발생하므로, lxml 6.x가 이미 설치돼 있다면 핀 경고를 무시하고 그대로 써도 된다.
 
 ## 구조적 편집 (행/표/단락 추가): raw lxml 필요
 
@@ -561,7 +561,7 @@ python hwpx_sign.py 동의서.hwpx --image 서명.png --anchor "(서명)" --inli
 - **이미지 배경**: 투명/흰 배경 PNG를 쓴다. 회색·불투명 배경 이미지는 서명란에 박스가 비치므로 배경 제거 후 사용.
 - **검증은 반드시 PDF로**: `hwpx-validate`/`--to-md`는 lineseg 손상(함정 3)을 못 잡는다. `--pdf`(COM Open)로만 위치·열림을 확인한다.
 - **COM 프로세스 잔류**: 연속 실행 중 PDF 변환이 "문서 열기 실패"로 죽으면 `taskkill /F /IM Hwp.exe` 후 재시도.
-- **개인 서명 이미지 경로**: 이 저장소(공개)에는 경로를 두지 않는다. 실제 정본 이미지 경로는 **사용자 글로벌 `~/.claude/CLAUDE.md`의 "개인 서명 이미지(정본)" 항목**에서 가져온다(어느 디렉터리에서 호출하든 그 경로 사용).
+- **서명 이미지 경로**: 이 저장소에는 서명 이미지를 포함하지 않는다. 사용할 서명/도장 이미지 파일 경로는 호출 시 `--image`로 직접 지정한다(투명/흰 배경 PNG 권장).
 
 ## 한컴 COM 자동화 (Windows 전용, 한컴오피스 필수)
 
@@ -772,7 +772,7 @@ hwp.HAction.Execute('RepeatFind', fr.HSet)
 **반영 경로**:
 1. 같은 함정이 반복되거나 데이터 손실·문서 손상을 막는 패턴이면, SKILL.md 본문(의사결정 트리·도구 용도 표·주의사항)이나 해당 `reference/*.md`로 반영한다.
 2. 우회가 반복되면 `hwpx_edit.py`에 옵션·기능으로 흡수할지 검토한다(예: hp:t 분할 치환, 문단째 제거).
-3. **변환 자체의 결함**(파싱 누락·표 정렬·마커 손실 등 `--to-md`/self-recall로 드러나는 출력 오류)은 `hwpx_edit.py`가 아니라 **공유 변환 엔진 `hwpx-tomd`** 소관이다. 이 엔진은 docparse 스킬의 `parsers/hwpx_local_parse.py`와 동일 소스(`core.py`)를 공유하므로, 변환 정확도 문제는 두 스킬 어느 쪽에서 발견하든 같은 엔진을 고쳐야 한다. 엔진은 PyPI·GitHub(Engccer/hwpx-tomd)로 공개돼 있고 **GitHub가 단일 진실 원천(SSoT)**이다. 개선 경로는 **누가 실행하느냐**로 갈린다(엔진 repo의 `CONTRIBUTING.md`가 정본):
+3. **변환 자체의 결함**(파싱 누락·표 정렬·마커 손실 등 `--to-md`/self-recall로 드러나는 출력 오류)은 `hwpx_edit.py`가 아니라 **변환 엔진 `hwpx-tomd`** 소관이다(`hwpx_edit.py --to-md`는 이 엔진을 호출만 한다). 따라서 변환 정확도 문제는 이 스킬이 아니라 같은 엔진을 고쳐야 한다. 엔진은 PyPI·GitHub(Engccer/hwpx-tomd)로 공개돼 있고 **GitHub가 단일 진실 원천(SSoT)**이다. 개선 경로는 **누가 실행하느냐**로 갈린다(엔진 repo의 `CONTRIBUTING.md`가 정본):
    - **유지보수자(엔진을 editable git 체크아웃으로 보유, `pip install -e`)**: `hwpx-tomd`의 `tests/test_hwpx_tomd.py`에 **실패하는 회귀 테스트를 먼저 추가** → `core.py` 수정 → 버전(`_version.py`) bump → `git push` → PyPI publish. editable이라 수정이 양쪽 스킬에 즉시 라이브 전파된다.
    - **다운스트림 사용자(`pip install hwpx-tomd`로 설치)**: site-packages를 직접 고치면 재설치 때 사라지고 upstream에도 반영되지 않으며 push 권한도 없다. 대신 **최소 재현 HWPX(또는 그 구조)와 기대·실제 마크다운을 첨부해 `github.com/Engccer/hwpx-tomd`에 이슈를 열거나, 실패 테스트+`core.py` 패치로 PR**을 보낸다(엔진 개선이 반영되는 유일한 경로).
 

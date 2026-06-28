@@ -47,7 +47,7 @@ NS = {
 # 도구가 자동 저장하는 출력 폴더(원본 비파괴용). 결과물/부산물 구분은 도구가 하지
 # 않으며, 무엇이 최종 결과물인지는 호출하는 워크플로우(SKILL.md 절차)가 판단해
 # 작업 폴더로 승격한다. 폴더명은 출처(hwpx-automation) + 성격(work=중간 작업물)을
-# 드러내고 docparse 스킬의 `_work-docparse`와 접미사 규칙이 통일된다.
+# 드러낸다.
 BYPRODUCT_DIR = '_work-hwpx-automation'
 
 
@@ -249,8 +249,7 @@ def t_full_text(t_elem):
     자식 요소의 tail 텍스트를 통째로 잃는다(객관식 선택지 ②③⑤가 tab.tail에
     들어있는 경우 등). itertext로 전체를 모으되 tab/lineBreak는 공백으로
     치환해 단어 경계를 보존한다.
-    (2026-06-05 재검증으로 확인·수정된 핵심 결함. 상세:
-     Windows-Projects/docs/DocumentParse/HWPX_파서비교_2026-06-05/)
+    (2026-06-05 재검증으로 확인·수정된 핵심 결함.)
     """
     parts = [t_elem.text or '']
     for child in t_elem:

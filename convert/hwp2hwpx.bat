@@ -1,6 +1,20 @@
 @echo off
 setlocal enabledelayedexpansion
-set "JAVA_HOME=C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot"
+REM --- JDK 21 java.exe 탐색 ---
+REM 우선순위: JAVA_HOME 환경변수 > Adoptium 표준 설치(jdk-21*) > PATH의 java.
+REM 특정 패치 버전 경로를 하드코딩하지 않아 외부 사용자 환경에서도 동작한다.
+set "JAVA_BIN="
+if defined JAVA_HOME if exist "%JAVA_HOME%\bin\java.exe" set "JAVA_BIN=%JAVA_HOME%\bin\java.exe"
+if not defined JAVA_BIN (
+    for /d %%D in ("C:\Program Files\Eclipse Adoptium\jdk-21*") do if exist "%%D\bin\java.exe" set "JAVA_BIN=%%D\bin\java.exe"
+)
+if not defined JAVA_BIN (
+    where java >nul 2>&1 && set "JAVA_BIN=java"
+)
+if not defined JAVA_BIN (
+    echo ERROR: JDK 21 not found. Install JDK 21 or set JAVA_HOME. 1>&2
+    exit /B 1
+)
 set "TOOL_DIR=%~dp0"
 if "%TOOL_DIR:~-1%"=="\" set "TOOL_DIR=%TOOL_DIR:~0,-1%"
 set "JAR1=%TOOL_DIR%\hwp2hwpx-1.0.0.jar"
@@ -40,7 +54,7 @@ if errorlevel 1 (
     exit /B 1
 )
 
-"%JAVA_HOME%\bin\java.exe" -cp "%CP%" Hwp2HwpxCLI "%STAGE%\input.hwp" "%STAGE%\output.hwpx"
+"%JAVA_BIN%" -cp "%CP%" Hwp2HwpxCLI "%STAGE%\input.hwp" "%STAGE%\output.hwpx"
 set "RC=!ERRORLEVEL!"
 
 if !RC! EQU 0 (

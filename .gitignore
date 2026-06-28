@@ -7,6 +7,8 @@ __pycache__/
 # Output
 _output/
 drafts/
+# 도구 기본 부산물 폴더(-o 미지정 시 입력 폴더 옆에 생성). 저장소 내 테스트 시 유입 방지.
+_work-hwpx-automation/
 
 # 로컬 전용 실전 교훈 로그 (개인 작업 이력 풀버전. 공개 부적합)
 reference/_lessons_local.md
@@ -26,7 +28,8 @@ Thumbs.db
 # Hancom official docs (parsed from hancom-io/devcenter-archive PDFs)
 # Excluded from public repo due to potential copyright concerns.
 # Regenerate locally: download PDFs from https://github.com/hancom-io/devcenter-archive/tree/main/hwp-automation
-# then parse with DocParse (see SKILL.md reference table for parser used per file).
+# then parse them with any PDF/document parser (the SKILL.md reference table notes
+# which parser produced each file).
 reference/action-table.md
 reference/hwp-automation.md
 reference/parameterset-table.md
