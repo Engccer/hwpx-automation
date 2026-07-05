@@ -231,6 +231,27 @@ python hwpx_edit.py <파일.hwpx> --to-md -o output.md
 python hwpx_edit.py <파일.hwpx> --to-md --cell-br -o output.md
 ```
 
+### 폴백: hwp2hwpx가 실패하는 HWP (pyhwp 경유)
+
+일부 HWP는 hwp2hwpx(hwplib)가 `java.util.EmptyStackException`으로 죽는다
+(`ForInlineControl.fieldEnd` — 표 셀 안 필드 컨트롤의 시작/끝 짝이 안 맞는 문서.
+공공기관 안내문에서 실측, 2026-07-06). 이때는 pyhwp로 우회한다:
+
+```bash
+pip install pyhwp   # hwp5txt / hwp5proc 제공
+
+# hwp5txt는 표 내용을 <표> 플레이스홀더로 뭉개므로, 본문이 표 안에 있는
+# 공문·안내문은 반드시 hwp5proc xml 경유로 셀 텍스트까지 걷는다:
+hwp5proc xml <파일.hwp> > full.xml
+python convert/hwp_xml_to_md.py full.xml output.md
+```
+
+- `convert/hwp_xml_to_md.py`: pyhwp XML에서 표 구조(행='|', 셀 내 문단='/')를
+  보존해 텍스트를 추출하는 폴백 파서. 각 텍스트를 정확히 한 번만 출력하도록
+  `TableControl` 경계에서 가지치기한다(문단·중첩 표 중복 방지).
+- 한계: 서식·이미지 미보존(검색·내용 파악용). 서식 보존이 필요하면 한컴 COM
+  (Windows)으로 HWPX 재저장 후 정식 경로로.
+
 > **PDF 읽기**: 이 스킬의 범위가 아니다. 단순 PDF는 일반 텍스트 추출 도구로 읽고, 표·복합 레이아웃은 별도의 PDF/문서 파서(다중 파서 퓨전 도구 등)를 사용한다.
 
 ## python-hwpx CLI 도구 (v2.9.0+)
