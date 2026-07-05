@@ -390,6 +390,10 @@ def cmd_find_replace(filepath, find_text, replace_text, output=None):
     total = count_runs + count_xml
     print(f"'{find_text}' → '{replace_text}': {total}건 치환 완료 (본문 {count_runs} + 표 {count_xml})")
 
+    # 방금 채운 텍스트가 "한 줄로 입력"(SQUEEZE) 문단에서 과압축되는지 검사
+    if total > 0:
+        _warn_squeeze_after_edit(root, all_files, replace_text)
+
 
 def cmd_set_cell(filepath, table_idx, row_idx, col_idx, text, output=None):
     """표 셀의 텍스트를 설정"""
@@ -431,6 +435,9 @@ def cmd_set_cell(filepath, table_idx, row_idx, col_idx, text, output=None):
 
     save_hwpx(filepath, root, all_files, section_path, output)
     print(f"표{table_idx} 행{row_idx} 셀{col_idx} ← \"{text}\"")
+
+    # 방금 채운 텍스트가 "한 줄로 입력"(SQUEEZE) 문단에서 과압축되는지 검사
+    _warn_squeeze_after_edit(root, all_files, text)
 
 
 def cmd_split_cell(filepath, table_idx, row_idx, col_idx, output=None):
@@ -619,6 +626,277 @@ def cmd_fix_empty_cells(filepath, output=None):
     # save_hwpx가 다시 fix_empty_cells를 호출하지만, 이미 보정되어 0건 반환(문제 없음)
     save_hwpx(filepath, root, all_files, section_path, output)
     print(f"빈 셀 {fixed}개에 기본 문단 삽입 완료")
+
+
+# ── "한 줄로 입력"(lineWrap="SQUEEZE") 과압축 감지·보정 ─────────────────────
+# 양식(템플릿)의 제목 문단에 문단 모양 "한 줄로 입력"(paraPr breakSetting
+# lineWrap="SQUEEZE")이 걸려 있으면, 긴 텍스트를 채웠을 때 한글이 줄바꿈 대신
+# 장평을 무제한 압축해 글자가 겹쳐 뭉개진다(짧은 제목 전제로 디자인된 양식에
+# 긴 제목을 채우는 자동화 워크플로우의 대표 함정, 2026-07-06 보도자료 실측).
+# 아래 도구는 SQUEEZE 문단 중 추정 자연 폭이 가용 폭을 초과하는 것만 골라
+# lineWrap="BREAK"로 전환한다(같은 paraPr을 쓰는 짧은 라벨은 건드리지 않도록
+# paraPr을 복제해 해당 문단만 재지정).
+
+# 추정 자연 폭이 가용 폭의 이 배율을 넘으면 과압축으로 판정.
+# "한 줄로 입력"의 정상 용도(살짝 조임)는 남기고 뭉개지는 경우만 잡는다.
+SQUEEZE_FLAG_RATIO = 1.1
+
+
+def _find_header_path(all_files):
+    """ZIP 내 header.xml 경로를 반환 (통상 Contents/header.xml)."""
+    for name in all_files:
+        if name.endswith('header.xml'):
+            return name
+    return None
+
+
+def _to_int(value, default):
+    """XML 속성값을 int로 안전 변환 (외부 생성 HWPX의 비정상 속성값 방어)."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _char_width_units(ch):
+    """글자 폭 근사 계수: 전각(한글·한자·전각기호)=1.0, 반각(ASCII 등)=0.55."""
+    return 1.0 if ord(ch) >= 0x1100 else 0.55
+
+
+def _estimate_para_width(p_elem, char_metrics):
+    """문단의 자연(비압축) 렌더링 폭을 HWPUNIT으로 근사.
+
+    charPr height(1pt=100 HWPUNIT)를 전각 글자 폭으로 보고 반각은 0.55배.
+    charPr의 장평(ratio %)·자간(spacing %)도 반영한다. 표·개체가 섞인 run은
+    텍스트만 계산한다.
+    """
+    total = 0.0
+    text_parts = []
+    for run in p_elem.findall('hp:run', NS):
+        height, ratio, spacing = char_metrics.get(
+            run.get('charPrIDRef', '0'), (1000, 100, 0))
+        per_char = height * (ratio / 100.0) * (1.0 + spacing / 100.0)
+        for t_elem in run.findall('hp:t', NS):
+            s = t_full_text(t_elem)
+            text_parts.append(s)
+            total += sum(_char_width_units(ch) for ch in s) * per_char
+    return total, ''.join(text_parts)
+
+
+def _available_width(p_elem, root):
+    """문단이 놓인 컨테이너(셀·글상자·본문)의 가용 줄 폭을 HWPUNIT으로 근사."""
+    node = p_elem.getparent()
+    while node is not None:
+        name = localname(node.tag)
+        if name == 'tc':
+            cell_sz = node.find('hp:cellSz', NS)
+            margin = node.find('hp:cellMargin', NS)
+            pad = 1020
+            if margin is not None:
+                pad = (_to_int(margin.get('left'), 510)
+                       + _to_int(margin.get('right'), 510))
+            if cell_sz is not None:
+                width = _to_int(cell_sz.get('width'), 0)
+                if width > 0:
+                    return max(width - pad, 1000)
+        elif name == 'drawText':
+            width = _to_int(node.get('lastWidth'), 0)
+            if width <= 0:
+                # lastWidth(레이아웃 캐시)가 없으면 도형 자체의 크기로 폴백
+                shape = node.getparent()
+                if shape is not None:
+                    sz = shape.find('hp:sz', NS)
+                    if sz is not None:
+                        width = _to_int(sz.get('width'), 0)
+            margin = node.find('hp:textMargin', NS)
+            pad = 566
+            if margin is not None:
+                pad = (_to_int(margin.get('left'), 283)
+                       + _to_int(margin.get('right'), 283))
+            if width > 0:
+                return max(width - pad, 1000)
+        node = node.getparent()
+
+    # 본문: 용지 폭 - 좌우 여백 - 제본 여백
+    page_pr = root.find('.//hp:pagePr', NS)
+    if page_pr is not None:
+        width = _to_int(page_pr.get('width'), 59528)
+        margin = page_pr.find('hp:margin', NS)
+        left = _to_int(margin.get('left'), 8504) if margin is not None else 8504
+        right = _to_int(margin.get('right'), 8504) if margin is not None else 8504
+        gutter = _to_int(margin.get('gutter'), 0) if margin is not None else 0
+        return max(width - left - right - gutter, 1000)
+    return 42520  # A4 기본 여백 근사 폴백
+
+
+def find_squeeze_overflows(root, all_files):
+    """lineWrap="SQUEEZE" 문단 중 텍스트가 가용 폭을 초과해 과압축될 문단 목록.
+
+    반환: [{'p_elem', 'para_pr_id', 'text', 'est_width', 'avail_width'}]
+    """
+    header_path = _find_header_path(all_files)
+    if header_path is None:
+        return []
+    header_root = etree.fromstring(all_files[header_path])
+
+    squeeze_ids = set()
+    for para_pr in header_root.findall('.//hh:paraPr', NS):
+        pr_id = para_pr.get('id')
+        if pr_id is None:
+            continue
+        bs = para_pr.find('hh:breakSetting', NS)
+        if bs is not None and bs.get('lineWrap') == 'SQUEEZE':
+            squeeze_ids.add(pr_id)
+    if not squeeze_ids:
+        return []
+
+    # charPr id → (height, ratio %, spacing %) : 폭 추정에 장평·자간 반영
+    char_metrics = {}
+    for char_pr in header_root.findall('.//hh:charPr', NS):
+        cp_id = char_pr.get('id')
+        if cp_id is None:
+            continue
+        height = _to_int(char_pr.get('height'), 1000)
+        ratio_el = char_pr.find('hh:ratio', NS)
+        spacing_el = char_pr.find('hh:spacing', NS)
+        ratio = _to_int(ratio_el.get('hangul'), 100) if ratio_el is not None else 100
+        spacing = _to_int(spacing_el.get('hangul'), 0) if spacing_el is not None else 0
+        char_metrics[cp_id] = (height, ratio, spacing)
+
+    issues = []
+    for p_elem in root.iter('{%s}p' % NS['hp']):
+        para_pr_id = p_elem.get('paraPrIDRef')
+        if para_pr_id is None or para_pr_id not in squeeze_ids:
+            continue
+        est_width, text = _estimate_para_width(p_elem, char_metrics)
+        if not text.strip():
+            continue
+        avail = _available_width(p_elem, root)
+        if est_width > avail * SQUEEZE_FLAG_RATIO:
+            issues.append({
+                'p_elem': p_elem,
+                'para_pr_id': para_pr_id,
+                'text': text,
+                'est_width': int(est_width),
+                'avail_width': avail,
+            })
+    return issues
+
+
+def _warn_squeeze_after_edit(root, all_files, inserted_text):
+    """편집 직후, 방금 넣은 텍스트가 SQUEEZE 문단에서 과압축되는지 검사해 경고.
+
+    파일을 다시 읽지 않고 편집에 사용한 메모리 상태(root, all_files)를 재사용한다.
+    """
+    if not inserted_text or not inserted_text.strip():
+        return
+    try:
+        issues = find_squeeze_overflows(root, all_files)
+    except Exception:
+        return  # 경고는 부가 기능: 검사 실패가 편집 성공을 가리면 안 됨
+    for issue in issues:
+        if inserted_text in issue['text']:
+            preview = issue['text'][:40]
+            print(
+                f"경고: '{preview}…' 문단에 \"한 줄로 입력\"(lineWrap=SQUEEZE)이 걸려 있어 "
+                f"긴 텍스트가 한 줄로 과압축됩니다(추정 폭 {issue['est_width']} > "
+                f"가용 {issue['avail_width']} HWPUNIT). "
+                f"`--fix-squeeze`로 자연 줄바꿈으로 전환하세요.",
+                file=sys.stderr,
+            )
+
+
+def cmd_list_squeeze(filepath):
+    """"한 줄로 입력" 과압축 문단을 나열만 한다 (파일 변경 없음)."""
+    root, all_files, _ = open_hwpx(filepath)
+    issues = find_squeeze_overflows(root, all_files)
+    if not issues:
+        print('과압축되는 "한 줄로 입력"(SQUEEZE) 문단이 없습니다.')
+        return
+    print(f'과압축 SQUEEZE 문단 {len(issues)}개:')
+    for i, issue in enumerate(issues):
+        preview = issue['text'][:50] + ('…' if len(issue['text']) > 50 else '')
+        print(f"  [{i}] paraPr={issue['para_pr_id']} "
+              f"추정 {issue['est_width']} / 가용 {issue['avail_width']} HWPUNIT | {preview}")
+    print('`--fix-squeeze`로 해당 문단만 자연 줄바꿈(BREAK)으로 전환할 수 있습니다.')
+
+
+def cmd_fix_squeeze(filepath, output=None):
+    """과압축되는 "한 줄로 입력" 문단을 자연 줄바꿈으로 전환.
+
+    같은 paraPr을 공유하는 짧은 라벨(의도된 디자인)은 보존하기 위해, 원본
+    paraPr을 수정하지 않고 lineWrap="BREAK"인 복제 paraPr을 새 id로 추가한 뒤
+    과압축 문단만 재지정한다. 재지정 문단의 linesegarray(레이아웃 캐시)는
+    제거해 한글이 다시 계산하게 한다.
+    """
+    root, all_files, section_path = open_hwpx(filepath)
+    issues = find_squeeze_overflows(root, all_files)
+    if not issues:
+        print('과압축되는 "한 줄로 입력"(SQUEEZE) 문단이 없습니다. 변경 없음.')
+        return
+
+    header_path = _find_header_path(all_files)
+    header_root = etree.fromstring(all_files[header_path])
+    para_props = header_root.find('.//hh:paraProperties', NS)
+    if para_props is None:
+        print("오류: header.xml에 paraProperties가 없어 보정할 수 없습니다.", file=sys.stderr)
+        sys.exit(1)
+    all_para_prs = para_props.findall('hh:paraPr', NS)
+    max_id = max((_to_int(pp.get('id'), 0) for pp in all_para_prs), default=0)
+
+    def _find_squeeze_source(pr_id):
+        """복제 원본 paraPr 선택. id가 중복된 비정상 header에서도 SQUEEZE가
+        걸린 항목을 우선해 엉뚱한 paraPr을 복제하는 일을 막는다."""
+        matches = [pp for pp in para_props.findall('hh:paraPr', NS)
+                   if pp.get('id') == pr_id]
+        for pp in matches:
+            bs = pp.find('hh:breakSetting', NS)
+            if bs is not None and bs.get('lineWrap') == 'SQUEEZE':
+                return pp
+        return matches[0] if matches else None
+
+    clone_map = {}  # 원본 paraPr id → BREAK 복제본 id
+    fixed = 0
+    skipped = 0
+    for issue in issues:
+        old_id = issue['para_pr_id']
+        if old_id not in clone_map:
+            src = _find_squeeze_source(old_id)
+            if src is None:
+                skipped += 1
+                print(f"경고: paraPr id={old_id}를 header에서 찾지 못해 건너뜀",
+                      file=sys.stderr)
+                continue
+            new_pr = copy.deepcopy(src)
+            max_id += 1
+            new_pr.set('id', str(max_id))
+            bs = new_pr.find('hh:breakSetting', NS)
+            if bs is not None:
+                bs.set('lineWrap', 'BREAK')
+            para_props.append(new_pr)
+            clone_map[old_id] = str(max_id)
+        p_elem = issue['p_elem']
+        p_elem.set('paraPrIDRef', clone_map[old_id])
+        # 레이아웃 캐시 제거 → 한글이 열 때 재계산
+        for lsa in p_elem.findall('hp:linesegarray', NS):
+            p_elem.remove(lsa)
+        fixed += 1
+        preview = issue['text'][:50] + ('…' if len(issue['text']) > 50 else '')
+        print(f"fix-squeeze: paraPr {old_id} → {clone_map[old_id]} (BREAK) | {preview}")
+
+    if fixed == 0:
+        print("오류: 전환할 수 있는 문단이 없습니다 (header paraPr 조회 실패).",
+              file=sys.stderr)
+        sys.exit(1)
+
+    para_props.set('itemCnt', str(len(para_props.findall('hh:paraPr', NS))))
+    all_files[header_path] = etree.tostring(
+        header_root, xml_declaration=True, encoding='UTF-8')
+    save_hwpx(filepath, root, all_files, section_path, output)
+    msg = f'과압축 SQUEEZE 문단 {fixed}개를 자연 줄바꿈으로 전환 완료'
+    if skipped:
+        msg += f' (건너뜀 {skipped}개)'
+    print(msg)
 
 
 def cmd_add_preview(filepath, output=None):
@@ -897,7 +1175,7 @@ def cmd_check_env():
         print("  상세(보안모듈 DLL·레지스트리·한컴 기동): python hwpx_edit.py --diagnose-com")
 
     print("\n" + "=" * 48)
-    print("바로 사용 가능: " + (", ".join(ready) if ready else "(없음) — 최소 Tier 1을 먼저 설치"))
+    print("바로 사용 가능: " + (", ".join(ready) if ready else "(없음): 최소 Tier 1을 먼저 설치"))
     print("핵심 한 번에 설치: pip install -r requirements.txt")
     print("API 키는 필요 없음(전부 로컬 도구). Tier 2~4는 필요한 워크플로우에서만 설치하면 된다.")
     return 0
@@ -990,6 +1268,8 @@ def main():
   %(prog)s doc.hwpx --remove-text "2027. 2. 28."
   %(prog)s doc.hwpx --sanitize
   %(prog)s doc.hwpx --fix-empty-cells     # Pandoc 변환 후 한글 크래시 방지
+  %(prog)s doc.hwpx --list-squeeze        # "한 줄로 입력" 과압축 문단 나열
+  %(prog)s doc.hwpx --fix-squeeze         # 과압축 문단을 자연 줄바꿈으로 전환
   %(prog)s --diagnose-com                 # 한컴 COM 자동화 진단
   %(prog)s doc.hwpx --to-pdf              # 한컴 COM으로 PDF 저장
   %(prog)s doc.hwpx --set-cell 0,1,0 "텍스트" -o output.hwpx
@@ -1030,6 +1310,11 @@ def main():
     parser.add_argument('--add-preview', action='store_true',
                         help='누락된 Preview/PrvText.txt를 section 텍스트로 생성·주입 '
                              '(hwp2hwpx 변환물의 hwpx-validate 실패 보정. section 무변형)')
+    parser.add_argument('--list-squeeze', action='store_true',
+                        help='"한 줄로 입력"(lineWrap=SQUEEZE)으로 과압축되는 문단 나열 (변경 없음)')
+    parser.add_argument('--fix-squeeze', action='store_true',
+                        help='과압축되는 "한 줄로 입력" 문단을 자연 줄바꿈(BREAK)으로 전환 '
+                             '(양식에 긴 제목을 채워 글자가 겹쳐 뭉개질 때)')
     parser.add_argument('--cell-br', action='store_true',
                         help='--to-md와 함께 사용: 표 셀 내부 문단을 <br>로 구분 '
                              '(긴 지문이 셀 안에 있는 고사지·보고서에 권장)')
@@ -1087,6 +1372,10 @@ def main():
         cmd_sanitize(args.file, args.output)
     elif args.fix_empty_cells:
         cmd_fix_empty_cells(args.file, args.output)
+    elif args.list_squeeze:
+        cmd_list_squeeze(args.file)
+    elif args.fix_squeeze:
+        cmd_fix_squeeze(args.file, args.output)
     elif args.add_preview:
         cmd_add_preview(args.file, args.output)
     else:

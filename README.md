@@ -34,6 +34,12 @@ python hwpx_edit.py document.hwpx --set-cell 0,1,0 "내용"
 # 병합 셀 분할
 python hwpx_edit.py document.hwpx --split-cell 0,1,0
 
+# "한 줄로 입력"(lineWrap=SQUEEZE) 과압축 감지·보정
+# (양식의 제목 문단에 긴 텍스트를 채우면 한글이 줄바꿈 대신 장평을 압축해
+#  글자가 겹쳐 뭉개지는 문제. 과압축 문단만 자연 줄바꿈으로 전환)
+python hwpx_edit.py document.hwpx --list-squeeze
+python hwpx_edit.py document.hwpx --fix-squeeze
+
 # 한컴 COM 자동화 진단 (Windows + 한컴오피스 필요)
 python hwpx_edit.py --diagnose-com
 

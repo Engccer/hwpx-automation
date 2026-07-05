@@ -59,6 +59,7 @@ HWP/HWPX 작업 요청
 │       ├── 행 삭제 → hwpx_edit.py --delete-rows
 │       ├── 텍스트 요소 제거 → hwpx_edit.py --remove-text
 │       ├── 검은 배경 수정 → hwpx_edit.py --sanitize (save_hwpx 시 자동 적용)
+│       ├── 긴 제목이 한 줄로 겹쳐 뭉개짐(양식의 "한 줄로 입력" 문단) → hwpx_edit.py --fix-squeeze
 │       ├── 빈 셀 hp:p 보정 → hwpx_edit.py --fix-empty-cells (save_hwpx 시 자동; Pandoc/hwpx_convert.py 변환물에 반드시 실행)
 │       ├── 표/문단/머리글 추가·수정 → python-hwpx API (lineseg 자동 처리)
 │       ├── 서명란에 서명/도장 이미지 삽입 → hwpx_sign.py (아래 "서명/도장 이미지 삽입")
@@ -170,6 +171,16 @@ python hwpx_edit.py <파일.hwpx> --sanitize
 # 불가. hwpx_edit.py 내부 save_hwpx 경로에서는 자동 적용되지만, 외부 도구로
 # 만든 HWPX는 이 명령을 단독 실행해야 함)
 python hwpx_edit.py <파일.hwpx> --fix-empty-cells
+
+# "한 줄로 입력" 과압축 감지·보정 (양식 채우기 후 긴 제목이 한 줄로 겹쳐 뭉개질 때.
+# 사람이 만든 양식의 제목 문단에 문단 모양 "한 줄로 입력"(paraPr breakSetting
+# lineWrap="SQUEEZE")이 걸려 있으면 긴 텍스트를 채웠을 때 한글이 줄바꿈 대신
+# 장평을 무제한 압축해 글자가 겹친다. hwpx-validate·--to-md로는 탐지 불가,
+# 렌더링(PDF)에서만 드러남. --fix-squeeze는 lineWrap="BREAK" 복제 paraPr을 새 id로
+# 추가해 과압축 문단만 재지정한다(같은 paraPr을 쓰는 짧은 라벨 디자인은 보존).
+# --find/--replace·--set-cell도 채운 텍스트가 과압축되면 stderr로 자동 경고한다)
+python hwpx_edit.py <파일.hwpx> --list-squeeze                # 감지만 (변경 없음)
+python hwpx_edit.py <파일.hwpx> --fix-squeeze [-o output.hwpx]  # 자연 줄바꿈 전환
 
 # 누락된 Preview/PrvText.txt 생성·주입 (hwp2hwpx 변환물의 hwpx-validate 실패 보정.
 # hwpxlib 변환물은 container.xml이 Preview/PrvText.txt를 rootfile로 선언하면서도
@@ -328,9 +339,10 @@ convert/hwp2hwpx.bat <입력.hwp> [출력.hwpx]
 3. **표 구조 확인**: `hwpx_edit.py output.hwpx --info`
 4. **(선택) 심층 분석**: `hwpx-analyze-template output.hwpx --json` (스타일 ID 맵 필요 시)
 5. **데이터 채우기**: `--set-cell`로 개별 셀 또는 Python 스크립트로 일괄 처리
-6. **무결성 검증**: `hwpx-validate result.hwpx`
-7. **쪽수 드리프트 감지**: `hwpx-page-guard -r output.hwpx -o result.hwpx`
-8. **내용 확인**: `--to-md`로 최종 텍스트 검증
+6. **"한 줄로 입력" 과압축 확인**: 제목·긴 문장을 채웠다면 `--list-squeeze`로 확인, 걸리면 `--fix-squeeze`로 자연 줄바꿈 전환 (양식 제목 문단의 lineWrap="SQUEEZE"가 긴 텍스트를 한 줄로 욱여넣어 글자가 겹침. `--find/--replace`·`--set-cell`이 자동 경고하지만, Python 스크립트로 일괄 채운 경우엔 수동 확인 필요. 상세: reference/warnings-editing.md 13번)
+7. **무결성 검증**: `hwpx-validate result.hwpx`
+8. **쪽수 드리프트 감지**: `hwpx-page-guard -r output.hwpx -o result.hwpx`
+9. **내용 확인**: `--to-md`로 최종 텍스트 검증. 서식이 중요한 문서는 `--to-pdf`로 렌더링 육안 확인(과압축·겹침은 텍스트 검증으로는 안 잡힌다)
 
 ## python-hwpx API (v2.9.1): 주요 패턴
 

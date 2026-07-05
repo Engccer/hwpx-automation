@@ -12,3 +12,8 @@
 10. **`--to-md`는 표만 추출**: 문서 제목, 지도교사, 머리글 등 **표 바깥 본문 텍스트는 `--to-md`에 나타나지 않는다**. 양식 편집 시 `--to-md` + `grep "<hp:t>" section0.xml` 병행으로 표 밖 텍스트를 반드시 확인
 11. **HWP→HWPX 변환 후 `PrvText.txt` 누락**: `hwp2hwpx.bat` 변환 결과에 `Preview/PrvText.txt`가 없는 경우가 있음. python-hwpx API (`HwpxDocument.open()`)와 `hwpx-pack`이 이 파일 누락 시 실패하므로, 변환 직후 `mkdir -p Preview && touch Preview/PrvText.txt`로 빈 파일을 생성해 두라
 12. **manifest.xml self-closing 태그 주의**: HWP→HWPX 변환 결과의 manifest.xml이 `<odf:manifest .../>` (self-closing) 형태일 수 있음. `replace('</odf:manifest>', ...)` 패턴이 실패하므로, self-closing 여부를 먼저 확인하고 처리
+13. **양식의 "한 줄로 입력" 문단에 긴 텍스트 채우면 글자가 겹쳐 뭉개짐** (2026-07-06 보도자료 양식 실측): 사람이 디자인한 양식의 제목 문단에는 문단 모양 "한 줄로 입력"(`paraPr`의 `<hh:breakSetting ... lineWrap="SQUEEZE"/>`)이 걸려 있는 경우가 있다. 짧은 제목 전제의 디자인이라, 자동화로 **긴 제목·문장을 채우면 한글이 줄바꿈 대신 장평을 무제한 압축**해 글자가 서로 겹쳐 판독 불가가 된다(음수 자간 charPr과 결합하면 더 심함). `hwpx-validate`(XSD)와 `--to-md` recall로는 잡히지 않고 **렌더링(PDF·인쇄)에서만 드러난다**.
+    - **감지(`--list-squeeze`)**: SQUEEZE 문단 중 추정 자연 폭(charPr height·장평·자간 반영 근사)이 컨테이너 가용 폭(셀·글상자·본문)의 1.1배를 넘는 문단만 나열.
+    - **보정(`--fix-squeeze`)**: 원본 paraPr은 남기고 `lineWrap="BREAK"` 복제 paraPr을 새 id로 추가해 과압축 문단만 재지정(같은 paraPr을 공유하는 짧은 라벨의 의도된 디자인은 보존). 재지정 문단의 `linesegarray`는 제거해 한글이 재계산하게 함.
+    - **자동 경고**: `--find/--replace`·`--set-cell`이 텍스트를 채운 직후 그 텍스트가 SQUEEZE 문단에서 과압축되면 stderr로 경고하고 `--fix-squeeze`를 안내한다.
+    - **워크플로우 규칙**: 양식 채우기에서 제목·긴 문장을 채운 뒤에는 `--list-squeeze`로 확인하거나 PDF로 육안 검증하라. 자동 생성 문서의 제목은 폰트 축소·자간 압축으로 한 줄에 욱여넣지 말고 자연 줄바꿈(2줄)을 허용하는 것이 기본이다.

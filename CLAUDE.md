@@ -44,6 +44,8 @@ python hwpx_edit.py <파일.hwpx> --delete-after "텍스트"     # 특정 위치
 python hwpx_edit.py <파일.hwpx> --delete-empty-rows 0      # 빈 행 삭제
 python hwpx_edit.py <파일.hwpx> --delete-rows 0,3,5        # 특정 행 삭제
 python hwpx_edit.py <파일.hwpx> --sanitize                 # 검은 배경 등 수정
+python hwpx_edit.py <파일.hwpx> --list-squeeze             # "한 줄로 입력" 과압축 문단 나열
+python hwpx_edit.py <파일.hwpx> --fix-squeeze              # 과압축 문단을 자연 줄바꿈으로 전환
 
 # 한컴 COM 자동화 (Windows + 한컴오피스)
 python hwpx_edit.py --diagnose-com                         # COM 사용 가능 여부 진단
