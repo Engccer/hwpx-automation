@@ -110,3 +110,7 @@ hwpx-automation/
 | [hwp2hwpx](https://github.com/niceharu/hwp2hwpx) | Apache-2.0 | JAR 포함 |
 
 > **주의**: `python-hwpx`는 비상업적 라이선스입니다. 이 프로젝트를 상업적 목적으로 사용하려면 `python-hwpx`의 라이선스 조건을 별도로 확인하세요.
+
+## 관련 프로젝트
+
+시각장애 사용자를 위한 에이전트 스킬 번들 [skills-for-the-blind](https://github.com/Engccer/skills-for-the-blind)의 멤버 스킬이다.
