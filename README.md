@@ -71,6 +71,8 @@ ln -s /path/to/hwpx-automation ~/.claude/skills/hwpx-automation
 - `python-hwpx`, `lxml`
 - Windows + 한컴오피스 + `pywin32` (HWPX/HWP → PDF 변환 시)
 
+플랫폼별 지원 범위: HWPX 읽기(`--to-md`)와 텍스트·표 편집은 순수 Python이라 Windows/macOS/Linux 어디서나 동작합니다. HWP → HWPX 변환은 JDK만 있으면 크로스플랫폼이지만 동봉된 `convert/hwp2hwpx.bat`은 Windows 전용이므로 macOS/Linux에서는 같은 폴더의 JAR을 `java -cp`로 직접 호출합니다. PDF 변환과 한컴 COM 자동화는 Windows + 한컴오피스 전용입니다.
+
 ## 프로젝트 구조
 
 ```
@@ -107,7 +109,7 @@ hwpx-automation/
 | [lxml](https://lxml.de/) | BSD-3-Clause | |
 | [hwplib](https://github.com/neolord0/hwplib) | Apache-2.0 | JAR 포함 |
 | [hwpxlib](https://github.com/neolord0/hwpxlib) | Apache-2.0 | JAR 포함 |
-| [hwp2hwpx](https://github.com/niceharu/hwp2hwpx) | Apache-2.0 | JAR 포함 |
+| [hwp2hwpx](https://github.com/neolord0/hwp2hwpx) | Apache-2.0 | JAR 포함 |
 
 > **주의**: `python-hwpx`는 비상업적 라이선스입니다. 이 프로젝트를 상업적 목적으로 사용하려면 `python-hwpx`의 라이선스 조건을 별도로 확인하세요.
 

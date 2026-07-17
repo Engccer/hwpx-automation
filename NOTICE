@@ -11,9 +11,11 @@ hwpxlib v1.0.8
   https://github.com/neolord0/hwpxlib
 
 hwp2hwpx v1.0.0
-  Copyright (c) niceharu
+  Copyright (c) neolord0
   License: Apache License 2.0
-  https://github.com/niceharu/hwp2hwpx
+  https://github.com/neolord0/hwp2hwpx
+
+The full text of the Apache License 2.0 is provided in LICENSE-Apache-2.0.txt.
 
 FilePathCheckerModuleExample.dll (optional, not distributed with this repo)
   Copyright (c) Hancom Inc.
