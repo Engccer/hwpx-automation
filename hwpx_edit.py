@@ -25,7 +25,13 @@ import os
 import sys
 import zipfile
 from io import BytesIO
-from lxml import etree
+
+# lxml 미설치 기기에서도 --check-env(환경 진단)가 동작해야 하므로 여기서 죽지 않는다.
+# 파일 명령의 실제 가드는 main()에서 설치 안내와 함께 수행한다.
+try:
+    from lxml import etree
+except ImportError:
+    etree = None
 
 try:
     import winreg
@@ -1249,6 +1255,12 @@ def parse_cell_ref(cell_ref):
 
 
 def main():
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # Windows cp949 안전 (cmd_check_env와 동일 패턴)
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
     parser = argparse.ArgumentParser(
         description='HWPX 파일 편집 유틸리티',
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1332,6 +1344,15 @@ def main():
 
     if args.diagnose_com:
         sys.exit(cmd_diagnose_com())
+
+    if etree is None:
+        print(
+            "오류: lxml이 설치되어 있지 않습니다.\n"
+            "  설치: pip install -r requirements.txt  (python-hwpx, lxml, hwpx-tomd)\n"
+            "  전체 환경 점검: python hwpx_edit.py --check-env",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     if not args.file:
         parser.print_help()
