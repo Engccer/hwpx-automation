@@ -52,7 +52,8 @@ python hwpx_edit.py document.hwpx --to-pdf -o document.pdf
 
 ```bash
 # JDK 21 필요
-convert/hwp2hwpx.bat input.hwp output.hwpx
+convert/hwp2hwpx.bat input.hwp output.hwpx        # Windows
+bash convert/hwp2hwpx.sh input.hwp output.hwpx    # macOS/Linux
 ```
 
 ## Claude Code 스킬로 사용
@@ -71,7 +72,7 @@ ln -s /path/to/hwpx-automation ~/.claude/skills/hwpx-automation
 - `python-hwpx`, `lxml`
 - Windows + 한컴오피스 + `pywin32` (HWPX/HWP → PDF 변환 시)
 
-플랫폼별 지원 범위: HWPX 읽기(`--to-md`)와 텍스트·표 편집은 순수 Python이라 Windows/macOS/Linux 어디서나 동작합니다. HWP → HWPX 변환은 JDK만 있으면 크로스플랫폼이지만 동봉된 `convert/hwp2hwpx.bat`은 Windows 전용이므로 macOS/Linux에서는 같은 폴더의 JAR을 `java -cp`로 직접 호출합니다. PDF 변환과 한컴 COM 자동화는 Windows + 한컴오피스 전용입니다.
+플랫폼별 지원 범위: HWPX 읽기(`--to-md`)와 텍스트·표 편집은 순수 Python이라 Windows/macOS/Linux 어디서나 동작합니다. HWP → HWPX 변환은 JDK 21만 있으면 크로스플랫폼이며, Windows는 `convert/hwp2hwpx.bat`, macOS/Linux는 `convert/hwp2hwpx.sh`를 사용합니다. PDF 변환과 한컴 COM 자동화는 Windows + 한컴오피스 전용입니다.
 
 ## 프로젝트 구조
 
@@ -81,6 +82,7 @@ hwpx-automation/
 ├── SKILL.md              # Claude Code 스킬 정의
 ├── convert/
 │   ├── hwp2hwpx.bat      # HWP→HWPX 변환 (Windows)
+│   ├── hwp2hwpx.sh       # HWP→HWPX 변환 (macOS/Linux)
 │   ├── hwp2hwpx-1.0.0.jar
 │   └── lib/              # hwplib, hwpxlib
 ├── reference/            # 상세 레퍼런스 문서

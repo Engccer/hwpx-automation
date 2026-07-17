@@ -1,0 +1,3 @@
+# 셸 래퍼는 어떤 체크아웃에서도 LF 유지(CRLF면 sh가 해석 실패), 배치 파일은 CRLF 유지
+*.sh text eol=lf
+*.bat text eol=crlf
