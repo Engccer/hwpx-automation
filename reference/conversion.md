@@ -651,7 +651,7 @@ header.xml
 |------|--------|
 | 본문 글꼴 | 맑은 고딕 10pt (charPr id=0, height=1000) |
 | 표 셀 borderFill | id=3 (실선 테두리, 배경 없음) |
-| 제목 스타일 | Heading 1~9 자동 매핑 (## → Heading 2 등) |
+| 제목 스타일 | Heading 1~9 자동 매핑 (## → Heading 2 등). **글자색은 Word Office 테마 파란색** (아래 참조) |
 | 용지 | A4, 좌우 72mm, 상 42.55mm, 하 49.6mm |
 | 각주 | 문서 끝 텍스트로 변환 (HWPX 각주 요소 아님) |
 | **줄간격** | **180%** (`lineSpacing type="PERCENT" value="180"`), 160% 등으로 변경 시 후처리 필수 |
@@ -671,6 +671,39 @@ header_xml = re.sub(r'(lineSpacing[^/]*?)value="180"', r'\1value="160"', header_
 # ❌ 잘못된 패턴 (Pandoc HWPX에서 매칭 안 됨)
 header_xml = re.sub(r'(<hc:lineSpacing[^/]*?)value="\d+"', r'\1value="160"', header_xml)
 ```
+
+### 제목 글자색이 파란색으로 나온다 (2026-07-29)
+
+Pandoc HWPX writer는 제목 스타일 charPr에 **Word의 Office 테마 색상**을 그대로 박는다. 국내 제출·배포 문서는 본문·제목 모두 검정이 관행이므로, 제목이 있는 문서를 변환했으면 **거의 항상 검정 보정이 필요하다**. 텍스트 검증(`--to-md` recall)·`hwpx-validate`로는 절대 드러나지 않고 렌더링에서만 보이므로, 변환 후 PDF 육안 확인 단계에서 잡는다.
+
+기본 charPr 색상표(빈 템플릿 기준, id는 문서마다 동일):
+
+| charPr id | 스타일 | 기본 색 |
+|---|---|---|
+| 2 | 제목(Title) | `#323E4F` |
+| 3 | 부제목(Subtitle) | `#4472C4` |
+| 4 | 제목 1 | `#2F5496` |
+| 5~7 | 제목 2~4 | `#4472C4` |
+| 8 | 제목 5~6 | `#8EAADB` |
+| 9 | 제목 7~9 | `#B4C6E7` |
+
+`#` → `제목 2`(charPr 5)로 매핑되므로 **id 4만 고치면 안 되고 2~9를 한 번에** 검정으로 바꾼다:
+
+```python
+TARGET_IDS = {"2", "3", "4", "5", "6", "7", "8", "9"}
+
+def blacken(m):
+    tag = m.group(0)
+    cid = re.search(r'id="(\d+)"', tag).group(1)
+    if cid not in TARGET_IDS:
+        return tag
+    color = re.search(r'textColor="([^"]*)"', tag).group(1)
+    return tag.replace(f'textColor="{color}"', 'textColor="#000000"')
+
+header_xml = re.sub(r'<hh:charPr id="\d+"[^>]*textColor="[^"]*"[^>]*>', blacken, header_xml)
+```
+
+글자 크기(`height`)는 건드리지 않는다. 제목 위계는 크기·굵기로 이미 구분되므로 색만 빼도 구조가 유지된다.
 
 ## 인쇄용 배포 문서 디자인 (실측 교훈, 2026-06-01, 2026-06-05 보강)
 
