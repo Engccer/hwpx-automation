@@ -20,3 +20,17 @@
     - **보정(`--fix-squeeze`)**: 원본 paraPr은 남기고 `lineWrap="BREAK"` 복제 paraPr을 새 id로 추가해 과압축 문단만 재지정(같은 paraPr을 공유하는 짧은 라벨의 의도된 디자인은 보존). 재지정 문단의 `linesegarray`는 제거해 한글이 재계산하게 함.
     - **자동 경고**: `--find/--replace`·`--set-cell`이 텍스트를 채운 직후 그 텍스트가 SQUEEZE 문단에서 과압축되면 stderr로 경고하고 `--fix-squeeze`를 안내한다.
     - **워크플로우 규칙**: 양식 채우기에서 제목·긴 문장을 채운 뒤에는 `--list-squeeze`로 확인하거나 PDF로 육안 검증하라. 자동 생성 문서의 제목은 폰트 축소·자간 압축으로 한 줄에 욱여넣지 말고 자연 줄바꿈(2줄)을 허용하는 것이 기본이다.
+14. **양식의 기입 예시(placeholder) 글자모양이 그대로 상속됨** (2026-08-10 이슈 #4 실측): 관공서 배포 양식은 기입 예시를 **회색(`textColor="#808080"`)·이탤릭** charPr로 넣어 둔다. 이 셀을 `--set-cell`이나 python-hwpx `fill_by_path`로 채우면 텍스트만 바뀌고 `charPrIDRef`는 그대로라 **제출본이 회색 이탤릭으로 인쇄된다**. 13번(SQUEEZE)과 같은 계열: `hwpx-validate`·`--to-md` recall로는 안 잡히고 렌더링에서만 드러난다.
+    - **감지**: 채울 셀의 `<hp:run charPrIDRef>`가 가리키는 `header.xml`의 charPr에 회색 `textColor`나 `<hh:italic/>`이 있는지 확인. 예시 행·기입 칸·라벨이 각각 다른 charPr id를 쓰므로 셀마다 봐야 한다.
+    - **보정 패턴** (양식의 글꼴·크기·자간은 보존하고 서식만 정상화, `--fix-squeeze`의 복제 paraPr 패턴과 동형):
+      ```python
+      new = copy.deepcopy(charpr_by_id[src_id])   # 예시용 charPr 복제
+      new.set('id', str(next_id))
+      new.set('textColor', '#000000')
+      for it in new.findall(QH('italic')):        # 이탤릭 제거
+          new.remove(it)
+      charProperties.append(new)
+      charProperties.set('itemCnt', ...)          # itemCnt 갱신 필수
+      # 채운 셀의 <hp:run charPrIDRef>만 새 id로 교체
+      ```
+    - **워크플로우 규칙**: 양식 채우기 후 제출 전 PDF 렌더링으로 글자색·기울임을 육안 확인하라. Pandoc 변환물의 파란 제목 함정(`reference/conversion.md`)과 같은 "텍스트 검증으로는 안 잡히는" 부류다.
