@@ -446,8 +446,91 @@ def cmd_set_cell(filepath, table_idx, row_idx, col_idx, text, output=None):
     _warn_squeeze_after_edit(root, all_files, text)
 
 
+def _table_grid_metrics(table):
+    """표 전체를 훑어 colAddr별 단일 열 너비, rowAddr별 단일 행 높이를 수집.
+
+    병합 해제로 새 셀을 만들 때 cellSz를 채울 기준값. span이 1인 셀만 표본으로
+    쓴다(병합 셀의 cellSz는 여러 칸의 합이라 기준이 못 됨).
+    """
+    col_w = {}
+    row_h = {}
+    for tr in get_table_rows(table):
+        for tc in get_row_cells(tr):
+            addr = tc.find('hp:cellAddr', NS)
+            sz = tc.find('hp:cellSz', NS)
+            if addr is None or sz is None:
+                continue
+            row_span, col_span = get_cell_span(tc)
+            c = _to_int(addr.get('colAddr'), -1)
+            r = _to_int(addr.get('rowAddr'), -1)
+            if col_span == 1 and c >= 0 and c not in col_w and sz.get('width'):
+                col_w[c] = sz.get('width')
+            if row_span == 1 and r >= 0 and r not in row_h and sz.get('height'):
+                row_h[r] = sz.get('height')
+    return col_w, row_h
+
+
+def _make_unmerged_cell(anchor, col_addr, row_addr, width, height, same_row):
+    """병합으로 덮여 있던 자리에 넣을 새 <hp:tc> 생성.
+
+    앵커 셀을 deepcopy해 테두리·여백·문단/글자 스타일을 보존하고, 본문 내용
+    (텍스트·개체·중첩 표)만 비운다. linesegarray는 제거해 한글이 재계산하게 한다.
+    """
+    new_tc = copy.deepcopy(anchor)
+
+    addr = new_tc.find('hp:cellAddr', NS)
+    addr.set('colAddr', str(col_addr))
+    addr.set('rowAddr', str(row_addr))
+
+    span = new_tc.find('hp:cellSpan', NS)
+    if span is not None:
+        span.set('rowSpan', '1')
+        span.set('colSpan', '1')
+
+    sz = new_tc.find('hp:cellSz', NS)
+    if sz is not None:
+        if width:
+            sz.set('width', width)
+        if height:
+            sz.set('height', height)
+
+    # 다른 행으로 들어가는 복제본은 머리행 표식을 지운다 (repeatHeader용 header="1")
+    if not same_row and 'header' in new_tc.attrib:
+        del new_tc.attrib['header']
+
+    # 본문 비우기: 첫 문단의 골격(paraPr/charPr 참조)만 남기고 내용 제거
+    sub = new_tc.find('hp:subList', NS)
+    if sub is not None:
+        first_p = sub.find('hp:p', NS)
+        for child in list(sub):
+            sub.remove(child)
+        if first_p is not None:
+            runs = first_p.findall('hp:run', NS)
+            for extra in runs[1:]:
+                first_p.remove(extra)
+            if runs:
+                for child in list(runs[0]):
+                    runs[0].remove(child)
+            for lsa in first_p.findall('hp:linesegarray', NS):
+                first_p.remove(lsa)
+            sub.append(first_p)
+    return new_tc
+
+
 def cmd_split_cell(filepath, table_idx, row_idx, col_idx, output=None):
-    """병합된 셀의 rowSpan/colSpan을 1로 설정하여 분할"""
+    """병합 셀을 완전히 해제: cellSpan을 1x1로 되돌리고, 병합이 덮고 있던
+    칸마다 새 <hp:tc>를 생성해 표 그리드를 복원한다.
+
+    주의: span은 <hp:cellAddr>(논리 좌표)가 아니라 별도 <hp:cellSpan>에 있다.
+    과거 구현은 cellAddr에서 읽고 써서 (1) 항상 1x1로 읽혀 실제 변화가 없었고
+    (2) cellAddr에 스키마상 무의미한 rowSpan/colSpan 속성만 남겼다(이슈 #2,
+    get_cell_span의 2026-06-05 수정과 같은 계열의 쓰기 경로 누락).
+
+    또한 span만 1로 바꿔서는 해제가 완성되지 않는다: rowSpan=N인 셀이 덮는
+    N-1개 행에는 해당 열의 <hp:tc>가 아예 없으므로 행마다 새로 만들어야 한다
+    (colSpan도 동일). 오염된 결과물은 hwpx-validate·--to-md 자가검증을 모두
+    통과하므로(reference/warnings-editing.md) 결과 확인은 --info로 할 것.
+    """
     root, all_files, section_path = open_hwpx(filepath)
     tables = find_tables(root)
 
@@ -455,7 +538,8 @@ def cmd_split_cell(filepath, table_idx, row_idx, col_idx, output=None):
         print(f"오류: 표 {table_idx}이(가) 없습니다.", file=sys.stderr)
         sys.exit(1)
 
-    rows = get_table_rows(tables[table_idx])
+    table = tables[table_idx]
+    rows = get_table_rows(table)
     if row_idx >= len(rows):
         print(f"오류: 행 {row_idx}이(가) 없습니다.", file=sys.stderr)
         sys.exit(1)
@@ -467,19 +551,84 @@ def cmd_split_cell(filepath, table_idx, row_idx, col_idx, output=None):
 
     cell = cells[col_idx]
     cell_addr = cell.find('hp:cellAddr', NS)
-
     if cell_addr is None:
-        print("경고: cellAddr 요소가 없습니다.", file=sys.stderr)
+        print("오류: cellAddr 요소가 없습니다.", file=sys.stderr)
         sys.exit(1)
 
-    old_row_span = cell_addr.get('rowSpan', '1')
-    old_col_span = cell_addr.get('colSpan', '1')
+    row_span, col_span = get_cell_span(cell)
+    if row_span == 1 and col_span == 1:
+        print(f"경고: 표{table_idx} 행{row_idx} 셀{col_idx}은 병합 셀이 아닙니다"
+              " (1x1). 변경 없이 종료합니다.", file=sys.stderr)
+        sys.exit(1)
 
-    cell_addr.set('rowSpan', '1')
-    cell_addr.set('colSpan', '1')
+    anchor_col = _to_int(cell_addr.get('colAddr'), col_idx)
+    anchor_row = _to_int(cell_addr.get('rowAddr'), row_idx)
+    col_w, row_h = _table_grid_metrics(table)
+
+    # 단일 칸(1x1) 표본이 없을 때의 크기 폴백: 병합 합계를 span 수로 균등 분할
+    # (예: 표 전체가 하나의 병합 셀인 극단 케이스)
+    sz = cell.find('hp:cellSz', NS)
+    fallback_w = fallback_h = None
+    if sz is not None:
+        if sz.get('width') and col_span > 1:
+            fallback_w = str(_to_int(sz.get('width'), 0) // col_span)
+        if sz.get('height') and row_span > 1:
+            fallback_h = str(_to_int(sz.get('height'), 0) // row_span)
+
+    # 앵커 셀: span 1x1 + 크기를 단일 칸 기준으로 축소
+    span_el = cell.find('hp:cellSpan', NS)
+    span_el.set('rowSpan', '1')
+    span_el.set('colSpan', '1')
+    if sz is not None:
+        if row_span > 1 and (row_h.get(anchor_row) or fallback_h):
+            sz.set('height', row_h.get(anchor_row) or fallback_h)
+        if col_span > 1 and (col_w.get(anchor_col) or fallback_w):
+            sz.set('width', col_w.get(anchor_col) or fallback_w)
+    # 크기가 바뀐 앵커의 레이아웃 캐시 제거 → 한글이 재계산 (구조적 편집 불변식)
+    anchor_sub = cell.find('hp:subList', NS)
+    if anchor_sub is not None:
+        for p_el in anchor_sub.findall('hp:p', NS):
+            for lsa in p_el.findall('hp:linesegarray', NS):
+                p_el.remove(lsa)
+    # 과거 버그가 cellAddr에 남긴 스키마 외 속성 정리
+    for junk in ('rowSpan', 'colSpan'):
+        cell_addr.attrib.pop(junk, None)
+
+    # 행 요소를 rowAddr로 찾기 위한 매핑 (tr 순서 == rowAddr가 일반적이나 방어)
+    row_by_addr = {}
+    for i, tr in enumerate(rows):
+        tcs = get_row_cells(tr)
+        addr = tcs[0].find('hp:cellAddr', NS) if tcs else None
+        key = _to_int(addr.get('rowAddr'), i) if addr is not None else i
+        row_by_addr.setdefault(key, tr)
+
+    created = 0
+    for r in range(anchor_row, anchor_row + row_span):
+        target_tr = row_by_addr.get(r)
+        if target_tr is None:
+            print(f"경고: rowAddr={r} 행을 찾지 못해 건너뜀", file=sys.stderr)
+            continue
+        for c in range(anchor_col, anchor_col + col_span):
+            if r == anchor_row and c == anchor_col:
+                continue
+            new_tc = _make_unmerged_cell(
+                cell, c, r, col_w.get(c) or fallback_w, row_h.get(r) or fallback_h,
+                same_row=(r == anchor_row))
+            # colAddr 순서를 유지해 삽입
+            inserted = False
+            for sibling in get_row_cells(target_tr):
+                s_addr = sibling.find('hp:cellAddr', NS)
+                if s_addr is not None and _to_int(s_addr.get('colAddr'), -1) > c:
+                    sibling.addprevious(new_tc)
+                    inserted = True
+                    break
+            if not inserted:
+                target_tr.append(new_tc)
+            created += 1
 
     save_hwpx(filepath, root, all_files, section_path, output)
-    print(f"표{table_idx} 행{row_idx} 셀{col_idx}: 병합 해제 ({old_row_span}x{old_col_span} → 1x1)")
+    print(f"표{table_idx} 행{row_idx} 셀{col_idx}: 병합 해제 "
+          f"({row_span}x{col_span} → 1x1, 새 셀 {created}개 생성)")
 
 
 def cmd_delete_after(filepath, marker_text, output=None):

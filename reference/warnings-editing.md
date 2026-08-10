@@ -5,6 +5,9 @@
 3. **자동 출력 폴더와 `--set-cell` 다중 호출**: `-o` 미지정 시 입력 파일과 같은 디렉터리의 `_work-hwpx-automation/` 폴더에 저장 (원본 비파괴). **주의**: `--set-cell`을 여러 번 체이닝(`&&`)하면 매번 원본에서 읽어 `_work-hwpx-automation/`에 덮어쓰므로 **마지막 호출만 남는다**. 여러 셀을 채울 때는 Python 스크립트로 순차 호출하되 반드시 `-o`로 동일 파일을 지정하라
 4. **서식 보존 원칙**: 가능한 한 `<hp:t>` 요소의 텍스트만 변경하고, XML 구조는 건드리지 않음
 5. **병합 셀 주의**: `rowSpan`/`colSpan`을 변경하면 표 레이아웃이 깨질 수 있음. 한글에서 확인 필요
+    - **span의 위치**: 좌표는 `<hp:cellAddr colAddr rowAddr>`, 병합 범위는 별도 `<hp:cellSpan colSpan rowSpan>`이다. cellAddr에서 span을 읽고 쓰면 항상 1x1로 읽히고 스키마 외 속성만 남는다(과거 `--split-cell` 버그, 이슈 #2로 2026-08-10 수정. 읽기 경로 `get_cell_span`은 2026-06-05에 같은 버그를 먼저 수정했었음)
+    - **병합 해제는 span=1만으로 완성되지 않는다**: `rowSpan=N` 셀이 덮는 N-1개 행에는 해당 열의 `<hp:tc>`가 아예 없다. 해제하려면 행마다 새 tc를 생성해 `cellAddr` 좌표·`cellSz`를 채워야 한다(`colSpan`도 동일). 현재 `--split-cell`이 이를 자동 수행(앵커 deepcopy로 서식 보존 + 본문 비움 + `linesegarray` 제거)
+    - **검증 사각지대**: span이 오염된 결과물도 `hwpx-validate`(XSD)와 `--to-md` 자가검증 recall을 모두 통과한다(lineseg 손상과 같은 계열). 병합 편집 후에는 `--info`의 행별 셀 수·`[병합:NxM]` 표시로 확인하라
 6. **다중 섹션 문서**: `section1.xml` 등 존재 가능
 7. **네임스페이스 필수**: `hp`, `hs`, `hh`, `hc` (`reference/format.md` 참조)
 8. **HWP→HWPX 변환 후 검은 배경**: `--sanitize` 또는 `save_hwpx()` 자동 수정
