@@ -41,6 +41,8 @@ python <스킬디렉토리>/hwpx_edit.py --check-env
 HWP/HWPX 작업 요청
 ├── 읽기 (내용 파악)
 │   ├── HWP 파일 → 먼저 HWPX로 변환 (convert/hwp2hwpx.bat, macOS/Linux는 .sh) → 이후 HWPX 읽기 단계로
+│   │   ※ JDK 없는 Windows + 한컴오피스 있음 → python hwpx_com.py 파일.hwp --from-hwp
+│   │     (COM 폴백. JDK 설치 전까지의 우회, 아래 "HWP → HWPX 변환" 참조)
 │   │   ※ HWP 직접 파싱 도구(예: kordoc)는 표/텍스트 박스가 복잡한 출판사
 │   │     워크시트·고사지에서 바이너리 잔여 문자 leak, 행 누락, 셀 내용 손실이
 │   │     발생하므로 사용하지 않는다 (2026-04-30 검증)
@@ -290,6 +292,7 @@ bash convert/hwp2hwpx.sh <입력.hwp> [출력.hwpx]    # macOS/Linux
 - 출력 파일 미지정 시 입력 폴더의 `_work-hwpx-automation/` 하위에 `.hwpx`로 생성(원본 비파괴). HWPX가 이후 단계의 입력일 뿐이면 부산물이므로 거기 두고, HWP→HWPX 변환 자체가 목적이면 작업 폴더로 옮긴다(아래 "작업 마무리" 참조). 출력 경로를 직접 지정하려면 두 번째 인자로 명시
 - 서식 100% 보존 (Java 기반, hwplib + hwpxlib)
 - 요구사항: JDK 21. 두 래퍼 모두 `JAVA_HOME` → (Windows는 Adoptium 표준 설치 →) PATH 순으로 java를 자동 탐색
+- **JDK 없는 Windows 폴백**: 한컴오피스가 있으면 `python hwpx_com.py <입력.hwp> --from-hwp [-o 출력.hwpx]`로 COM 변환(변환 후 본문 글자 수 재검증 내장, `--to-md` recall 100% 실측). JDK 설치 전까지의 우회이며, 연속·배치 호출 전에는 잔류 `Hwp.exe`를 정리할 것(`reference/warnings-com.md` 9번)
 - Windows(.bat): 입력 경로에 cp949 외 문자(en-dash, em-dash 등)가 있어도 내부에서 `%TEMP%`로 staging해 처리. macOS/Linux(.sh)는 JVM이 UTF-8 argv를 그대로 받으므로 staging 불필요
 - ⚠ **Git Bash에서 호출 금지**: `cmd.exe /c`를 거치는 Git Bash에서 한글·공백 경로 인자를 넘기면 cp949 이중 셸 해석으로 깨져(`Exit code 2` + 깨진 바이트) Usage 분기로 빠진다. bat 내부 `%TEMP%` staging은 JVM argv 문제만 막을 뿐 그 앞단 cmd.exe 인자 전달 깨짐은 못 막는다. **PowerShell에서 직접 호출**하거나, 정 Bash가 필요하면 입력을 ASCII 경로 임시 폴더에 복사한 뒤 `java -cp "<convert>/hwp2hwpx-1.0.0.jar;<convert>/lib/hwplib-*.jar;<convert>/lib/hwpxlib-*.jar;<convert>" Hwp2HwpxCLI in.hwp out.hwpx`를 직접 실행한다
 - ⚠ **변환물은 `hwpx-validate`가 `Preview/PrvText.txt` 누락으로 실패한다**(container.xml은 선언, ZIP엔 Preview/ 없음). 한글은 정상 열림·`--to-md` recall 100%라 읽기·편집엔 무해. 변환물을 **정본·배포·검증 대상**으로 쓸 때만 `python hwpx_edit.py <파일.hwpx> --add-preview`로 보정한다(section 무변형, 교훈 10).

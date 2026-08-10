@@ -1296,6 +1296,10 @@ def cmd_check_env():
             t2_ok = False
     if t2_ok:
         ready.append("HWP→HWPX 변환")
+    elif sys.platform == "win32":
+        # JDK가 없어도 한컴오피스가 있으면 COM 폴백으로 변환 가능 (이슈 #3)
+        print("  [폴백] 한컴오피스가 있으면 JDK 없이 COM으로 변환 가능:")
+        print("          python hwpx_com.py 파일.hwp --from-hwp  (사전 확인: python hwpx_com.py --diagnose)")
 
     # Tier 3: MD/DOCX/HTML → HWPX 변환 (pip + Pandoc)
     print("\n[Tier 3] MD/DOCX/HTML→HWPX 변환 (pip + Pandoc)")

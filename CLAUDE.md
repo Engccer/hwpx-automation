@@ -64,6 +64,7 @@ Pandoc 생성 HWPX를 입력으로 넣으면 안 된다(`reference/warnings-com.
 ```bash
 python hwpx_com.py --diagnose                              # pyhwpx + COM 진단
 python hwpx_com.py output.hwpx --from-md input.md           # MD → COM 네이티브 HWPX 생성
+python hwpx_com.py <파일.hwp> --from-hwp                    # HWP → HWPX 변환 (JDK 없는 기기 폴백)
 python hwpx_com.py <파일.hwpx> --insert-image img.png       # 문서 끝 이미지 삽입 (별도 파일 저장)
 python hwpx_com.py <파일.hwpx> --get-text                   # COM 기준 본문 추출 (호환성 점검)
 python hwpx_com.py <파일.hwpx> --to-pdf                     # PDF 저장
