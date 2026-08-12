@@ -430,9 +430,15 @@ def cmd_find_replace(filepath, find_text, replace_text, output=None):
         # hwp2hwpx(JAR) 변환물은 container.xml이 Preview/PrvText.txt를 선언하면서도
         # 그 항목을 만들지 않아 python-hwpx가 열기를 거부한다(한글·--to-md는 정상).
         if 'Preview/PrvText.txt' in str(e):
+            # --add-preview는 in-place가 아니라 byproduct 경로에 쓴다. 같은 경로로
+            # 안내하면 사용자가 명령을 그대로 따라도 원본은 그대로여서 무한 반복에
+            # 걸린다. 실제 산출 경로와 그 파일로 재실행하라는 것까지 알려준다.
+            fixed = get_output_path(filepath)
             print(f"오류: {e}\n"
-                  f"  hwp2hwpx 변환물의 알려진 결함입니다. 먼저 보정하세요:\n"
-                  f"    python hwpx_edit.py \"{filepath}\" --add-preview",
+                  f"  hwp2hwpx 변환물의 알려진 결함입니다. 두 단계로 보정하세요:\n"
+                  f"    python hwpx_edit.py \"{filepath}\" --add-preview\n"
+                  f"    python hwpx_edit.py \"{fixed}\" --find ... --replace ...\n"
+                  f"  (--add-preview는 원본을 고치지 않고 위 경로에 보정본을 만듭니다)",
                   file=sys.stderr)
             sys.exit(1)
         raise
@@ -463,8 +469,12 @@ def cmd_find_replace(filepath, find_text, replace_text, output=None):
             if t_elem.text and find_text in t_elem.text:
                 t_elem.text = t_elem.text.replace(find_text, replace_text)
                 count_xml += 1
-    if count_xml > 0:
-        save_hwpx(save_path, root, all_files, section_path, output=save_path)
+    # 표 치환이 0건이어도 **항상** save_hwpx를 태운다. 예전처럼 count_xml > 0에
+    # 걸어 두면 본문에만 매칭된 흔한 경우에 python-hwpx 산출물이 그대로 나가고
+    # sanitize_header(검은 배경)·fix_empty_cells·ZIP 레이아웃 복제가 통째로
+    # 건너뛰어진다. 같은 명령이 "표에 걸렸는가"에 따라 다른 품질을 내면 안 되고,
+    # CLAUDE.md의 "편집은 반드시 save_hwpx()를 통해 저장" 규칙과도 어긋난다.
+    save_hwpx(save_path, root, all_files, section_path, output=save_path)
 
     total = count_runs + count_xml
     print(f"'{find_text}' → '{replace_text}': {total}건 치환 완료 (본문 {count_runs} + 표 {count_xml})")

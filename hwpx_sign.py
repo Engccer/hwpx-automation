@@ -112,110 +112,254 @@ def _page_margins(xml: str) -> dict:
     return dict(top=g("top"), header=g("header"), left=g("left"), right=g("right"))
 
 
+def _lineseg_attrs(tag: str) -> dict:
+    """<hp:lineseg .../> 태그 문자열의 정수 속성을 dict로 반환(순서 무관).
+
+    값 패턴에 부호를 포함한다. `(\\d+)`로 두면 음수 spacing·horzpos가 **키째로
+    사라져** 호출부의 .get(...,0) 기본값에 조용히 흡수된다.
+    """
+    return {k: int(v) for k, v in re.findall(r'(\w+)="(-?\d+)"', tag)}
+
+
 def _first_lineseg(fragment: str) -> dict | None:
-    """XML 조각에서 첫 <hp:lineseg>의 속성을 dict로 반환(속성 순서 무관)."""
+    """XML 조각에서 첫 <hp:lineseg>의 속성을 dict로 반환."""
     m = re.search(r'<hp:lineseg\b[^>]*/>', fragment)
-    if not m:
-        return None
-    return {k: int(v) for k, v in re.findall(r'(\w+)="(\d+)"', m.group(0))}
+    return _lineseg_attrs(m.group(0)) if m else None
 
 
-def _last_lineseg(fragment: str) -> dict | None:
-    """XML 조각에서 **마지막** <hp:lineseg>의 속성을 dict로 반환."""
-    ms = re.findall(r'<hp:lineseg\b[^>]*/>', fragment)
-    if not ms:
-        return None
-    return {k: int(v) for k, v in re.findall(r'(\w+)="(\d+)"', ms[-1])}
+# 문단 좌표는 **컨테이너 기준 상대좌표**다. 종이 절대좌표(vertRelTo="PAPER")로
+# 환산할 수 없는 컨테이너와, 본문이 아니어서 앵커 후보에서 빼야 하는 컨테이너.
+_RELATIVE_CONTAINERS = ("hp:drawText", "hp:tc")
+_NON_BODY_CONTAINERS = ("hp:header", "hp:footer", "hp:footnote", "hp:endnote")
 
 
-def anchor_lineseg(src_xml: str, anchor: str) -> dict | None:
-    """**편집 전 원본**에서 anchor 텍스트가 있는 문단의 첫 lineseg를 반환.
+def _paragraph_spans(src_xml: str) -> list:
+    """(start, end, depth) 문단 구간 목록. 중첩(표 셀·글상자 안 문단) 포함.
+
+    `<hp:p ` 문자열이나 rfind로 문단을 찾으면 **같은 문단 안에서 이미 열렸다
+    닫힌 중첩 문단**(인라인 표의 셀 문단 등)이 선택돼, 개체 상대좌표를 종이
+    절대좌표로 잘못 쓰게 된다. 여는/닫는 토큰을 스택으로 훑어 실제 포함관계를
+    만든다.
+    """
+    spans, stack = [], []
+    for m in re.finditer(r'<hp:p\b|</hp:p>', src_xml):
+        if m.group(0) == "</hp:p>":
+            if stack:
+                start = stack.pop()
+                spans.append((start, m.end(), len(stack)))
+        else:
+            stack.append(m.start())
+    return sorted(spans)
+
+
+def _own_fragment(src_xml: str, span: tuple, spans: list) -> str:
+    """문단의 **자기 XML**(중첩 문단 구간을 도려낸 것).
+
+    표 셀·글상자 문단이 앵커 문단 안에 있으면 그 셀의 <hp:linesegarray>가 앞서
+    나오므로, 구간 전체에서 첫 lineseg를 집으면 셀 좌표를 문단 좌표로 오인한다.
+    """
+    start, end, depth = span
+    body, cursor = [], start
+    for s, e, d in spans:
+        if d == depth + 1 and start < s < end:      # 직속 자식 문단은 도려냄
+            body.append(src_xml[cursor:s])
+            cursor = e
+    body.append(src_xml[cursor:end])
+    return ''.join(body)
+
+
+def _own_text(src_xml: str, span: tuple, spans: list) -> str:
+    """문단의 **자기 텍스트**(중첩 문단 제외, 태그 제거)."""
+    return re.sub(r'<[^>]*>', '', _own_fragment(src_xml, span, spans))
+
+
+def _open_containers(src_xml: str, pos: int, tags: tuple) -> bool:
+    """pos 지점에서 tags 중 하나가 열려 있는지."""
+    return any(src_xml.rfind(f"<{t}", 0, pos) > src_xml.rfind(f"</{t}>", 0, pos)
+               for t in tags)
+
+
+def anchor_geometry(src_xml: str, anchor: str) -> dict | None:
+    """**편집 전 원본**에서 서명줄(anchor 문단)의 줄 기하 정보를 해석한다.
 
     왜 원본을 보는가: COM이 그림을 넣은 문단은 레이아웃 캐시가 무효화되어
     한글이 저장 시 그 문단의 <hp:linesegarray>를 **아예 빼고 쓴다**(비가시
     창이라 재계산도 하지 않음, 한컴 13.0 실측). 삽입 후 파일만 보면 서명줄
-    좌표를 구할 방법이 없어 floating 배치가 통째로 실패한다.
+    좌표를 구할 방법이 없어 floating 배치가 통째로 실패한다. 원본 lineseg는
+    그림 때문에 부풀지 않은 **서명줄 자체의 위치·높이**라 겹쳐 찍기에도 맞다.
 
-    원본 lineseg는 그림 때문에 부풀지 않은 **서명줄 자체의 위치·높이**라
-    "글자 줄에 겹쳐 찍는다"는 의도에도 더 맞는다.
-
-    앵커 문단 자체에도 캐시가 없으면(문서 끝 문단 등) **직전 줄**의 lineseg에서
-    한 줄 아래를 추정한다: 다음 줄 vertpos = 직전 vertpos + vertsize + spacing
-    (한컴 저장물 2종 실측 일치). 추정이면 estimated=True를 함께 반환한다.
+    반환 dict에 진단 플래그를 함께 싣는다.
+      relative=True   좌표가 글상자·표 기준이라 종이 절대좌표로 환산 불가
+      estimated=True  앵커 문단에 캐시가 없어 **같은 컨테이너의 직전 형제 문단**
+                      에서 한 줄 아래를 추정(vertpos + vertsize + spacing).
     """
-    # 첫 출현을 쓴다: COM도 MoveDocBegin 후 RepeatFind라 첫 출현에 그림을 넣는다(같은 문단).
-    i = src_xml.find(anchor)
-    if i < 0:
+    spans = _paragraph_spans(src_xml)
+    if not spans:
         return None
-    # `<hp:p ` 문자열 검색이 아니라 \b 경계로 찾는다(속성 없는 <hp:p>도 문단이다).
-    starts = list(re.finditer(r'<hp:p\b', src_xml[:i]))
-    end = src_xml.find("</hp:p>", i)
-    if not starts or end < 0:
-        return None
-    start = starts[-1].start()
-    ls = _first_lineseg(src_xml[start:end])
-    if ls:
-        return ls
 
-    prev = _last_lineseg(src_xml[:start])
+    # 앵커가 든 문단 = 앵커 텍스트를 자기 텍스트로 가진 문단 중 가장 깊은 것.
+    # 원문 XML 부분문자열이 아니라 태그를 벗긴 자기 텍스트로 찾으므로
+    # "(서명)"이 여러 <hp:t> 런으로 쪼개져 있어도 잡힌다.
+    # 머리글·꼬리말·각주는 COM의 본문 검색 대상이 아니므로 후보에서 뺀다.
+    target = None
+    for span in spans:
+        if _open_containers(src_xml, span[0], _NON_BODY_CONTAINERS):
+            continue
+        if anchor in _own_text(src_xml, span, spans):
+            target = span
+            break
+    if target is None:
+        return None
+
+    start, end, depth = target
+    relative = _open_containers(src_xml, start, _RELATIVE_CONTAINERS)
+
+    ls = _first_lineseg(_own_fragment(src_xml, target, spans))
+    if ls:
+        return dict(ls, relative=relative)
+
+    # 캐시 없음 → 같은 컨테이너의 직전 형제 문단에서 추정.
+    # 문서 전체에서 마지막 lineseg를 집으면 남의 컨테이너(표 셀) 좌표를
+    # "직전 줄"이라 부르며 쓰게 된다.
+    prev = None
+    for span in spans:
+        s, e, d = span
+        if e <= start and d == depth and not _crosses_container(src_xml, e, start):
+            prev = _first_lineseg(_own_fragment(src_xml, span, spans)) or prev
     if not prev or "vertpos" not in prev:
         return None
     return dict(prev,
                 vertpos=prev["vertpos"] + prev.get("vertsize", 0) + prev.get("spacing", 0),
-                estimated=True)
+                relative=relative, estimated=True)
 
 
-def _in_drawing_or_table(src_xml: str, anchor: str) -> bool:
-    """anchor가 글상자(hp:drawText)·표(hp:tc) 안에 있는지 판정.
+def _crosses_container(src_xml: str, a: int, b: int) -> bool:
+    """a~b 사이에 컨테이너 경계(표·글상자 여닫기)가 있으면 True = 형제가 아님."""
+    between = src_xml[a:b]
+    return any(f"<{t}" in between or f"</{t}>" in between
+               for t in _RELATIVE_CONTAINERS + ("hp:tbl", "hp:rect"))
 
-    그 안의 lineseg vertpos/horzpos는 **개체 기준 상대좌표**라 종이 절대좌표
-    배치(vertRelTo="PAPER")와 직접 더할 수 없다.
+
+def _norm(text: str) -> str:
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def inserted_pic_span(xml: str, src_xml: str | None, anchor: str,
+                      img_name: str = "") -> tuple | None:
+    """COM이 **방금 넣은** 그림과 그 문단 구간 (pic_start, pic_end, para_span)을 반환.
+
+    단순히 첫 <hp:pic>을 집으면, 머리글 엠블럼·스캔 이미지처럼 **앞부분에 이미 있던
+    그림**을 서명으로 오인해 그 그림을 서명 크기로 줄여 서명줄에 옮겨 놓고(진짜
+    서명은 인라인으로 방치) 아무 신호 없이 [OK]를 낸다.
+
+    ⚠ binaryItemIDRef로는 판별할 수 없다. 한글은 저장하면서 BinData 번호를
+    **재부여**해, 새로 넣은 서명이 image1이 되고 원래 있던 그림이 image2로 밀린다
+    (실측). 그래서 판별 순서는 (1) 삽입한 이미지 파일명이 <hp:shapeComment>에
+    남는 점 (2) 앵커 문단의 자기 텍스트 일치 순이다.
     """
-    i = src_xml.find(anchor)
-    if i < 0:
-        return False
-    for tag in ("hp:drawText", "hp:tc"):
-        if src_xml.rfind(f"<{tag}", 0, i) > src_xml.rfind(f"</{tag}>", 0, i):
-            return True
-    return False
+    pics = list(re.finditer(r'<hp:pic\b.*?</hp:pic>', xml, re.DOTALL))
+    if not pics:
+        return None
+
+    picked = pics[0] if len(pics) == 1 else None
+
+    if picked is None and img_name:
+        named = [p for p in pics if img_name in p.group(0)]
+        if len(named) == 1:
+            picked = named[0]
+
+    spans = _paragraph_spans(xml)
+
+    def enclosing(pos):
+        best = None
+        for s, e, d in spans:
+            if s <= pos < e and (best is None or d > best[2]):
+                best = (s, e, d)
+        return best
+
+    if picked is None and src_xml and anchor:
+        # 원본 앵커 문단의 자기 텍스트(앵커 제외)와 일치하는 문단의 그림을 고른다.
+        # --keep-anchor 여부와 무관하게 성립한다.
+        src_spans = _paragraph_spans(src_xml)
+        key = ""
+        for span in src_spans:
+            t = _own_text(src_xml, span, src_spans)
+            if anchor in t:
+                key = _norm(t.replace(anchor, " "))
+                break
+        if key:
+            hit = []
+            for p in pics:
+                para = enclosing(p.start())
+                if para and key in _norm(_own_text(xml, para, spans)):
+                    hit.append(p)
+            if len(hit) == 1:
+                picked = hit[0]
+
+    if picked is None:
+        print("[WARN] 문서에 그림이 여러 개인데 새로 삽입된 서명을 식별하지 "
+              "못했습니다. 첫 그림을 서명으로 처리합니다 — 반드시 --pdf로 "
+              "확인하세요.", file=sys.stderr)
+        picked = pics[0]
+
+    para = enclosing(picked.start())
+    if para is None:
+        return None
+    return picked.start(), picked.end(), para
 
 
 def to_floating(doc: str, out: str, w_hu: int, h_hu: int,
                 horz_offset: int | None, vert_adjust: int, gap_hu: int,
-                src_xml: str | None = None, anchor: str = "") -> tuple:
+                src_xml: str | None = None, anchor: str = "",
+                img_name: str = "") -> tuple:
     """COM 삽입 결과를 floating PAPER 좌표로 전환 + 앵커 위 문단 이동 + lineseg 제거."""
     zin = zipfile.ZipFile(doc, "r")
     xml = zin.read("Contents/section0.xml").decode("utf-8")
 
-    pm = re.search(_PARA_WITH_PIC, xml, re.DOTALL)
-    if not pm:
+    found = inserted_pic_span(xml, src_xml, anchor, img_name)
+    if not found:
         zin.close()
         raise RuntimeError("삽입된 그림이 든 문단을 찾지 못함")
-    para = pm.group(0)
+    pic_start, pic_end, (para_start, para_end, _) = found
+    para = xml[para_start:para_end]
+    pic = xml[pic_start:pic_end]
 
     # 서명줄의 줄 위치(vertpos)·줄높이(vertsize)·본문폭(horzsize).
     # 원본의 anchor 문단을 1순위로 보고, 없으면 삽입 후 문단에 남은 lineseg를 쓴다.
     ls = None
     if src_xml and anchor:
-        ls = anchor_lineseg(src_xml, anchor)
+        ls = anchor_geometry(src_xml, anchor)
     if ls is None:
         ls = _first_lineseg(para)
-    if ls is None or "vertpos" not in ls:
+    if ls is None or not {"vertpos", "vertsize", "horzsize"} <= set(ls):
         zin.close()
         raise RuntimeError(
-            "서명줄 lineseg 정보를 읽지 못함 "
-            "(anchor가 표 셀 안이거나 원본에 레이아웃 캐시가 없는 문서)")
-    vertpos = ls["vertpos"]
-    vertsize = ls.get("vertsize", 0)
-    horzsize = ls.get("horzsize", 0)
+            "서명줄 줄 정보(vertpos·vertsize·horzsize)를 읽지 못했습니다.\n"
+            "  원인 후보: 원본에 레이아웃 캐시가 없고 같은 컨테이너에 기준 줄도 없음,\n"
+            "  또는 anchor 텍스트가 본문에 없음(머리글·꼬리말은 대상이 아님).\n"
+            "  --horz-offset / --vert-adjust로 좌표를 직접 주거나 --inline을 쓰세요.")
+    vertpos, vertsize, horzsize = ls["vertpos"], ls["vertsize"], ls["horzsize"]
 
+    # 개체 상대좌표는 종이 절대좌표로 환산할 수 없다. 경고만 하고 진행하면
+    # 인쇄 영역 밖에 찍힌 문서가 [OK]·종료코드 0으로 나가므로, 사용자가 좌표를
+    # 직접 지정해 책임을 진 경우에만 통과시킨다.
+    if ls.get("relative"):
+        if horz_offset is None and vert_adjust == 0:
+            zin.close()
+            raise RuntimeError(
+                "서명란이 글상자·표 안에 있어 자동 좌표를 신뢰할 수 없습니다.\n"
+                f"  그 개체 기준 원시값: vertpos={vertpos} horzsize={horzsize}\n"
+                "  --horz-offset / --vert-adjust로 종이 기준 좌표를 지정하거나\n"
+                "  --inline으로 인라인 삽입하세요(개체 기준 오프셋은 문서마다\n"
+                "  상수라 한 번 맞추면 재사용됩니다).")
+        print("[WARN] 서명란이 글상자·표 안입니다. 자동 계산값은 그 개체 기준이며 "
+              "지정하신 오프셋으로만 보정됩니다. --pdf로 반드시 확인하세요.",
+              file=sys.stderr)
     if ls.get("estimated"):
-        print("[WARN] 서명줄에 레이아웃 캐시가 없어 직전 줄에서 위치를 추정했습니다. "
-              "--pdf로 확인하고 --vert-adjust로 보정하세요.", file=sys.stderr)
-    if src_xml and anchor and _in_drawing_or_table(src_xml, anchor):
-        print("[WARN] 서명란이 글상자·표 안에 있습니다. lineseg 좌표가 그 개체 기준이라 "
-              "자동 계산값이 종이 절대좌표와 어긋납니다. "
-              "--horz-offset / --vert-adjust로 보정하세요.", file=sys.stderr)
+        print("[WARN] 서명줄에 레이아웃 캐시가 없어 같은 컨테이너의 직전 줄에서 "
+              "추정했습니다. 세로뿐 아니라 **가로 기준폭(horzsize)도 그 줄에서 "
+              "물려받으므로**, --pdf로 확인하고 --vert-adjust·--horz-offset "
+              "양쪽을 보정하세요.", file=sys.stderr)
 
     mg = _page_margins(xml)
     body_top = mg["top"] + mg["header"]
@@ -226,13 +370,11 @@ def to_floating(doc: str, out: str, w_hu: int, h_hu: int,
     else:
         horz = horz_offset
 
-    # pic 분리
-    picm = re.search(r'<hp:pic\b.*?</hp:pic>', para, re.DOTALL)
-    pic = picm.group(0)
-    para = para[:picm.start()] + para[picm.end():]
+    # pic을 원래 문단에서 떼어낸다(문단 안에 다른 그림이 있어도 그건 건드리지 않음)
+    para = para[:pic_start - para_start] + para[pic_end - para_start:]
     # anchor 문단 lineseg 제거(텍스트가 바뀐 문단)
     para = re.sub(r'<hp:linesegarray>.*?</hp:linesegarray>', '', para, flags=re.DOTALL)
-    xml = xml[:pm.start()] + para + xml[pm.end():]
+    xml = xml[:para_start] + para + xml[para_end:]
 
     # pic 크기/위치 floating 보정
     pic = re.sub(r'<hp:orgSz [^/]*/>', f'<hp:orgSz width="{w_hu}" height="{h_hu}"/>', pic)
@@ -247,7 +389,7 @@ def to_floating(doc: str, out: str, w_hu: int, h_hu: int,
     pic = re.sub(r'<hp:pos\b[^>]*/>', lambda m: new_pos, pic, count=1)
 
     # 앵커를 anchor 문단의 직전(위쪽) 문단으로 이동(floating이 같은 페이지에 그려지도록)
-    prevs = list(re.finditer(r'<hp:p\b', xml[:pm.start()]))
+    prevs = list(re.finditer(r'<hp:p\b', xml[:para_start]))
     if not prevs:
         zin.close()
         raise RuntimeError("앵커로 쓸 직전 문단이 없음(서명란이 문서 첫 문단)")
@@ -339,11 +481,33 @@ def main() -> int:
     com_insert(out, args.image, args.anchor, args.width_mm, h_mm,
                keep_anchor=args.keep_anchor)
 
+    # --keep-anchor는 COM의 "Cancel" 액션이 선택을 실제로 해제했는지에 달려 있다.
+    # 빌드에 따라 무시되면 InsertPicture가 선택된 앵커를 그대로 대체해, 옵션이
+    # 막으려던 바로 그 결과(표시 삭제)가 조용히 나온다. 결과 파일로 확인한다.
+    if args.keep_anchor:
+        try:
+            with zipfile.ZipFile(out, "r") as zchk:
+                after = zchk.read("Contents/section0.xml").decode("utf-8")
+            if args.anchor not in re.sub(r'<[^>]*>', '', after):
+                print(f"[WARN] --keep-anchor를 지정했지만 {args.anchor!r} 표시가 "
+                      "결과에 남아 있지 않습니다(설치된 한컴 빌드가 Cancel 액션을 "
+                      "무시했을 수 있음). 원본과 대조해 확인하세요.", file=sys.stderr)
+        except Exception:
+            pass
+
     if not args.inline:
-        vert, horz = to_floating(
-            out, out, mm2hu(args.width_mm), mm2hu(h_mm),
-            args.horz_offset, args.vert_adjust, mm2hu(args.gap_mm),
-            src_xml=src_xml, anchor=args.anchor)
+        try:
+            vert, horz = to_floating(
+                out, out, mm2hu(args.width_mm), mm2hu(h_mm),
+                args.horz_offset, args.vert_adjust, mm2hu(args.gap_mm),
+                src_xml=src_xml, anchor=args.anchor,
+                img_name=os.path.basename(args.image))
+        except RuntimeError as e:
+            # 좌표를 신뢰할 수 없을 때의 안내는 트레이스백 없이 그대로 보여준다.
+            # COM 삽입까지는 끝난 상태이므로 중간 산출물 경로도 알려준다.
+            print(f"[ERROR] {e}\n  (COM 삽입까지 진행된 중간 파일: {out})",
+                  file=sys.stderr)
+            return 1
         mode = "겹쳐 찍기" if args.keep_anchor else "앵커 대체"
         print(f"[OK] 서명 삽입(floating, {mode}): {out}")
         print(f"     크기 {args.width_mm}x{h_mm}mm · vertOffset={vert} horzOffset={horz}")
