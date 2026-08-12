@@ -165,8 +165,7 @@ def sanitize_header(all_files):
                 fixed += 1
 
     if fixed > 0:
-        all_files[header_path] = etree.tostring(
-            header_root, xml_declaration=True, encoding='UTF-8')
+        all_files[header_path] = serialize_xml(header_root)
         print(f"sanitize: 문단 테두리 배경색 {fixed}건 수정 (faceColor → none)")
 
     return fixed
@@ -206,6 +205,51 @@ def fix_empty_cells(root):
     return fixed
 
 
+def serialize_xml(elem):
+    """HWPX 파트용 XML 직렬화.
+
+    standalone="yes" 선언이 필수다. 빠지면 한글은 그대로 열지만
+    hwpx-validate-package가 section/header 파트에 대해
+    'missing XML declaration with standalone="yes"' ERROR를 낸다
+    (XSD 검증인 hwpx-validate와 --to-md는 통과하므로 자동 검증에 안 잡힘).
+    """
+    return etree.tostring(elem, xml_declaration=True, encoding='UTF-8',
+                          standalone=True)
+
+
+def zip_layout(filepath):
+    """원본 ZIP의 항목별 압축 방식 맵을 반환(재패키징 시 복제용). 실패 시 빈 dict."""
+    try:
+        with zipfile.ZipFile(filepath, 'r') as zf:
+            return {i.filename: i.compress_type for i in zf.infolist()}
+    except Exception:
+        return {}
+
+
+def write_hwpx_zip(output, all_files, layout=None):
+    """HWPX 규격에 맞게 ZIP을 재패키징한다.
+
+    - mimetype은 **첫 항목 + ZIP_STORED(무압축)**여야 한다(OPC 계열 규칙).
+      일괄 ZIP_DEFLATED로 쓰면 hwpx-validate-package가 'must use ZIP_STORED'
+      ERROR를 내며, 편집 전에는 통과하던 파일이 편집만으로 검증에 실패한다.
+    - 나머지 항목은 원본이 쓰던 압축 방식을 그대로 복제한다(한컴이 STORED로
+      두는 version.xml·Preview/PrvImage.png 등 보존). 원본에 없던 새 항목은
+      ZIP_DEFLATED.
+    """
+    layout = layout or {}
+    names = list(all_files)
+    if 'mimetype' in all_files:
+        names = ['mimetype'] + [n for n in names if n != 'mimetype']
+
+    tmp = output + '.tmp'
+    with zipfile.ZipFile(tmp, 'w') as zf:
+        for name in names:
+            compress = (zipfile.ZIP_STORED if name == 'mimetype'
+                        else layout.get(name, zipfile.ZIP_DEFLATED))
+            zf.writestr(name, all_files[name], compress_type=compress)
+    os.replace(tmp, output)
+
+
 def save_hwpx(filepath, root, all_files, section_path, output=None):
     """수정된 section XML을 HWPX 파일에 저장"""
     if output is None:
@@ -216,14 +260,12 @@ def save_hwpx(filepath, root, all_files, section_path, output=None):
     if empty_cells > 0:
         print(f"fix_empty_cells: 빈 셀 {empty_cells}개에 기본 문단 삽입")
 
-    all_files[section_path] = etree.tostring(root, xml_declaration=True, encoding='UTF-8')
+    all_files[section_path] = serialize_xml(root)
 
     # 저장 전 header.xml 자동 sanitize
     sanitize_header(all_files)
 
-    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for name, data in all_files.items():
-            zf.writestr(name, data)
+    write_hwpx_zip(output, all_files, zip_layout(filepath))
 
     print(f"저장: {output}")
 
@@ -369,11 +411,42 @@ def cmd_find_replace(filepath, find_text, replace_text, output=None):
     """텍스트 치환: python-hwpx(본문 런, 서식 보존) + lxml(표 셀 등 누락분 보완)"""
     from hwpx.document import HwpxDocument
 
+    # 암호화 문서는 여기서 막는다. 2차 패스가 부르는 open_hwpx도 같은 검사를 하지만,
+    # 그때는 python-hwpx가 다시 쓴 중간 파일을 보게 되고 그 파일의 manifest에는
+    # encryption-data가 남지 않아 검사를 통과해 버린다(→ 암호문을 파싱하다 XMLSyntaxError).
+    if is_encrypted_hwpx(filepath):
+        print(f"오류: {ENCRYPTION_HINT}", file=sys.stderr)
+        sys.exit(1)
+
     # 1차: python-hwpx (본문 런 대상, 서식 보존, 런 분할 텍스트도 처리)
-    doc = HwpxDocument.open(filepath)
-    count_runs = doc.replace_text_in_runs(find_text, replace_text)
+    #
+    # API 이력: 6.0에서 replace_text_in_runs → doc.text.replace로 이동(7.0 제거 예정),
+    # save → save_to_path로 개명(6.x에 save 자체가 없음). 구 API를 그대로 쓰면
+    # 6.x에서 AttributeError로 --find/--replace가 전면 실패한다. 신 API 우선 +
+    # 구 API 폴백으로 5.x~7.x를 모두 지원한다.
+    try:
+        doc = HwpxDocument.open(filepath)
+    except Exception as e:
+        # hwp2hwpx(JAR) 변환물은 container.xml이 Preview/PrvText.txt를 선언하면서도
+        # 그 항목을 만들지 않아 python-hwpx가 열기를 거부한다(한글·--to-md는 정상).
+        if 'Preview/PrvText.txt' in str(e):
+            print(f"오류: {e}\n"
+                  f"  hwp2hwpx 변환물의 알려진 결함입니다. 먼저 보정하세요:\n"
+                  f"    python hwpx_edit.py \"{filepath}\" --add-preview",
+                  file=sys.stderr)
+            sys.exit(1)
+        raise
+
+    # isinstance(str) 배제: 구버전에서 doc.text가 본문 문자열이면 str.replace가
+    # 잡혀 문서를 고치지 않고 문자열만 반환하는 조용한 실패가 된다.
+    text_ns = getattr(doc, 'text', None)
+    if not isinstance(text_ns, str) and hasattr(text_ns, 'replace'):
+        count_runs = text_ns.replace(find_text, replace_text)
+    else:
+        count_runs = doc.replace_text_in_runs(find_text, replace_text)
     save_path = output if output else get_output_path(filepath)
-    doc.save(save_path)
+    save_doc = getattr(doc, 'save_to_path', None) or getattr(doc, 'save')
+    save_doc(save_path)
 
     # 2차: lxml으로 1차에서 누락된 <hp:t> 요소만 추가 치환 (표 셀 등)
     # 1차가 이미 치환한 텍스트에는 find_text가 남아있지 않으므로,
@@ -765,9 +838,7 @@ def cmd_sanitize(filepath, output=None):
         return
     if output is None:
         output = get_output_path(filepath)
-    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for name, data in all_files.items():
-            zf.writestr(name, data)
+    write_hwpx_zip(output, all_files, zip_layout(filepath))
     print(f"저장: {output}")
 
 
@@ -1045,8 +1116,7 @@ def cmd_fix_squeeze(filepath, output=None):
         sys.exit(1)
 
     para_props.set('itemCnt', str(len(para_props.findall('hh:paraPr', NS))))
-    all_files[header_path] = etree.tostring(
-        header_root, xml_declaration=True, encoding='UTF-8')
+    all_files[header_path] = serialize_xml(header_root)
     save_hwpx(filepath, root, all_files, section_path, output)
     msg = f'과압축 SQUEEZE 문단 {fixed}개를 자연 줄바꿈으로 전환 완료'
     if skipped:
@@ -1094,20 +1164,9 @@ def cmd_add_preview(filepath, output=None):
     if output is None:
         output = get_output_path(filepath)
 
-    # mimetype 첫 항목·ZIP_STORED, 나머지는 원본 바이트 그대로 + PrvText 추가
-    tmp = output + '.tmp'
-    with zipfile.ZipFile(tmp, 'w') as zf:
-        if 'mimetype' in data:
-            zi = zipfile.ZipInfo('mimetype')
-            zi.compress_type = zipfile.ZIP_STORED
-            zf.writestr(zi, data['mimetype'])
-        for name in names:
-            if name == 'mimetype':
-                continue
-            zf.writestr(name, data[name], zipfile.ZIP_DEFLATED)
-        zf.writestr('Preview/PrvText.txt', prv.encode('utf-8'),
-                    zipfile.ZIP_DEFLATED)
-    os.replace(tmp, output)
+    # mimetype 첫 항목·ZIP_STORED, 나머지는 원본 바이트·압축 방식 그대로 + PrvText 추가
+    data['Preview/PrvText.txt'] = prv.encode('utf-8')
+    write_hwpx_zip(output, data, zip_layout(filepath))
     print(f"add-preview: Preview/PrvText.txt 생성 ({len(prv)}자) → {output}")
 
 

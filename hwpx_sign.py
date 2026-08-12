@@ -44,8 +44,14 @@ def mm2hu(mm: float) -> int:
 
 
 # ---------------------------------------------------------------- COM 단계
-def com_insert(doc: str, img: str, anchor: str, w_mm: float, h_mm: float) -> None:
-    """anchor 텍스트를 찾아 삭제하고 그 자리에 이미지를 삽입(BinData 확보)."""
+def com_insert(doc: str, img: str, anchor: str, w_mm: float, h_mm: float,
+               keep_anchor: bool = False) -> None:
+    """anchor 텍스트 자리에 이미지를 삽입(BinData 확보).
+
+    keep_anchor=False(기본)면 anchor 텍스트를 지우고 그 자리에 넣는다.
+    keep_anchor=True면 선택만 해제하고 넣어 ``(서명)``·``(인)`` 표시를 남긴다
+    (한국 결재 문서 관행: 표시를 지우지 않고 그 위에 겹쳐 찍는다).
+    """
     import pythoncom
     import win32com.client as win32
 
@@ -73,7 +79,13 @@ def com_insert(doc: str, img: str, anchor: str, w_mm: float, h_mm: float) -> Non
             hwp.Quit()
             raise RuntimeError(f"anchor 텍스트를 본문에서 찾지 못함: {anchor!r}")
 
-        hwp.HAction.Run("Delete")  # 선택된 anchor 삭제 → 캐럿이 그 자리에
+        if keep_anchor:
+            # 선택 해제만 → anchor 텍스트가 남고 캐럿은 그 자리에.
+            # 그림은 XML 단계에서 절대좌표 floating으로 다시 배치되므로
+            # 캐럿의 정확한 위치는 최종 좌표에 영향을 주지 않는다.
+            hwp.HAction.Run("Cancel")
+        else:
+            hwp.HAction.Run("Delete")  # 선택된 anchor 삭제 → 캐럿이 그 자리에
         ctrl = hwp.InsertPicture(os.path.abspath(img), True, 1, False, False, 0, w_mm, h_mm)
         if not ctrl:
             hwp.Quit()
@@ -100,8 +112,77 @@ def _page_margins(xml: str) -> dict:
     return dict(top=g("top"), header=g("header"), left=g("left"), right=g("right"))
 
 
+def _first_lineseg(fragment: str) -> dict | None:
+    """XML 조각에서 첫 <hp:lineseg>의 속성을 dict로 반환(속성 순서 무관)."""
+    m = re.search(r'<hp:lineseg\b[^>]*/>', fragment)
+    if not m:
+        return None
+    return {k: int(v) for k, v in re.findall(r'(\w+)="(\d+)"', m.group(0))}
+
+
+def _last_lineseg(fragment: str) -> dict | None:
+    """XML 조각에서 **마지막** <hp:lineseg>의 속성을 dict로 반환."""
+    ms = re.findall(r'<hp:lineseg\b[^>]*/>', fragment)
+    if not ms:
+        return None
+    return {k: int(v) for k, v in re.findall(r'(\w+)="(\d+)"', ms[-1])}
+
+
+def anchor_lineseg(src_xml: str, anchor: str) -> dict | None:
+    """**편집 전 원본**에서 anchor 텍스트가 있는 문단의 첫 lineseg를 반환.
+
+    왜 원본을 보는가: COM이 그림을 넣은 문단은 레이아웃 캐시가 무효화되어
+    한글이 저장 시 그 문단의 <hp:linesegarray>를 **아예 빼고 쓴다**(비가시
+    창이라 재계산도 하지 않음, 한컴 13.0 실측). 삽입 후 파일만 보면 서명줄
+    좌표를 구할 방법이 없어 floating 배치가 통째로 실패한다.
+
+    원본 lineseg는 그림 때문에 부풀지 않은 **서명줄 자체의 위치·높이**라
+    "글자 줄에 겹쳐 찍는다"는 의도에도 더 맞는다.
+
+    앵커 문단 자체에도 캐시가 없으면(문서 끝 문단 등) **직전 줄**의 lineseg에서
+    한 줄 아래를 추정한다: 다음 줄 vertpos = 직전 vertpos + vertsize + spacing
+    (한컴 저장물 2종 실측 일치). 추정이면 estimated=True를 함께 반환한다.
+    """
+    # 첫 출현을 쓴다: COM도 MoveDocBegin 후 RepeatFind라 첫 출현에 그림을 넣는다(같은 문단).
+    i = src_xml.find(anchor)
+    if i < 0:
+        return None
+    # `<hp:p ` 문자열 검색이 아니라 \b 경계로 찾는다(속성 없는 <hp:p>도 문단이다).
+    starts = list(re.finditer(r'<hp:p\b', src_xml[:i]))
+    end = src_xml.find("</hp:p>", i)
+    if not starts or end < 0:
+        return None
+    start = starts[-1].start()
+    ls = _first_lineseg(src_xml[start:end])
+    if ls:
+        return ls
+
+    prev = _last_lineseg(src_xml[:start])
+    if not prev or "vertpos" not in prev:
+        return None
+    return dict(prev,
+                vertpos=prev["vertpos"] + prev.get("vertsize", 0) + prev.get("spacing", 0),
+                estimated=True)
+
+
+def _in_drawing_or_table(src_xml: str, anchor: str) -> bool:
+    """anchor가 글상자(hp:drawText)·표(hp:tc) 안에 있는지 판정.
+
+    그 안의 lineseg vertpos/horzpos는 **개체 기준 상대좌표**라 종이 절대좌표
+    배치(vertRelTo="PAPER")와 직접 더할 수 없다.
+    """
+    i = src_xml.find(anchor)
+    if i < 0:
+        return False
+    for tag in ("hp:drawText", "hp:tc"):
+        if src_xml.rfind(f"<{tag}", 0, i) > src_xml.rfind(f"</{tag}>", 0, i):
+            return True
+    return False
+
+
 def to_floating(doc: str, out: str, w_hu: int, h_hu: int,
-                horz_offset: int | None, vert_adjust: int, gap_hu: int) -> tuple:
+                horz_offset: int | None, vert_adjust: int, gap_hu: int,
+                src_xml: str | None = None, anchor: str = "") -> tuple:
     """COM 삽입 결과를 floating PAPER 좌표로 전환 + 앵커 위 문단 이동 + lineseg 제거."""
     zin = zipfile.ZipFile(doc, "r")
     xml = zin.read("Contents/section0.xml").decode("utf-8")
@@ -112,12 +193,29 @@ def to_floating(doc: str, out: str, w_hu: int, h_hu: int,
         raise RuntimeError("삽입된 그림이 든 문단을 찾지 못함")
     para = pm.group(0)
 
-    # 그림이 든 문단의 줄 위치(vertpos)·본문폭(horzsize)·줄높이(vertsize)
-    ls = re.search(r'<hp:lineseg [^>]*vertpos="(\d+)"[^>]*vertsize="(\d+)"[^>]*horzsize="(\d+)"', para)
-    if not ls:
+    # 서명줄의 줄 위치(vertpos)·줄높이(vertsize)·본문폭(horzsize).
+    # 원본의 anchor 문단을 1순위로 보고, 없으면 삽입 후 문단에 남은 lineseg를 쓴다.
+    ls = None
+    if src_xml and anchor:
+        ls = anchor_lineseg(src_xml, anchor)
+    if ls is None:
+        ls = _first_lineseg(para)
+    if ls is None or "vertpos" not in ls:
         zin.close()
-        raise RuntimeError("anchor 문단의 lineseg 정보를 읽지 못함")
-    vertpos, vertsize, horzsize = int(ls.group(1)), int(ls.group(2)), int(ls.group(3))
+        raise RuntimeError(
+            "서명줄 lineseg 정보를 읽지 못함 "
+            "(anchor가 표 셀 안이거나 원본에 레이아웃 캐시가 없는 문서)")
+    vertpos = ls["vertpos"]
+    vertsize = ls.get("vertsize", 0)
+    horzsize = ls.get("horzsize", 0)
+
+    if ls.get("estimated"):
+        print("[WARN] 서명줄에 레이아웃 캐시가 없어 직전 줄에서 위치를 추정했습니다. "
+              "--pdf로 확인하고 --vert-adjust로 보정하세요.", file=sys.stderr)
+    if src_xml and anchor and _in_drawing_or_table(src_xml, anchor):
+        print("[WARN] 서명란이 글상자·표 안에 있습니다. lineseg 좌표가 그 개체 기준이라 "
+              "자동 계산값이 종이 절대좌표와 어긋납니다. "
+              "--horz-offset / --vert-adjust로 보정하세요.", file=sys.stderr)
 
     mg = _page_margins(xml)
     body_top = mg["top"] + mg["header"]
@@ -195,6 +293,11 @@ def main() -> int:
                     help="세로 미세조정 HWPUNIT(+아래 / -위)")
     ap.add_argument("--gap-mm", type=float, default=7.0,
                     help="우측 정렬 시 본문 우측 끝과의 여백 mm(기본 7)")
+    ap.add_argument("--keep-anchor", action="store_true",
+                    help='anchor 텍스트를 지우지 않고 그 위에 겹쳐 찍는다'
+                         '(한국 결재 문서 관행: "(서명)"·"(인)" 표시를 남긴 채 날인). '
+                         '가로 위치는 기본 우측 정렬이므로 표시 위에 정확히 얹으려면 '
+                         '--horz-offset으로 맞추고 --pdf로 확인한다.')
     ap.add_argument("--inline", action="store_true",
                     help="floating 전환 없이 COM 인라인 삽입만(서명란에 세로 여유가 충분할 때)")
     ap.add_argument("-o", "--output", default=None, help="출력 경로(기본 입력 옆 _서명.hwpx)")
@@ -221,20 +324,34 @@ def main() -> int:
         base, ext = os.path.splitext(args.doc)
         out = base + "_서명" + ext
 
+    # 서명줄 좌표 산출용 원본 XML(COM이 앵커 문단의 lineseg를 지우기 전에 확보)
+    try:
+        with zipfile.ZipFile(args.doc, "r") as zsrc:
+            src_xml = zsrc.read("Contents/section0.xml").decode("utf-8")
+    except Exception:
+        src_xml = None
+
     # 입력을 출력으로 복사 후 그 위에서 작업(원본 비파괴)
     if os.path.abspath(out) != os.path.abspath(args.doc):
         import shutil
         shutil.copyfile(args.doc, out)
 
-    com_insert(out, args.image, args.anchor, args.width_mm, h_mm)
+    com_insert(out, args.image, args.anchor, args.width_mm, h_mm,
+               keep_anchor=args.keep_anchor)
 
     if not args.inline:
         vert, horz = to_floating(
             out, out, mm2hu(args.width_mm), mm2hu(h_mm),
-            args.horz_offset, args.vert_adjust, mm2hu(args.gap_mm))
-        print(f"[OK] 서명 삽입(floating): {out}")
+            args.horz_offset, args.vert_adjust, mm2hu(args.gap_mm),
+            src_xml=src_xml, anchor=args.anchor)
+        mode = "겹쳐 찍기" if args.keep_anchor else "앵커 대체"
+        print(f"[OK] 서명 삽입(floating, {mode}): {out}")
         print(f"     크기 {args.width_mm}x{h_mm}mm · vertOffset={vert} horzOffset={horz}")
         print("     위치가 어긋나면 --horz-offset / --vert-adjust 로 재실행하세요.")
+        if args.keep_anchor and args.horz_offset is None:
+            print(f"     겹쳐 찍기 기본 가로 위치는 우측 정렬입니다. "
+                  f'"{args.anchor}" 표시 위에 정확히 얹으려면 '
+                  f"--horz-offset {horz} 부터 조정하세요.")
     else:
         print(f"[OK] 서명 삽입(inline): {out}")
 

@@ -14,6 +14,7 @@ HWP/HWPX 문서 읽기, 변환, 편집을 위한 CLI 도구 + Claude Code 스킬
 hwpx-automation/
 ├── hwpx_edit.py          # HWPX 읽기/편집 통합 CLI (XML 파이프라인)
 ├── hwpx_com.py           # 한컴 COM 네이티브 파이프라인 CLI (pyhwpx, Windows 전용)
+├── hwpx_sign.py          # 서명란에 서명/도장 이미지 삽입 (COM 삽입 + XML floating 후처리)
 ├── SKILL.md              # Claude Code 스킬 정의 (의사결정 트리 + 사용법)
 ├── convert/
 │   ├── hwp2hwpx.bat      # HWP→HWPX 변환 (Windows, JDK 21 필요)
@@ -75,6 +76,22 @@ python hwpx_com.py <파일.hwpx> --insert-image img.png       # 문서 끝 이�
 python hwpx_com.py <파일.hwpx> --get-text                   # COM 기준 본문 추출 (호환성 점검)
 python hwpx_com.py <파일.hwpx> --to-pdf                     # PDF 저장
 ```
+
+### hwpx_sign.py
+
+동의서·계약서 등의 서명란(기준 텍스트 `(서명)`·`(인)`)에 자필 서명/도장 이미지를
+삽입한다(Windows + 한컴오피스 전용). COM으로 이미지를 넣어 BinData만 확보한 뒤
+XML 후처리로 floating PAPER 절대좌표 전환·앵커 위 문단 이동·lineseg 제거를 수행한다.
+좌표는 **편집 전 원본**의 lineseg에서 읽는다(COM이 자기가 건드린 문단의 레이아웃
+캐시를 저장 시 빼버리기 때문. `reference/warnings-com.md` 10번).
+
+```bash
+python hwpx_sign.py 동의서.hwpx --image 서명.png --anchor "(서명)" --pdf
+python hwpx_sign.py 동의서.hwpx --image 서명.png --keep-anchor --horz-offset 27510 --pdf
+```
+
+`--keep-anchor`는 `(서명)`·`(인)` 표시를 지우지 않고 그 위에 겹쳐 찍는다(한국 결재
+문서 관행). 상세 워크플로우·함정은 `SKILL.md`의 "서명/도장 이미지 삽입" 절 참조.
 
 ### convert/hwp2hwpx.bat · hwp2hwpx.sh
 

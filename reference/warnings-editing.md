@@ -34,3 +34,9 @@
       # 채운 셀의 <hp:run charPrIDRef>만 새 id로 교체
       ```
     - **워크플로우 규칙**: 양식 채우기 후 제출 전 PDF 렌더링으로 글자색·기울임을 육안 확인하라. Pandoc 변환물의 파란 제목 함정(`reference/conversion.md`)과 같은 "텍스트 검증으로는 안 잡히는" 부류다.
+15. **편집 저장이 패키지 규격을 깨뜨림 — mimetype 압축·`standalone="yes"` 유실** (2026-08-12 이슈 #7 실측, 수정 완료): 과거 `save_hwpx()`는 모든 ZIP 항목을 `ZIP_DEFLATED`로 쓰고 `etree.tostring`에 `standalone=True`를 주지 않았다. 그 결과 **편집 전에는 통과하던 문서가 편집만으로** `hwpx-validate-package`에서 ERROR 2건(`mimetype: must use ZIP_STORED`, `missing XML declaration with standalone="yes"`)을 냈다. 한글은 정상적으로 열고 `hwpx-validate`(XSD)·`--to-md` recall도 통과하므로 **자동 검증으로는 드러나지 않는다** — 13·14번과 같은 계열이다. 공문서 제출본처럼 규격 검증을 통과해야 하는 산출물에서 문제가 된다.
+    - **현재 구현**: `write_hwpx_zip()`이 mimetype을 **첫 항목 + ZIP_STORED**로 쓰고, 나머지는 `zip_layout()`이 읽어 둔 **원본의 항목별 압축 방식을 복제**한다(한컴이 STORED로 두는 `version.xml`·`Preview/PrvImage.png`·`BinData/*` 보존). XML 직렬화는 `serialize_xml()` 한 곳으로 모아 `standalone="yes"`를 보장한다(section뿐 아니라 **header.xml도 검증 대상**이므로 sanitize·fix-squeeze 경로도 이 함수를 쓴다).
+    - **새 코드 규칙**: HWPX를 쓰는 새 경로를 만들면 `zipfile.ZipFile(..., 'w')`를 직접 쓰지 말고 `write_hwpx_zip()`을, XML 직렬화는 `serialize_xml()`을 쓴다.
+    - **검증 습관**: 편집 명령을 추가·수정했으면 산출물에 `hwpx-validate-package`를 돌려 **원본과 같은 상태(WARN만)로 유지되는지** 확인한다. XSD 통과만으로는 이 부류를 못 잡는다.
+16. **python-hwpx 구 API 호출로 `--find/--replace`가 전면 실패** (2026-08-12 이슈 #6 실측, 수정 완료): `cmd_find_replace`가 `doc.replace_text_in_runs()`(6.0 deprecated·7.0 제거)와 `doc.save()`(6.0에서 `save_to_path`로 개명, 구 이름 자체가 없음)를 써서 6.x에서 저장 직전에 `AttributeError`로 죽었다(출력 파일도 생성되지 않음). 현재는 `doc.text.replace` → 없으면 `replace_text_in_runs`, `save_to_path` → 없으면 `save` 순으로 폴백한다.
+    - **표 셀 2차 lxml 패스는 그대로 유지해야 한다**: `doc.text.replace`도 `replace_text_in_runs`도 **표 셀 안 텍스트는 0건**이다(6.0.2 실측). 엔진 버전이 올라가도 재실측 전까지 2차 패스를 걷어내지 말 것.

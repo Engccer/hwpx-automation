@@ -388,9 +388,11 @@ doc.save_to_path("output.hwpx")
 
 ```python
 doc = HwpxDocument.open("template.hwpx")
-count = doc.replace_text_in_runs("{{이름}}", "홍길동")
-doc.save_to_path("output.hwpx")
+count = doc.text.replace("{{이름}}", "홍길동")   # 6.0 이전 이름: replace_text_in_runs (7.0에서 제거)
+doc.save_to_path("output.hwpx")                  # 6.0 이전 이름: save (6.x에는 없음)
 ```
+
+> **표 셀은 이 API로 잡히지 않는다**(6.0.2 실측, 0건). 표까지 치환하려면 lxml로 `hp:tbl` 하위 `hp:t`를 따로 순회한다 — `hwpx_edit.py --find/--replace`가 이미 그 2단 구성으로 처리하므로 직접 스크립트를 짜기 전에 CLI를 먼저 쓸 것.
 
 ### 테이블 API (lineseg 자동 처리)
 
@@ -574,12 +576,17 @@ document.hwpx (ZIP)
 1. COM `InsertPicture`는 그림을 floating(`textWrap="TOP_AND_BOTTOM"`) + `curSz=0,0`으로 넣는다. **서명란이 페이지 하단에 있으면 큰 그림이 인라인으로 그 줄에 못 들어가 다음 페이지로 밀린다.**
 2. floating + `vertRelTo="PAPER"` 절대좌표를 줘도 **앵커 문단이 페이지 끝이면 개체가 다음 페이지에 그려진다**(표시 페이지는 앵커 문단의 페이지를 따름). → 앵커를 페이지 내 **위쪽 문단**으로 옮겨야 한다.
 3. 텍스트가 바뀐 문단의 `<hp:linesegarray>`(줄 레이아웃 캐시)를 안 지우면 **한컴 COM이 문서 열기를 거부**한다. 치명적으로 `hwpx-validate`(XSD)·`--to-md`(recall)는 모두 통과 → **자동 검증으로 못 잡고 PDF 변환(COM Open)에서만 드러남.**
+4. 반대 방향의 함정: **COM이 그림을 넣은 문단은 저장 시 `<hp:linesegarray>`를 아예 빼고 쓴다**(비가시 창이라 재계산도 하지 않음. 한컴 13.0 실측). 삽입 후 파일만 보면 서명줄 좌표를 구할 데이터가 없다. → 도구는 **편집 전 원본**에서 anchor 문단의 lineseg를 읽고, 그 문단에도 캐시가 없으면 직전 줄에서 `vertpos + vertsize + spacing`으로 한 줄 아래를 추정한다(추정 시 WARN 출력).
 
-`hwpx_sign.py`는 (a) COM으로 anchor 자리에 이미지를 넣어 BinData 확보 → (b) XML 후처리로 floating PAPER 절대좌표 전환(크기/curSz 보정) → (c) 앵커를 anchor 문단의 직전 문단으로 이동 → (d) 세로 좌표를 페이지 여백+lineseg vertpos로 자동 계산 → (e) 변경 문단 lineseg 제거를 모두 자동 수행한다.
+`hwpx_sign.py`는 (a) COM으로 anchor 자리에 이미지를 넣어 BinData 확보 → (b) XML 후처리로 floating PAPER 절대좌표 전환(크기/curSz 보정) → (c) 앵커를 anchor 문단의 직전 문단으로 이동 → (d) 세로 좌표를 페이지 여백+원본 lineseg vertpos로 자동 계산 → (e) 변경 문단 lineseg 제거를 모두 자동 수행한다.
 
 ```bash
 # 기본: 서명란 "(서명)"에 서명 이미지를 우측 정렬·서명줄 세로중앙으로 삽입
 python hwpx_sign.py 동의서.hwpx --image 서명.png --anchor "(서명)" --pdf
+
+# 겹쳐 찍기: "(서명)"·"(인)" 표시를 남긴 채 그 위에 날인(한국 결재 문서 관행)
+python hwpx_sign.py 동의서.hwpx --image 서명.png --anchor "(서명)" \
+  --keep-anchor --horz-offset 27510 --pdf
 
 # 위치 미세조정(한 번 --pdf로 보고 어긋나면 두 값만 바꿔 재실행)
 python hwpx_sign.py 동의서.hwpx --image 서명.png --anchor "(서명)" \
@@ -589,7 +596,12 @@ python hwpx_sign.py 동의서.hwpx --image 서명.png --anchor "(서명)" \
 python hwpx_sign.py 동의서.hwpx --image 서명.png --anchor "(서명)" --inline
 ```
 
-옵션: `--width-mm`(기본 20, 세로는 종횡비 자동) · `--horz-offset`(HWPUNIT, 미지정 시 우측정렬) · `--vert-adjust`(+아래/−위) · `--gap-mm`(우측 여백, 기본 7) · `--inline` · `-o`(기본 `<입력>_서명.hwpx`) · `--pdf`(검증 PDF 동시 생성).
+옵션: `--width-mm`(기본 20, 세로는 종횡비 자동) · `--keep-anchor`(앵커 표시 유지·겹쳐 찍기) · `--horz-offset`(HWPUNIT, 미지정 시 우측정렬) · `--vert-adjust`(+아래/−위) · `--gap-mm`(우측 여백, 기본 7) · `--inline` · `-o`(기본 `<입력>_서명.hwpx`) · `--pdf`(검증 PDF 동시 생성).
+
+**앵커 대체 vs 겹쳐 찍기 (기본값이 늘 맞는 게 아니다)**:
+- 기본값은 anchor 텍스트를 **지우고** 그 자리에 넣는다. 서명란이 빈칸인 양식에 맞는다.
+- 한국 결재 문서 관행에서는 도장·서명을 `(서명)`·`(인)` 표시를 지우고 찍는 게 아니라 **그 표시 위에 겹쳐** 찍는다(종이 문서에서 인주 도장을 `(인)` 자리에 그대로 누르는 것과 같다). 글자와 서명이 포개져 보이는 것이 **정상**이며 결함이 아니다 — 겹침을 보고 "고칠까요"라고 되묻지 말 것. 이 형태가 필요하면 `--keep-anchor`.
+- `--keep-anchor`의 가로 배치도 기본은 우측 정렬이다. 표시 위에 정확히 얹으려면 `--horz-offset`으로 맞춘다(도구가 현재 계산값을 출력하므로 그 값에서 시작해 조정). 글자 단위 x는 lineseg에 없어(줄 단위 `horzpos`/`horzsize`뿐) 자동 계산할 수 없다.
 
 **최단 워크플로우**:
 1. (필요 시) 이름·날짜 등 텍스트 먼저 채우기: `hwpx_edit.py --find/--replace` 또는 `--set-cell`. 이름을 채웠으면 **anchor 문단의 선행 공백을 세어** 이름이 서명 구역(우측)에 들어가는지 판단하고, 몰려 있으면 이때 공백을 줄여 이름을 왼쪽으로 당긴다(아래 "서명이 기존 텍스트와 겹칠 때").
@@ -601,6 +613,7 @@ python hwpx_sign.py 동의서.hwpx --image 서명.png --anchor "(서명)" --inli
   - **선행 공백은 명백한 사전 신호다**: 서명 삽입 전에 anchor 문단(이름 라벨)의 **선행 공백 수를 반드시 세어라**. 라벨이 이미 우측(예: 선행 공백 40칸+)에 몰려 있으면, 거기에 이름을 덧붙이는 순간 이름이 우측정렬 서명(기본 horzOffset ≈ 161mm/폭 22mm, `allowOverlap="1"`) 밑으로 들어가 반드시 겹친다. 이 신호가 보이면 삽입 전에 완화책 ②(공백 축소)를 **선제 적용**한다("일단 넣고 PDF 보고 판단"이 아니다). (2026-07-15 대학 제출 동의서에서 선행 공백 61칸을 흘려보내 이름이 서명에 가려진 실사고. 사용자가 공백 61→39칸으로 당겨 수정.)
 - **이미지 배경**: 투명/흰 배경 PNG를 쓴다. 회색·불투명 배경 이미지는 서명란에 박스가 비치므로 배경 제거 후 사용.
 - **검증은 반드시 PDF로, 그것도 눈으로**: `hwpx-validate`/`--to-md`는 lineseg 손상(함정 3)을 못 잡는다. `--pdf`(COM Open)로만 위치·열림을 확인한다. **단, PDF의 텍스트 추출(Read 도구·`pdftotext` 등)은 콘텐츠 스트림을 읽으므로 floating 이미지가 글자를 덮는 겹침을 감지하지 못한다**: 가려진 이름도 텍스트 레이어엔 멀쩡히 남아 "정상"으로 오판하기 쉽다. 반드시 **서명 구역을 확대해 렌더 이미지를 육안 확인**하라(서명 PNG가 옅으면 전체 썸네일로는 겹침을 놓친다). (2026-07-15 실사고: 텍스트 추출로 "성 명 : 홍길동"이 보여 통과로 판단했으나 실제로는 서명 이미지가 그 이름을 덮고 있었다.)
+- **서명란이 글상자·표 안에 있으면 자동 좌표가 어긋난다**: 그 안의 lineseg `vertpos`/`horzpos`는 **개체 기준 상대좌표**라 종이 절대좌표(`vertRelTo="PAPER"`)와 직접 더할 수 없다. 도구가 이 경우 WARN을 출력하며, `--horz-offset`/`--vert-adjust`로 보정한다(개체 기준 오프셋은 문서마다 상수이므로 한 번 맞추면 재사용 가능). 공문 양식은 본문 전체가 글상자 한 개인 경우가 흔하니 WARN이 뜨면 반드시 PDF를 육안 확인할 것.
 - **COM 프로세스 잔류**: 연속 실행 중 PDF 변환이 "문서 열기 실패"로 죽으면 `taskkill /F /IM Hwp.exe` 후 재시도.
 - **서명 이미지 경로**: 이 저장소에는 서명 이미지를 포함하지 않는다. 사용할 서명/도장 이미지 파일 경로는 호출 시 `--image`로 직접 지정한다(투명/흰 배경 PNG 권장).
 
