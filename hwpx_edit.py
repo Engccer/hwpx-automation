@@ -20,10 +20,15 @@ hwpx_edit.py - HWPX 파일 편집 유틸리티
 """
 
 import argparse
+import contextlib
 import copy
 import os
+import re
+import shutil
 import sys
+import tempfile
 import zipfile
+from collections import Counter
 from io import BytesIO
 
 # lxml 미설치 기기에서도 --check-env(환경 진단)가 동작해야 하므로 여기서 죽지 않는다.
@@ -106,6 +111,43 @@ ENCRYPTION_HINT = (
 )
 
 
+# XML 1.0 Char 프로덕션에서 배제된 제어문자(탭 0x09·개행 0x0A·복귀 0x0D 제외).
+ILLEGAL_XML_BYTES = re.compile(rb"[\x00-\x08\x0B\x0C\x0E-\x1F]")
+
+
+def sanitize_xml_parts(all_files):
+    """HWPX의 XML 파트에서 XML 1.0 불법 제어문자를 제거한다(제자리 수정).
+
+    hwp2hwpx 변환본은 하이퍼링크 필드의 <hp:stringParam name="Command"> 값에
+    HWP 바이너리의 NUL 패딩을 그대로 써 넣는다. NUL 등은 XML 1.0에서
+    이스케이프로도 표현할 수 없는 불법 문자라 lxml이 그 지점에서 파싱을
+    중단한다("Premature end of data").
+
+    정제는 파싱 직전 바이트가 아니라 **all_files 딕셔너리에** 적용한다. 트리만
+    고치면 재직렬화되지 않는 파트(header.xml·section1.xml·--add-preview
+    산출물)에 불법 바이트가 남아 hwpx-validate-package가 malformed XML을 낸다.
+
+    BinData는 건드리지 않는다(이미지 바이너리에는 제어 바이트가 정상적으로
+    수만 개 들어 있다). 탭·개행·복귀는 XML 1.0 합법이라 보존한다.
+
+    Returns:
+        제거한 총 바이트 수(0이면 아무것도 바꾸지 않았다).
+    """
+    total = 0
+    for name in list(all_files):
+        if name.startswith('BinData/') or not name.endswith(('.xml', '.hpf', '.rdf')):
+            continue
+        data = all_files[name]
+        if not ILLEGAL_XML_BYTES.search(data):
+            continue
+        found = ILLEGAL_XML_BYTES.findall(data)
+        all_files[name] = ILLEGAL_XML_BYTES.sub(b'', data)
+        total += len(found)
+        kinds = ', '.join(f"0x{v[0]:02X} {n}개" for v, n in sorted(Counter(found).items()))
+        print(f"sanitize: {name}에서 XML 1.0 불법 제어문자 {len(found)}바이트 제거 ({kinds})")
+    return total
+
+
 def open_hwpx(filepath):
     """HWPX 파일을 열어 section0.xml의 etree와 원본 ZIP 데이터를 반환"""
     if is_encrypted_hwpx(filepath):
@@ -120,12 +162,19 @@ def open_hwpx(filepath):
             sys.exit(1)
 
         section_path = section_files[0]
-        section_xml = zf.read(section_path)
         all_files = {}
         for name in zf.namelist():
             all_files[name] = zf.read(name)
 
-    root = etree.fromstring(section_xml)
+    # 불법 제어문자는 여기서 한 번만 걷어낸다. all_files를 고치므로 파싱뿐
+    # 아니라 재패키징되는 산출물까지 정상 XML이 된다.
+    sanitize_xml_parts(all_files)
+
+    try:
+        root = etree.fromstring(all_files[section_path])
+    except etree.XMLSyntaxError as exc:
+        print(f"오류: {section_path} 파싱 실패: {exc}", file=sys.stderr)
+        sys.exit(1)
     return root, all_files, section_path
 
 
@@ -407,6 +456,41 @@ def cmd_info(filepath):
         print()
 
 
+def sanitize_illegal_xml_file(filepath):
+    """XML 파트에 불법 제어문자가 있으면 정제한 임시 사본 경로를 반환한다.
+
+    python-hwpx(HwpxDocument.open)는 자체 파서로 section XML을 읽으므로
+    open_hwpx의 정제를 거치지 않는다. 열기 전에 정제본을 만들어 그 파일을
+    넘긴다. 정제할 것이 없으면 None을 반환한다. 임시본은 시스템 temp에
+    만든다(원본 폴더에 두면 동기화 폴더 오염·읽기 전용 폴더 실패·중단 시
+    문서 사본 잔존 문제가 생긴다). 호출자는 반환된 파일을 반드시 삭제한다.
+    """
+    with zipfile.ZipFile(filepath, 'r') as zf:
+        data = {n: zf.read(n) for n in zf.namelist()}
+
+    if sanitize_xml_parts(data) == 0:
+        return None
+
+    tmp_dir = tempfile.mkdtemp(prefix='hwpx_edit_')
+    tmp_path = os.path.join(tmp_dir, os.path.basename(filepath))
+    write_hwpx_zip(tmp_path, data, zip_layout(filepath))
+    return tmp_path
+
+
+@contextlib.contextmanager
+def sanitized_source(filepath):
+    """불법 제어문자가 있으면 정제 임시본 경로를, 없으면 원본 경로를 내준다.
+
+    임시본은 블록을 벗어날 때(오류·조기 종료 포함) 반드시 삭제된다.
+    """
+    tmp = sanitize_illegal_xml_file(filepath)
+    try:
+        yield tmp or filepath
+    finally:
+        if tmp:
+            shutil.rmtree(os.path.dirname(tmp), ignore_errors=True)
+
+
 def cmd_find_replace(filepath, find_text, replace_text, output=None):
     """텍스트 치환: python-hwpx(본문 런, 서식 보존) + lxml(표 셀 등 누락분 보완)"""
     from hwpx.document import HwpxDocument
@@ -424,35 +508,38 @@ def cmd_find_replace(filepath, find_text, replace_text, output=None):
     # save → save_to_path로 개명(6.x에 save 자체가 없음). 구 API를 그대로 쓰면
     # 6.x에서 AttributeError로 --find/--replace가 전면 실패한다. 신 API 우선 +
     # 구 API 폴백으로 5.x~7.x를 모두 지원한다.
-    try:
-        doc = HwpxDocument.open(filepath)
-    except Exception as e:
-        # hwp2hwpx(JAR) 변환물은 container.xml이 Preview/PrvText.txt를 선언하면서도
-        # 그 항목을 만들지 않아 python-hwpx가 열기를 거부한다(한글·--to-md는 정상).
-        if 'Preview/PrvText.txt' in str(e):
-            # --add-preview는 in-place가 아니라 byproduct 경로에 쓴다. 같은 경로로
-            # 안내하면 사용자가 명령을 그대로 따라도 원본은 그대로여서 무한 반복에
-            # 걸린다. 실제 산출 경로와 그 파일로 재실행하라는 것까지 알려준다.
-            fixed = get_output_path(filepath)
-            print(f"오류: {e}\n"
-                  f"  hwp2hwpx 변환물의 알려진 결함입니다. 두 단계로 보정하세요:\n"
-                  f"    python hwpx_edit.py \"{filepath}\" --add-preview\n"
-                  f"    python hwpx_edit.py \"{fixed}\" --find ... --replace ...\n"
-                  f"  (--add-preview는 원본을 고치지 않고 위 경로에 보정본을 만듭니다)",
-                  file=sys.stderr)
-            sys.exit(1)
-        raise
+    # python-hwpx는 자체 파서를 쓰므로 open_hwpx의 정제를 거치지 않는다. 불법
+    # 제어문자가 있으면 정제본을 만들어 그 파일을 넘긴다(정상 파일은 무비용).
+    with sanitized_source(filepath) as src:
+        try:
+            doc = HwpxDocument.open(src)
+        except Exception as e:
+            # hwp2hwpx(JAR) 변환물은 container.xml이 Preview/PrvText.txt를 선언하면서도
+            # 그 항목을 만들지 않아 python-hwpx가 열기를 거부한다(한글·--to-md는 정상).
+            if 'Preview/PrvText.txt' in str(e):
+                # --add-preview는 in-place가 아니라 byproduct 경로에 쓴다. 같은 경로로
+                # 안내하면 사용자가 명령을 그대로 따라도 원본은 그대로여서 무한 반복에
+                # 걸린다. 실제 산출 경로와 그 파일로 재실행하라는 것까지 알려준다.
+                fixed = get_output_path(filepath)
+                print(f"오류: {e}\n"
+                      f"  hwp2hwpx 변환물의 알려진 결함입니다. 두 단계로 보정하세요:\n"
+                      f"    python hwpx_edit.py \"{filepath}\" --add-preview\n"
+                      f"    python hwpx_edit.py \"{fixed}\" --find ... --replace ...\n"
+                      f"  (--add-preview는 원본을 고치지 않고 위 경로에 보정본을 만듭니다)",
+                      file=sys.stderr)
+                sys.exit(1)
+            raise
 
-    # isinstance(str) 배제: 구버전에서 doc.text가 본문 문자열이면 str.replace가
-    # 잡혀 문서를 고치지 않고 문자열만 반환하는 조용한 실패가 된다.
-    text_ns = getattr(doc, 'text', None)
-    if not isinstance(text_ns, str) and hasattr(text_ns, 'replace'):
-        count_runs = text_ns.replace(find_text, replace_text)
-    else:
-        count_runs = doc.replace_text_in_runs(find_text, replace_text)
-    save_path = output if output else get_output_path(filepath)
-    save_doc = getattr(doc, 'save_to_path', None) or getattr(doc, 'save')
-    save_doc(save_path)
+        # isinstance(str) 배제: 구버전에서 doc.text가 본문 문자열이면 str.replace가
+        # 잡혀 문서를 고치지 않고 문자열만 반환하는 조용한 실패가 된다.
+        text_ns = getattr(doc, 'text', None)
+        if not isinstance(text_ns, str) and hasattr(text_ns, 'replace'):
+            count_runs = text_ns.replace(find_text, replace_text)
+        else:
+            count_runs = doc.replace_text_in_runs(find_text, replace_text)
+        save_path = output if output else get_output_path(filepath)
+        save_doc = getattr(doc, 'save_to_path', None) or getattr(doc, 'save')
+        save_doc(save_path)
 
     # 2차: lxml으로 1차에서 누락된 <hp:t> 요소만 추가 치환 (표 셀 등)
     # 1차가 이미 치환한 텍스트에는 find_text가 남아있지 않으므로,
@@ -1154,6 +1241,8 @@ def cmd_add_preview(filepath, output=None):
     with zipfile.ZipFile(filepath, 'r') as zf:
         names = zf.namelist()
         data = {n: zf.read(n) for n in names}
+
+    sanitize_xml_parts(data)
 
     if 'Preview/PrvText.txt' in data:
         print("Preview/PrvText.txt가 이미 있습니다. 변경 없음.")
