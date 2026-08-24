@@ -396,10 +396,21 @@ def to_floating(doc: str, out: str, w_hu: int, h_hu: int,
     p_start = prevs[-1].start()
     p_end = xml.find("</hp:p>", p_start) + len("</hp:p>")
     dpara = xml[p_start:p_end]
+    # hp:pic은 반드시 hp:run 안에 있어야 한글이 렌더링한다(밖에 두면 hwpx-validate는
+    # 통과하지만 그림이 조용히 사라진다 — 2026-08-24 서약서 실측).
     # 직전 문단의 첫 hp:run 내부 끝(</hp:run>) 앞에 pic 삽입
     dpara2 = re.sub(r'</hp:run>', lambda m: pic + "</hp:run>", dpara, count=1)
-    if dpara2 == dpara:  # run이 없으면 문단 끝에
-        dpara2 = dpara.replace("</hp:p>", pic + "</hp:p>", 1)
+    if dpara2 == dpara:
+        # 빈 문단은 run이 self-closing(<hp:run charPrIDRef="N"/>)이라 </hp:run>이 없다.
+        # 열린 태그로 바꿔 그 안에 넣는다.
+        m = re.search(r'<hp:run[^>]*?/>', dpara)
+        if m:
+            open_tag = m.group(0)[:-2] + ">"
+            dpara2 = (dpara[:m.start()] + open_tag + pic + "</hp:run>"
+                      + dpara[m.end():])
+    if dpara2 == dpara:  # run이 아예 없으면 run을 만들어 감싼다
+        dpara2 = dpara.replace(
+            "</hp:p>", '<hp:run charPrIDRef="0">' + pic + "</hp:run></hp:p>", 1)
     dpara2 = re.sub(r'<hp:linesegarray>.*?</hp:linesegarray>', '', dpara2, flags=re.DOTALL)
     xml = xml[:p_start] + dpara2 + xml[p_end:]
 
