@@ -1,0 +1,13 @@
+diff --git a/src/main/java/kr/dogfoot/hwp2hwpx/section/ForChars.java b/src/main/java/kr/dogfoot/hwp2hwpx/section/ForChars.java
+index 8c3df49..4caf5db 100644
+--- a/src/main/java/kr/dogfoot/hwp2hwpx/section/ForChars.java
++++ b/src/main/java/kr/dogfoot/hwp2hwpx/section/ForChars.java
+@@ -194,6 +194,8 @@ public class ForChars extends Converter {
+         endT();
+ 
+         if (hwpPara == null || hwpPara.getControlList() == null) return;
++        // 컨트롤 문자 수가 컨트롤 데이터 수보다 많은 문단(머리글·바닥글 등)에서 범위 초과 방지
++        if (extendControlIndex < 0 || extendControlIndex >= hwpPara.getControlList().size()) return;
+ 
+         Control hwpControl = hwpPara.getControlList().get(extendControlIndex);
+         if (hwpControl.isField()) {

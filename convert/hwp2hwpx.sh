@@ -41,6 +41,6 @@ fi
 
 # macOS/Linux JVM은 UTF-8 로케일에서 argv를 그대로 받으므로
 # .bat의 임시 폴더 staging(cp949 우회)이 여기서는 필요 없다.
-CP="$TOOL_DIR/hwp2hwpx-1.0.0.jar:$TOOL_DIR/lib/hwplib-1.1.10.jar:$TOOL_DIR/lib/hwpxlib-1.0.8.jar:$TOOL_DIR"
+CP="$TOOL_DIR/hwp2hwpx-1.0.0-c9d8a27p1.jar:$TOOL_DIR/lib/hwplib-1.1.10.jar:$TOOL_DIR/lib/hwpxlib-1.0.9.jar:$TOOL_DIR"
 
 exec "$JAVA_BIN" -cp "$CP" Hwp2HwpxCLI "$INPUT" "$OUTPUT"

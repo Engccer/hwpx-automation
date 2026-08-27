@@ -17,9 +17,9 @@ if not defined JAVA_BIN (
 )
 set "TOOL_DIR=%~dp0"
 if "%TOOL_DIR:~-1%"=="\" set "TOOL_DIR=%TOOL_DIR:~0,-1%"
-set "JAR1=%TOOL_DIR%\hwp2hwpx-1.0.0.jar"
+set "JAR1=%TOOL_DIR%\hwp2hwpx-1.0.0-c9d8a27p1.jar"
 set "JAR2=%TOOL_DIR%\lib\hwplib-1.1.10.jar"
-set "JAR3=%TOOL_DIR%\lib\hwpxlib-1.0.8.jar"
+set "JAR3=%TOOL_DIR%\lib\hwpxlib-1.0.9.jar"
 set "CP=%JAR1%;%JAR2%;%JAR3%;%TOOL_DIR%"
 
 set "INPUT=%~1"
