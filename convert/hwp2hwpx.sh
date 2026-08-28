@@ -43,4 +43,6 @@ fi
 # .bat의 임시 폴더 staging(cp949 우회)이 여기서는 필요 없다.
 CP="$TOOL_DIR/hwp2hwpx-1.0.0-c9d8a27p1.jar:$TOOL_DIR/lib/hwplib-1.1.10.jar:$TOOL_DIR/lib/hwpxlib-1.0.9.jar:$TOOL_DIR"
 
-exec "$JAVA_BIN" -cp "$CP" Hwp2HwpxCLI "$INPUT" "$OUTPUT"
+# 20MB급 HWP(그림 많은 안내서)는 기본 힙으로 불안하다(2026-08-28 실측: 23MB·21MB 파일에서 -Xmx6g로 성공).
+# 필요 시 HWP2HWPX_JAVA_OPTS="-Xmx8g" 로 조정한다.
+exec "$JAVA_BIN" ${HWP2HWPX_JAVA_OPTS:--Xmx4g} -cp "$CP" Hwp2HwpxCLI "$INPUT" "$OUTPUT"
