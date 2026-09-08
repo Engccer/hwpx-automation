@@ -2,7 +2,7 @@
 name: hwpx-automation
 description: "HWP/HWPX 문서 읽기, 변환, 편집을 위한 통합 워크플로우. HWP 또는 HWPX 파일을 다룰 때 사용. HWP 파일은 모두 HWPX로 변환 후 처리한다. 트리거: (1) HWP/HWPX 파일 읽기/파싱 요청 (2) HWP→HWPX 변환 요청 (3) HWPX 문서 편집(텍스트 치환, 표 셀 채우기, 양식 작성) (4) 한글 문서 템플릿 기반 자동화 작업 (5) HWPX 구조적 편집(행/표/단락 추가) (6) HWPX에 이미지 삽입 (7) HWPX→PDF 변환 (8) 한컴 COM 자동화 (9) HWPX 서명란에 서명·도장 이미지 삽입(signature/seal/도장 삽입, 동의서·계약서·서약서 서명)"
 metadata:
-  version: "1.1.0"
+    version: "1.1.1"
 ---
 
 # HWP/HWPX 작업 자동화 스킬
@@ -14,6 +14,7 @@ metadata:
 - **hwpx-tomd**: `--to-md` 변환 엔진을 단일 소스로 보유한 독립 패키지. `pip install hwpx-tomd` (PyPI·GitHub `Engccer/hwpx-tomd` 공개. 엔진 자체를 수정할 때만 로컬 editable: `pip install -e path/to/hwpx-tomd`). 라이브러리로도 직접 사용 가능(`from hwpx_tomd import to_markdown, convert`). 변환 로직은 이 패키지에만 있고 `hwpx_edit.py`는 호출만 한다(코드 분기 방지).
 - **hwpx_convert.py**: 이 디렉토리의 `convert/hwpx_convert.py` (MD/DOCX/HTML/RST/TEX/TXT → HWPX 변환, `pip install pypandoc-hwpx` 필요)
 - **hwpx_com.py**: 이 디렉토리의 `hwpx_com.py` (한컴 COM 네이티브 파이프라인, pyhwpx 기반, Windows + 한컴오피스 전용, `pip install pyhwpx` 필요). MD→HWPX 생성·이미지 삽입·본문 추출·한컴 재저장 정규화(--normalize)·PDF 변환. XML/Pandoc 파이프라인과 **분리 운용**(아래 "한컴 COM 자동화" 참조)
+- **PDF 변경 추적 경고 자동 처리**: 두 CLI의 `--to-pdf`는 `pdf_export.py`를 공유한다. PDF 저장 구간에서만 변경 추적 형식 경고에 저장으로 응답하고 원래 메시지 모드를 복원한다. 원본 이력은 수정하지 않는다. 상세와 적용 범위는 `reference/warnings-com.md` 15번 참조.
 - **hwpx_sign.py**: 이 디렉토리의 `hwpx_sign.py` (서명란(기준 텍스트 "(서명)" 등)에 서명/도장 이미지를 삽입하는 전용 도구, Windows + 한컴오피스 필요). COM으로 이미지를 넣어 BinData를 확보한 뒤 XML 후처리로 floating PAPER 절대좌표 전환·앵커 위 문단 이동·lineseg 제거를 자동 수행한다(아래 "서명/도장 이미지 삽입" 참조)
 - **hwp2hwpx**: 이 디렉토리의 `convert/hwp2hwpx.bat`(Windows) 또는 `convert/hwp2hwpx.sh`(macOS/Linux)
 - **python-hwpx CLI**: `pip install python-hwpx` (v2.9.0+): `hwpx-validate`, `hwpx-page-guard` 등

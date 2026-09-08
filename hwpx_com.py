@@ -341,7 +341,8 @@ def cmd_to_pdf(filepath, output=None, password=None):
     hwp = create_hwp(visible=False)
     try:
         open_for_com(hwp, filepath, password)
-        hwp.save_as(abs_output, format="PDF")
+        from pdf_export import save_pdf
+        save_pdf(hwp.hwp, abs_output)
     finally:
         hwp.quit()
 

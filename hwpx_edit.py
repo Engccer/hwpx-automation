@@ -1518,7 +1518,8 @@ def cmd_to_pdf(filepath, output=None, password=None):
         opened = hwp.Open(abs_input, fmt, open_arg)
         if not opened:
             raise RuntimeError(f"한컴 COM이 파일을 열지 못했습니다: {abs_input}")
-        hwp.SaveAs(abs_output, "PDF", "")
+        from pdf_export import save_pdf
+        save_pdf(hwp, abs_output)
     except Exception as exc:
         print(f"오류: PDF 저장 실패: {exc}", file=sys.stderr)
         sys.exit(1)
