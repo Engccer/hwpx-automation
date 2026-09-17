@@ -7,7 +7,7 @@ hwpx_edit.py - HWPX 파일 편집 유틸리티
   python hwpx_edit.py <파일.hwpx> --info                       # 표 구조 출력
   python hwpx_edit.py <파일.hwpx> --to-md                      # HWPX → Markdown 변환 (hwpx-tomd 엔진, API 불필요)
   python hwpx_edit.py --diagnose-com                         # 한컴 COM 자동화 진단
-  python hwpx_edit.py <파일.hwpx> --to-pdf                    # 한컴 COM으로 HWPX/HWP → PDF
+  python hwpx_edit.py <파일.hwpx> --to-pdf                    # HWPX/HWP → PDF (Windows 한컴 COM, 그 밖의 OS rhwp)
   python hwpx_edit.py <파일.hwpx> --find "이전" --replace "이후"  # 텍스트 치환
   python hwpx_edit.py <파일.hwpx> --set-cell 0,1,0 "텍스트"     # 표 셀에 텍스트 입력
   python hwpx_edit.py <파일.hwpx> --split-cell 0,1,0            # 병합 셀 분할
@@ -16,7 +16,7 @@ hwpx_edit.py - HWPX 파일 편집 유틸리티
   - 편집 명령(--find/--set-cell 등): python-hwpx, lxml
   - 변환(--to-md): hwpx-tomd 패키지 (pip install hwpx-tomd). 변환 엔진은 이 패키지가
     단일 소스로 관리하며, 본 파일은 출력 경로·콘솔 메시지 등 CLI 래퍼만 담당한다.
-  - PDF 변환(--to-pdf): Windows + 한컴오피스 + pywin32
+  - PDF 변환(--to-pdf): Windows는 한컴오피스 + pywin32, 그 밖의 OS는 rhwp CLI(rhwp_pdf.py)
 """
 
 import argparse
@@ -1421,20 +1421,33 @@ def cmd_check_env():
                         break
         except OSError:
             pass
+
+    def java_version(exe):
+        try:
+            out = subprocess.run([exe, "-version"], capture_output=True, text=True, timeout=10)
+            lines = (out.stderr or out.stdout or "").splitlines()
+            return lines[0].strip() if lines else ""
+        except Exception:
+            return ""
+
     java_exe = os.path.join(java_home, "bin", "java.exe") if java_home else None
-    if java_exe and os.path.exists(java_exe):
+    if sys.platform != "win32":
+        # hwp2hwpx.sh는 환경변수 JAVA_HOME → PATH 순으로 java를 찾는다(.bat의 JAVA_HOME과 무관).
+        java_home_env = os.environ.get("JAVA_HOME")
+        env_java = os.path.join(java_home_env, "bin", "java") if java_home_env else None
+        sh_java = env_java if env_java and os.access(env_java, os.X_OK) else shutil.which("java")
+        if sh_java:
+            ver = java_version(sh_java)
+            print(f"  [O] JDK          {sh_java}{('  ·  ' + ver) if ver else ''}")
+        else:
+            print(f"  [설치] JDK        JDK 21 설치(또는 JAVA_HOME 지정): https://adoptium.net/ (Temurin 21)")
+            t2_ok = False
+    elif java_exe and os.path.exists(java_exe):
         print(f"  [O] JDK          {java_home}")
     else:
         path_java = shutil.which("java")
         if path_java:
-            ver = ""
-            try:
-                out = subprocess.run([path_java, "-version"], capture_output=True,
-                                     text=True, timeout=10)
-                lines = (out.stderr or out.stdout or "").splitlines()
-                ver = lines[0].strip() if lines else ""
-            except Exception:
-                pass
+            ver = java_version(path_java)
             print(f"  [경고] JDK        hwp2hwpx.bat의 JAVA_HOME 경로 없음 → PATH의 java 사용 가능")
             print(f"          {path_java}{('  ·  ' + ver) if ver else ''}")
             print(f"          JDK 21 권장. 경로가 다르면 convert/hwp2hwpx.bat의 JAVA_HOME을 수정")
@@ -1476,10 +1489,16 @@ def cmd_check_env():
     if t3_ok:
         ready.append("MD→HWPX 변환")
 
-    # Tier 4: PDF·이미지·서명 (Windows + 한컴오피스 COM)
-    print("\n[Tier 4] PDF·이미지·서명 (Windows + 한컴오피스 COM)")
+    # Tier 4: PDF·이미지·서명 (Windows + 한컴오피스 COM, 그 밖의 OS는 PDF만 rhwp)
+    print("\n[Tier 4] PDF·이미지·서명 (Windows 한컴 COM · 그 밖의 OS는 PDF만 rhwp)")
     if sys.platform != "win32":
-        print("  [-] 이 플랫폼에서는 해당 없음 (Windows + 한컴오피스 전용)")
+        rhwp = shutil.which("rhwp")
+        if rhwp:
+            print(f"  [O] rhwp           --to-pdf 오픈소스 렌더러(한컴 아님) {rhwp}")
+            ready.append("PDF 변환(rhwp)")
+        else:
+            print("  [설치] rhwp         --to-pdf용: https://github.com/edwardkim/rhwp/releases 바이너리를 PATH에")
+        print("  [-] 이미지 삽입·서명·한컴 정규화는 Windows + 한컴오피스 전용")
     else:
         if installed("win32com"):
             print(f"  [O] pywin32        COM 기본 의존성(--to-pdf, hwpx_sign.py 등)")
@@ -1499,9 +1518,13 @@ def cmd_check_env():
 
 
 def cmd_to_pdf(filepath, output=None, password=None):
-    """한컴오피스 COM으로 HWP/HWPX를 PDF로 저장."""
+    """HWP/HWPX를 PDF로 저장. Windows는 한컴오피스 COM, 그 밖의 OS는 rhwp."""
     if output is None:
         output = get_output_path(filepath, ".pdf")
+
+    if sys.platform != "win32":
+        cmd_to_pdf_rhwp(filepath, output, password)
+        return
 
     abs_input = os.path.abspath(filepath)
     abs_output = os.path.abspath(output)
@@ -1531,6 +1554,27 @@ def cmd_to_pdf(filepath, output=None, password=None):
         sys.exit(1)
 
     print(f"PDF 저장: {abs_output}")
+
+
+def cmd_to_pdf_rhwp(filepath, output, password=None):
+    """rhwp 렌더링 PDF. 글꼴에 없는 문자가 빈 네모로 찍혔으면 PDF는 남기고 exit 2."""
+    from rhwp_pdf import save_pdf
+    try:
+        report = save_pdf(filepath, output, password)
+    except Exception as exc:
+        print(f"오류: PDF 저장 실패: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"PDF 저장: {os.path.abspath(output)}")
+    print("  렌더러: rhwp(한컴 아님) · 사용 글꼴: " + ", ".join(report["fonts"]))
+    if report["overflow"]:
+        print(f"경고: 쪽 하단 넘침 {report['overflow']}건. 쪽 끝 줄이 잘리지 않았는지 렌더를 눈으로 확인하세요.",
+              file=sys.stderr)
+    if report["missing"]:
+        chars = " ".join(f"{c}(U+{ord(c):04X})" for c in report["missing"])
+        print(f"오류: 글꼴에 없는 문자가 빈 네모로 찍혔습니다: {chars}. "
+              "배포 전에 한컴(Windows)으로 변환하거나 해당 문자를 바꾸세요.", file=sys.stderr)
+        sys.exit(2)
 
 
 def cmd_remove_text(filepath, search_text, output=None):
@@ -1595,7 +1639,7 @@ def main():
   %(prog)s doc.hwpx --list-squeeze        # "한 줄로 입력" 과압축 문단 나열
   %(prog)s doc.hwpx --fix-squeeze         # 과압축 문단을 자연 줄바꿈으로 전환
   %(prog)s --diagnose-com                 # 한컴 COM 자동화 진단
-  %(prog)s doc.hwpx --to-pdf              # 한컴 COM으로 PDF 저장
+  %(prog)s doc.hwpx --to-pdf              # PDF 저장 (Windows 한컴 COM, 그 밖의 OS rhwp)
   %(prog)s doc.hwpx --set-cell 0,1,0 "텍스트" -o output.hwpx
         """)
 
@@ -1604,7 +1648,8 @@ def main():
     parser.add_argument('--to-md', action='store_true',
                         help='HWPX → Markdown 변환 (XML 직접 파싱, API 불필요)')
     parser.add_argument('--to-pdf', action='store_true',
-                        help='한컴오피스 COM으로 HWPX/HWP → PDF 저장 (Windows + 한컴오피스 필요)')
+                        help='HWPX/HWP → PDF 저장 (Windows는 한컴오피스 COM, 그 밖의 OS는 rhwp. '
+                             'rhwp에서 글꼴에 없는 문자가 있으면 exit 2)')
     parser.add_argument('--check-env', action='store_true',
                         help='기능 계층(tier)별 의존성·런타임 준비 상태 점검 (첫 실행·의존성 의심 시, 읽기 전용)')
     parser.add_argument('--diagnose-com', action='store_true',

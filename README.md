@@ -6,7 +6,7 @@ HWP/HWPX 문서 읽기, 변환, 편집을 위한 CLI 도구 + Claude Code 스킬
 
 - **HWPX → Markdown 변환**: XML 직접 파싱, API 불필요, 무료
 - **HWP → HWPX 변환**: Java 기반, 서식 100% 보존
-- **HWPX/HWP → PDF 변환**: 한컴오피스 COM 자동화 기반, 원본 조판 보존
+- **HWPX/HWP → PDF 변환**: Windows는 한컴오피스 COM(원본 조판 보존), macOS·Linux는 오픈소스 rhwp(글꼴 대체, 글꼴에 없는 문자 자동 검출)
 - **HWPX 편집**: 텍스트 치환, 표 셀 채우기, 병합 셀 분할
 - **Claude Code 스킬**: `SKILL.md`를 통한 AI 에이전트 자동화 워크플로우
 
@@ -70,9 +70,9 @@ ln -s /path/to/hwpx-automation ~/.claude/skills/hwpx-automation
 - Python 3.10+
 - JDK 21 (HWP → HWPX 변환 시)
 - `python-hwpx`, `lxml`
-- Windows + 한컴오피스 + `pywin32` (HWPX/HWP → PDF 변환 시)
+- HWPX/HWP → PDF 변환 시: Windows는 한컴오피스 + `pywin32`, macOS·Linux는 [rhwp](https://github.com/edwardkim/rhwp/releases) CLI
 
-플랫폼별 지원 범위: HWPX 읽기(`--to-md`)와 텍스트·표 편집은 순수 Python이라 Windows/macOS/Linux 어디서나 동작합니다. HWP → HWPX 변환은 JDK 21만 있으면 크로스플랫폼이며, Windows는 `convert/hwp2hwpx.bat`, macOS/Linux는 `convert/hwp2hwpx.sh`를 사용합니다. PDF 변환과 한컴 COM 자동화는 Windows + 한컴오피스 전용입니다.
+플랫폼별 지원 범위: HWPX 읽기(`--to-md`)와 텍스트·표 편집은 순수 Python이라 Windows/macOS/Linux 어디서나 동작합니다. HWP → HWPX 변환은 JDK 21만 있으면 크로스플랫폼이며, Windows는 `convert/hwp2hwpx.bat`, macOS/Linux는 `convert/hwp2hwpx.sh`를 사용합니다. PDF 변환은 Windows에서 한컴오피스 COM, macOS·Linux에서 rhwp CLI를 사용합니다. 그 밖의 한컴 COM 자동화(이미지 삽입·서명·한컴 정규화)는 Windows + 한컴오피스 전용입니다.
 
 ## 프로젝트 구조
 
@@ -112,6 +112,7 @@ hwpx-automation/
 | [hwplib](https://github.com/neolord0/hwplib) | Apache-2.0 | JAR 포함 |
 | [hwpxlib](https://github.com/neolord0/hwpxlib) | Apache-2.0 | JAR 포함 |
 | [hwp2hwpx](https://github.com/neolord0/hwp2hwpx) | Apache-2.0 | JAR 포함 |
+| [rhwp](https://github.com/edwardkim/rhwp) | MIT | 별도 설치 CLI (macOS·Linux PDF 변환) |
 
 > **주의**: `python-hwpx`는 비상업적 라이선스입니다. 이 프로젝트를 상업적 목적으로 사용하려면 `python-hwpx`의 라이선스 조건을 별도로 확인하세요.
 

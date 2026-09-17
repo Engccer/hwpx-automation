@@ -2,7 +2,7 @@
 name: hwpx-automation
 description: "HWP/HWPX 문서 읽기, 변환, 편집을 위한 통합 워크플로우. HWP 또는 HWPX 파일을 다룰 때 사용. HWP 파일은 모두 HWPX로 변환 후 처리한다. 트리거: (1) HWP/HWPX 파일 읽기/파싱 요청 (2) HWP→HWPX 변환 요청 (3) HWPX 문서 편집(텍스트 치환, 표 셀 채우기, 양식 작성) (4) 한글 문서 템플릿 기반 자동화 작업 (5) HWPX 구조적 편집(행/표/단락 추가) (6) HWPX에 이미지 삽입 (7) HWPX→PDF 변환 (8) 한컴 COM 자동화 (9) HWPX 서명란에 서명·도장 이미지 삽입(signature/seal/도장 삽입, 동의서·계약서·서약서 서명)"
 metadata:
-    version: "1.1.1"
+    version: "1.2.0"
 ---
 
 # HWP/HWPX 작업 자동화 스킬
@@ -15,6 +15,7 @@ metadata:
 - **hwpx_convert.py**: 이 디렉토리의 `convert/hwpx_convert.py` (MD/DOCX/HTML/RST/TEX/TXT → HWPX 변환, `pip install pypandoc-hwpx` 필요)
 - **hwpx_com.py**: 이 디렉토리의 `hwpx_com.py` (한컴 COM 네이티브 파이프라인, pyhwpx 기반, Windows + 한컴오피스 전용, `pip install pyhwpx` 필요). MD→HWPX 생성·이미지 삽입·본문 추출·한컴 재저장 정규화(--normalize)·PDF 변환. XML/Pandoc 파이프라인과 **분리 운용**(아래 "한컴 COM 자동화" 참조)
 - **PDF 변경 추적 경고 자동 처리**: 두 CLI의 `--to-pdf`는 `pdf_export.py`를 공유한다. PDF 저장 구간에서만 변경 추적 형식 경고에 저장으로 응답하고 원래 메시지 모드를 복원한다. 원본 이력은 수정하지 않는다. 상세와 적용 범위는 `reference/warnings-com.md` 15번 참조.
+- **rhwp_pdf.py**: Windows가 아닌 OS에서 `hwpx_edit.py --to-pdf`가 쓰는 PDF 백엔드. 오픈소스 조판 엔진 rhwp CLI를 호출하고, 글꼴에 없어 빈 네모로 찍힌 문자를 PDF에서 찾아 보고한다(아래 "macOS·Linux에서 PDF 변환 (rhwp)" 참조)
 - **hwpx_sign.py**: 이 디렉토리의 `hwpx_sign.py` (서명란(기준 텍스트 "(서명)" 등)에 서명/도장 이미지를 삽입하는 전용 도구, Windows + 한컴오피스 필요). COM으로 이미지를 넣어 BinData를 확보한 뒤 XML 후처리로 floating PAPER 절대좌표 전환·앵커 위 문단 이동·lineseg 제거를 자동 수행한다(아래 "서명/도장 이미지 삽입" 참조)
 - **hwp2hwpx**: 이 디렉토리의 `convert/hwp2hwpx.bat`(Windows) 또는 `convert/hwp2hwpx.sh`(macOS/Linux)
 - **python-hwpx CLI**: `pip install python-hwpx` (v2.9.0+): `hwpx-validate`, `hwpx-page-guard` 등
@@ -32,7 +33,7 @@ python <스킬디렉토리>/hwpx_edit.py --check-env
 - **Tier 1 (읽기·편집, 필수)**: `python-hwpx`·`lxml`·`hwpx-tomd`. `pip install -r requirements.txt` 한 줄이면 충족하며, 대부분의 작업(`--to-md`·텍스트 치환·셀 편집)은 여기까지면 된다.
 - **Tier 2 (HWP→HWPX)**: JDK 21 + 번들 JAR. 래퍼는 Windows `convert/hwp2hwpx.bat`, macOS/Linux `convert/hwp2hwpx.sh`이며 둘 다 `JAVA_HOME` → PATH 순으로 java를 자동 탐색한다.
 - **Tier 3 (MD/DOCX/HTML→HWPX)**: `pypandoc-hwpx`(+ Pandoc). Pandoc은 `pypandoc-hwpx`가 번들 제공할 수 있어 경고만 떠도 변환이 동작할 수 있다.
-- **Tier 4 (PDF·이미지·서명)**: Windows + 한컴오피스 COM(`pywin32`, 선택적 `pyhwpx`). 보안모듈 DLL·레지스트리·한컴 기동까지의 상세 진단은 `--diagnose-com`으로 위임한다.
+- **Tier 4 (PDF·이미지·서명)**: Windows + 한컴오피스 COM(`pywin32`, 선택적 `pyhwpx`). 보안모듈 DLL·레지스트리·한컴 기동까지의 상세 진단은 `--diagnose-com`으로 위임한다. macOS·Linux는 PDF만 `rhwp` CLI로 되고 이미지 삽입·서명·한컴 정규화는 안 된다.
 
 처음 클론한 환경이거나 특정 워크플로우가 의존성·런타임 누락으로 실패하면 먼저 실행해 무엇을 설치할지 확인한다. 환경이 준비된 뒤에는 매 작업마다 실행할 필요가 없다.
 
@@ -71,6 +72,8 @@ HWP/HWPX 작업 요청
 │       ├── 구조적 편집 (행 추가/복제) → Python + regex (아래 구조적 편집 규칙 필수)
 │       └── 복잡한 편집 → python-hwpx + lxml 직접 사용 (reference/api.md + reference/structural.md 참조)
 │   ※ 편집 후 검증: hwpx-validate + hwpx-page-guard
+├── PDF 만들기 → hwpx_edit.py --to-pdf
+│   (Windows는 한컴 COM, macOS·Linux는 rhwp. 아래 "macOS·Linux에서 PDF 변환 (rhwp)")
 └── 새로 생성 (마크다운 등에서)
     ├── 간단한 문서 (스타일 최소, 빠른 변환)
     │   → hwpx_convert.py + 스타일 후처리 (아래 "MD → HWPX 변환 (Pandoc)" 참조)
@@ -92,6 +95,7 @@ HWP/HWPX 작업 요청
 | 표에 행 추가/복제, 표 복제 | raw lxml + regex | **수동 제거 필수** |
 | MD → HWPX 직접 빌드 (보고서급) | python-hwpx API + raw XML | **수동 제거 필수** |
 | 서명란에 서명/도장 이미지 삽입 | `hwpx_sign.py` (COM+XML) | **자동 제거** |
+| HWPX/HWP → PDF | `hwpx_edit.py --to-pdf` (Windows 한컴 COM · 그 밖의 OS rhwp) | N/A |
 | 무결성 검증, 쪽수 드리프트 감지 | python-hwpx CLI | N/A |
 
 ## 출력·정리 규칙 (결과물 vs 부산물)
@@ -637,6 +641,28 @@ python hwpx_sign.py 동의서.hwpx --image 서명.png --anchor "(서명)" --inli
 - **`hp:pic`이 `hp:run` 밖에 놓이면 그림이 조용히 사라진다** (2026-08-24 서약서 실측, 수정 완료): 앵커 이동 대상인 직전 문단이 빈 문단이면 그 run이 self-closing(`<hp:run charPrIDRef="N"/>`)이라 `</hp:run>` 앞 삽입이 실패하고, 예전 폴백은 pic을 `</hp:p>` 앞(=run 밖)에 넣었다. 한글은 오류 없이 **그림을 렌더링하지 않으며** `hwpx-validate`·`hwpx-validate-package`는 모두 통과한다. 검출은 `pdfimages -list <PDF>`가 비어 있는지로 한다(육안보다 결정적). 현재는 self-closing run을 열린 태그로 바꿔 그 안에 넣고, run이 아예 없으면 run을 만들어 감싼다.
 - **서명이 서명줄이 아니라 윗줄에 찍히는 경우**: 서명란이 `<hp:lineBreak/>`로 소속·직급·성명을 한 문단에 쌓은 양식이면 lineseg가 문단 첫 줄 기준이라 자동 세로 좌표가 첫 줄(소속)에 맞는다. 줄 간격만큼 `--vert-adjust`로 내린다(예: 3줄짜리 서명란에서 성명 줄까지 약 +3600 HWPUNIT).
 - **서명 이미지 경로**: 이 저장소에는 서명 이미지를 포함하지 않는다. 사용할 서명/도장 이미지 파일 경로는 호출 시 `--image`로 직접 지정한다(투명/흰 배경 PNG 권장).
+
+## macOS·Linux에서 PDF 변환 (rhwp)
+
+한컴 COM 자동화는 Windows 전용이다. Windows가 아닌 OS에서 `hwpx_edit.py --to-pdf`는 오픈소스 조판 엔진 [rhwp](https://github.com/edwardkim/rhwp)의 `export-pdf`를 호출한다(`rhwp_pdf.py`). 한컴 없이 한글 조판 규칙으로 쪽·줄을 나눈다.
+
+**설치**: Releases에서 플랫폼 바이너리(예: `rhwp-v0.8.6-macos-aarch64.tar.gz`)와 `SHA256SUMS.txt`를 받아 체크섬을 확인한 뒤 PATH(예: `~/.local/bin`)에 둔다. `--check-env`의 Tier 4에 `[O] rhwp`가 뜨면 준비된 것이다.
+
+```bash
+python hwpx_edit.py <파일.hwpx> --to-pdf -o <파일.pdf>
+```
+
+**실측 충실도** (rhwp v0.8.6, 2026-09-17, 한컴 PDF가 함께 있는 성명·답변서 4건 대조): 쪽수 4/4 일치, 글자 누락 0, 줄 단위 일치 96.7~100%. 남은 차이는 세 가지다.
+- 글꼴이 이 컴퓨터 글꼴로 대체된다(맥 실측: 맑은 고딕·HY헤드라인M → Apple SD Gothic Neo, 명조 → 나눔명조).
+- 한 문단에서 줄 끝 단어 하나가 다음 줄로 넘어가는 수준의 줄바꿈 차이가 가끔 생긴다.
+- 제목 옆 짧은 라벨의 세로 위치가 조금 다르다.
+
+**출력 해석**:
+- 표준출력 `사용 글꼴:` 목록으로 대체 여부를 확인한다.
+- `경고: 쪽 하단 넘침 N건`: 조판이 쪽 끝을 몇 px 넘었다는 뜻이다. 실측에서는 쪽수가 그대로였지만 쪽 끝 줄을 렌더로 확인한다.
+- **exit 2 + `글꼴에 없는 문자가 빈 네모로 찍혔습니다: ✅(U+2705)`**: PDF는 남지만 배포하면 안 된다. 이모지·특수기호가 설치 글꼴에 없어 LastResort(빈 네모)로 찍힌 것이다. v0.8.6에서는 `--font-path`·`RHWP_FONT_PATH`·Noto Emoji 사용자 설치 모두 이 대체를 바꾸지 못했다(실측). 해당 문자를 바꾸거나 Windows 한컴으로 변환한다.
+
+**rhwp로 안 되는 것**: 한컴 재저장 정규화(`hwpx_com.py --normalize`), 이미지 삽입, 서명(`hwpx_sign.py`). 한컴과 똑같은 PDF가 꼭 필요하면 Windows 한컴 COM을 쓴다. 원격 Windows에 SSH로 붙으면 COM 서버가 뜨지 않으므로 `schtasks /IT`로 로그인 세션에서 실행한다(위 "폴백 1" 참조).
 
 ## 한컴 COM 자동화 (Windows 전용, 한컴오피스 필수)
 
