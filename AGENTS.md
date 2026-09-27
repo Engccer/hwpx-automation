@@ -71,7 +71,7 @@ python hwpx_edit.py <파일.hwpx> --to-pdf                    # HWPX/HWP → PDF
 한컴 COM(실제 한글 프로그램)을 구동하는 **두 번째 백엔드**. pyhwpx 기반이며
 XML/Pandoc 파이프라인과 섞지 않기 위해 파일을 분리했다(Windows + 한컴오피스 전용).
 이 스크립트가 생성한 HWPX는 COM·XML 양쪽 파이프라인에서 유효하지만,
-Pandoc 생성 HWPX를 입력으로 넣으면 안 된다(`reference/warnings-com.md` 4번).
+Pandoc 생성 HWPX를 입력으로 넣으면 안 된다(`--get-text` 호환성 점검만 예외, `reference/warnings-com.md` 4번).
 입력 파일을 절대 in-place로 덮어쓰지 않는다.
 
 ```bash

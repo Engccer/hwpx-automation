@@ -144,7 +144,8 @@
 
 ### 4. COM은 Pandoc 생성 HWPX 본문을 인식하지 못함
 
-- 2026.4 확인. 본문 인라인 삽입 후 별도 파일 SaveAs 보존은 2026.3.31 세션에서 확인, 2026.4.16 재현 성공.
+- 2026.4 확인.
+- 관찰: Pandoc 생성물에 `MoveDocBegin` → `InsertPicture` → `BreakPara` → 별도 파일로 `SaveAs(다른파일, 'HWPX', '')`하면 내용+이미지가 모두 보존됐다(2026.3.31 세션에서 확인, 2026.4.16 재현 성공). `hwpx_com.py --insert-image`는 `MoveDocEnd`로 넣고 `BreakPara`가 없어 이 경로와 다르며 검증되지 않았다. COM이 본문을 비어 있다고 보므로 규칙은 "Pandoc 생성물은 COM으로 처리하지 않는다"로 둔다.
 
 ### 6·7. COM 생성 HWPX 호환성·`get_text_file()` 래퍼
 

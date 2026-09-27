@@ -373,7 +373,7 @@ def style_table_rows(section_xml, header_bf_id, summary_bf_id, bold_char_id,
     return section_xml
 ```
 
-예시는 while 루프로 표 위치를 매번 다시 계산한다. → 사례
+표를 치환하는 루프는 `for`로 돌리지 않는다(길이가 바뀌면 뒤 표 위치가 어긋난다). → 사례
 
 ### 표 열 너비 조정 (가독성)
 
@@ -685,7 +685,7 @@ header_xml = re.sub(r'(<hc:lineSpacing[^/]*?)value="\d+"', r'\1value="160"', hea
 
 ### 제목 글자색이 파란색으로 나온다
 
-Pandoc HWPX writer는 제목 스타일 charPr에 **Word의 Office 테마 색상**을 그대로 박는다. → 사례 국내 제출·배포 문서는 본문·제목 모두 검정이 관행이므로, 제목이 있는 문서를 변환했으면 **거의 항상 검정 보정이 필요하다**. 텍스트 검증(`--to-md` recall)·`hwpx-validate`로는 절대 드러나지 않고 렌더링에서만 보이므로, 변환 후 PDF 육안 확인 단계에서 잡는다.
+Pandoc HWPX writer는 제목 스타일 charPr에 **Word의 Office 테마 색상**을 그대로 박는다. 국내 제출·배포 문서는 본문·제목 모두 검정이 관행이므로, 제목이 있는 문서를 변환했으면 **거의 항상 검정 보정이 필요하다**. 텍스트 검증(`--to-md` recall)·`hwpx-validate`로는 절대 드러나지 않고 렌더링에서만 보이므로, 변환 후 PDF 육안 확인 단계에서 잡는다. → 사례
 
 기본 charPr 색상표(빈 템플릿 기준, id는 문서마다 동일):
 

@@ -13,12 +13,14 @@
 
 hwp2hwpx가 예외로 죽는 문서는 Windows 한컴오피스 COM으로 HWPX를 만들면 정식 경로(`--to-md`)를 그대로 탈 수 있다: `python hwpx_com.py <파일.hwp> --from-hwp -o <파일.hwpx>`. 원격(SSH)에서 돌릴 때는 `reference/com.md` "원격 실행"을 따른다.
 
-예외 유형별 원인(→ 사례):
+예외 유형별 원인:
 
 | 예외 | 위치 | 원인 |
 |---|---|---|
 | `EmptyStackException` | `ForInlineControl.fieldEnd` | 표 셀 안 필드 컨트롤의 시작/끝 짝 불일치 |
 | `IndexOutOfBoundsException` | `ForChars.extendControl` | 컨트롤 문자 수 > 컨트롤 데이터 수, 주로 머리글·바닥글 문단. 현 번들 JAR은 패치돼 통과 |
+
+위 예외의 관찰 문서는 사례에 있다. → 사례
 
 ## 폴백 2: pyhwp 경유 (텍스트만)
 

@@ -81,9 +81,10 @@ HWP/HWPX 작업 요청
     │   → python-hwpx build-from-scratch (아래 "MD → HWPX 생성 (Build-from-scratch)" 참조)
     └── 한컴 충실도 최우선 + 이후 COM 후속 작업(이미지 삽입·정규화·PDF) 예정
         → hwpx_com.py --from-md (COM 네이티브 생성, Windows + 한컴오피스 필요)
-        ※ COM은 Pandoc 생성물의 본문을 0자로 읽는다. Pandoc 생성물은 --normalize·
-          Windows --to-pdf에 넣지 않는다
-          (reference/warnings-com.md 4번). COM 생성물은 XML 파이프라인에서 읽고 편집해도 안전하다
+        ※ COM은 Pandoc 생성물의 본문을 0자로 읽는다. Pandoc 생성물은 COM으로 처리하지
+          않는다(--normalize·--insert-image·Windows --to-pdf·hwpx_sign.py 모두. --get-text
+          호환성 점검만 예외, reference/warnings-com.md 4번). COM 생성물은 XML 파이프라인에서
+          읽고 편집해도 안전하다
 ```
 
 ## 도구별 용도 선택
@@ -264,7 +265,7 @@ bash convert/hwp2hwpx.sh <입력.hwp> [출력.hwpx]    # macOS/Linux
 - 요구사항: JDK 21. 두 래퍼 모두 `JAVA_HOME` → (Windows는 Adoptium 표준 설치 →) PATH 순으로 java를 자동 탐색
 - **JDK 없는 Windows 폴백**: 한컴오피스가 있으면 `python hwpx_com.py <입력.hwp> --from-hwp [-o 출력.hwpx]`로 COM 변환(변환 후 본문 글자 수 재검증 내장). JDK 설치 전까지의 우회이며, 연속·배치 호출 전에는 잔류 `Hwp.exe`를 정리할 것(`reference/warnings-com.md` 9번)
 - Windows(.bat): 입력 경로에 cp949 외 문자(en-dash, em-dash 등)가 있어도 내부에서 `%TEMP%`로 staging해 처리. macOS/Linux(.sh)는 JVM이 UTF-8 argv를 그대로 받으므로 staging 불필요
-- ⚠ **Git Bash에서 호출 금지**: Windows에서 Claude Code의 Bash 도구는 Git Bash이므로 이 셸에서는 아래 `java -cp` 직접 호출을 쓴다. `cmd.exe /c`를 거치는 Git Bash에서 한글·공백 경로 인자를 넘기면 cp949 이중 셸 해석으로 깨져(`Exit code 2` + 깨진 바이트) Usage 분기로 빠진다. bat 내부 `%TEMP%` staging은 JVM argv 문제만 막을 뿐 그 앞단 cmd.exe 인자 전달 깨짐은 못 막는다. **PowerShell에서 직접 호출**하거나, 정 Bash가 필요하면 입력을 ASCII 경로 임시 폴더에 복사한 뒤 `java -cp "<convert>/*;<convert>/lib/*;<convert>" Hwp2HwpxCLI in.hwp out.hwpx`를 직접 실행한다(`<convert>`는 이 스킬의 `convert` 폴더. Java 클래스패스는 `폴더/*`만 JAR 와일드카드로 받는다)
+- ⚠ **Git Bash에서 호출 금지**: Windows에서 Claude Code의 Bash 도구는 Git Bash이므로 이 셸에서는 래퍼 대신 아래 절차(ASCII 경로로 복사한 뒤 `java -cp`)를 쓴다. `cmd.exe /c`를 거치는 Git Bash에서 한글·공백 경로 인자를 넘기면 cp949 이중 셸 해석으로 깨져(`Exit code 2` + 깨진 바이트) Usage 분기로 빠진다. bat 내부 `%TEMP%` staging은 JVM argv 문제만 막을 뿐 그 앞단 cmd.exe 인자 전달 깨짐은 못 막는다. **PowerShell에서 직접 호출**하거나, 정 Bash가 필요하면 입력을 ASCII 경로 임시 폴더에 복사한 뒤 `java -cp "<convert>/*;<convert>/lib/*;<convert>" Hwp2HwpxCLI in.hwp out.hwpx`를 직접 실행한다(`<convert>`는 이 스킬의 `convert` 폴더. Java 클래스패스는 `폴더/*`만 JAR 와일드카드로 받는다)
 - ⚠ **변환물은 `hwpx-validate`가 `Preview/PrvText.txt` 누락으로 실패한다**(container.xml은 선언, ZIP엔 Preview/ 없음). 한글은 정상 열림·`--to-md` recall 100%라 읽기·편집엔 무해. 변환물을 **정본·배포·검증 대상**으로 쓸 때만 `python hwpx_edit.py <파일.hwpx> --add-preview`로 보정한다(section 무변형). `--find/--replace`는 이 누락으로 여는 것을 거부하며, 그때 출력하는 두 단계(`--add-preview` 후 보정본으로 재실행)를 따른다.
 
 ### 번들 JAR 출처·폴백 (hwp2hwpx가 예외로 죽을 때)
