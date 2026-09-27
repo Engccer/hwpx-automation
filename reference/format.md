@@ -61,3 +61,25 @@ NS = {
 
 - HWPML 2016 → 2011 네임스페이스 자동 변환 지원 (python-hwpx v2.8+)
 - 다중 섹션 문서: `section1.xml`, `section2.xml` 등 존재 가능
+
+## HWPX 파일 구조
+
+```
+document.hwpx (ZIP)
+├── mimetype                    # "application/hwp+zip" (첫 항목, ZIP_STORED)
+├── META-INF/
+│   ├── container.xml           # 루트 파일 지정
+│   ├── container.rdf           # 메타데이터
+│   └── manifest.xml            # 파일 목록
+├── Contents/
+│   ├── content.hpf             # 콘텐츠 매니페스트
+│   ├── header.xml              # 문서 설정 (글꼴, 스타일, borderFill 등)
+│   └── section0.xml            # 본문 내용 ★ 편집 대상
+├── Preview/
+│   ├── PrvImage.png            # 미리보기 이미지
+│   └── PrvText.txt             # 미리보기 텍스트
+├── settings.xml                # 편집 설정
+└── version.xml                 # 버전 정보
+```
+
+> XML 요소 구조, 네임스페이스 딕셔너리 등 상세 구조는 `reference/format.md` 참조.

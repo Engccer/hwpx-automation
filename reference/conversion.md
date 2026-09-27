@@ -1,5 +1,25 @@
 # MD → HWPX 변환 및 스타일 후처리
 
+## 핵심 워크플로우: MD → HWPX 변환 (Pandoc 방식)
+
+> 간단한 문서에 적합. 복잡한 보고서는 아래 "Build-from-scratch 방식" 참조.
+
+1. **사전 요구사항 확인**: `pip install pypandoc-hwpx` (미설치 시 ModuleNotFoundError)
+2. **전처리**: (a) 따옴표(`"…"`, `'…'`, `"…"`, `'…'`)는 **`hwpx_convert.py`가 자동 보호한다**(변환 단계에 내장, 2026-06-09 도구 반영). Pandoc HWPX writer가 따옴표 쌍 안 텍스트를 통째 누락시키는 버그를 변환 전 PUA(U+E000~) 치환 → 변환 후 Contents/*.xml에서 원복으로 우회한다(아포스트로피도 안전 왕복). 끄려면 `--no-quote-fix`. **수동 PUA 전처리 더는 불필요.** (b) `> ` blockquote → `【인용】` 마커 치환 또는 일반 문단으로 변환은 **여전히 수동 필수**.
+3. **기본 변환**: `python convert/hwpx_convert.py <입력.md> -o <출력.hwpx>` (따옴표 보호 자동 적용)
+4. **빈 셀 수정** (필수!): `python hwpx_edit.py <출력.hwpx> --fix-empty-cells`: MD 표의 빈 셀(` | | `)이 HWPX에서 `<hp:subList>`만 있고 `<hp:p>`가 없는 상태로 변환됨. 한글 엔진이 이를 만나면 약 15초 로딩 후 안전 종료함(XSD 스키마는 통과하므로 `hwpx-validate`로는 탐지 불가). `hwpx_convert.py`는 이 보정을 자동 적용하지 않으므로 **변환 직후 반드시 실행**.
+5. **스타일 후처리** (raw XML 편집):
+   - header.xml: borderFill 추가 (표 배경색), charPr 추가 (굵은/이탤릭), 본문 글꼴 크기 변경
+   - section0.xml: PUA 마커 → 스마트 따옴표 복원(`postprocess_quotes`), 표 헤더 행 배경색, 합계 행 배경색, 인용문 좌측 여백+이탤릭, `【인용】` 마커 제거
+   - lineseg 전체 제거 (`re.sub(r'<hp:linesegarray>.*?</hp:linesegarray>', '', xml, flags=re.DOTALL)`)
+6. **머리글/바닥글**: python-hwpx API (`doc.set_header_text()`, `doc.set_footer_text()`)
+7. **검증**: `hwpx-validate <출력.hwpx>`
+8. **인쇄용 문서면 디자인 보정** (안내문·가정통신문·고사지·**학생 작성용 양식** 등): 기본 변환물은 균일 180% 줄간격 + 큰 섹션 제목으로 페이지 수가 부풀고 표가 경계에서 잘린다. 줄간격 용도별 차등화(읽는 곳은 조이고 쓰는 곳은 200~215%로 넓힘), 섹션 제목 위계 압축, 용지 위·헤더 여백 축소, 논리 구획 앞 `pageBreak="1"` 삽입, 핵심 평가어 굵게+밑줄 강조를 적용. 학생이 손으로 쓸 작성칸·내용 구획은 표가 아니라 **`hp:rect` 작성칸/구획 박스**로 만든다(재사용 함수 `make_rect_box` 제공) → `reference/conversion.md`의 "인쇄용 배포 문서 디자인" 참조.
+
+**주의**: 스타일 후처리에서 한국어 텍스트 검색 시, `python -c "..."` 터미널 명령은 cp949 인코딩 문제 발생. 반드시 `.py` 파일(UTF-8)로 작성하거나 유니코드 이스케이프(`"\uc778\uc6a9"` = "인용") 사용.
+
+> 상세 코드 패턴 (borderFill/charPr 추가, 표 행 스타일링, 인용문 스타일링 등)은 `reference/conversion.md` 참조.
+
 ## hwpx_convert.py 기본 변환
 
 ### 사전 요구사항

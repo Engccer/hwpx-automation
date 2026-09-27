@@ -3,6 +3,49 @@
 python-hwpx API로 문서 구조를 처음부터 빌드하고, XML 후처리로 세밀한 스타일링을 적용하는 방식.
 Pandoc 방식(`hwpx_convert.py`)의 한계를 완전히 해결한다.
 
+## 핵심 워크플로우: MD → HWPX 생성 (Build-from-scratch 방식)
+
+> 보고서급 문서에 적합. python-hwpx API로 문서 구조를 처음부터 빌드하고, XML 후처리로 세밀한 스타일링을 적용한다.
+> Pandoc 방식의 한계 (따옴표 안 텍스트 누락, blockquote 누락, 각주 미변환, 제한적 스타일)를 완전히 해결.
+
+### 언제 사용하는가
+
+| 조건 | Pandoc 방식 | Build-from-scratch |
+|------|------------|-------------------|
+| 표 스타일 (헤더 배경, 교대 행, 볼드 셀) | 후처리 필요 | 직접 제어 |
+| 따옴표 안 텍스트 (`"…"`, `'…'`) | `hwpx_convert.py` 자동 보호(내장) | 직접 제어 (문제 없음) |
+| 인용문 (blockquote) | 누락 → 마커 전처리 필요 | 좌측 컬러바 + 배경색 직접 적용 |
+| 각주 | 문서 끝 일반 텍스트 | 위첨자 + 각주 섹션 분리 |
+| 커스텀 글꼴 | 제한적 | fontface 직접 추가 |
+| 구현 비용 | 낮음 | 높음 (프로젝트별 스크립트 작성) |
+
+### 5단계 워크플로우
+
+```
+[1] MD 파싱 → 블록 리스트 (heading, paragraph, table, blockquote, list, footnote)
+[2] 빈 HWPX 템플릿 생성 → header.xml에 커스텀 스타일 주입
+[3] python-hwpx API로 문서 빌드 (표지, 본문, 각주 섹션)
+[4] XML 후처리 (표 스타일링, lineseg 제거, 빈 셀 수정)
+[5] ZIP 리패키징 및 저장
+```
+
+### 핵심 패턴 요약
+
+**1단계 MD 파싱**: `parse_markdown()` + `parse_inline()`으로 블록/인라인 구조 추출
+
+**2단계 스타일 주입** (`inject_styles`):
+- `header.xml`의 `borderFills`, `charProperties`, `paraProperties`에 커스텀 항목 추가
+- 빈 템플릿 기본 카운트: charPr 0-6 (7개), borderFill 1-2 (2개), paraPr 0-19 (20개)
+- 새 항목 ID = 기본 카운트 + 순서 (결정론적 계산)
+
+**3단계 API 빌드**: `doc.add_paragraph()`, `doc.add_table()`, `tbl.set_cell_text()`
+
+**4단계 XML 후처리**: 표 헤더/교대행/합계행/볼드셀 스타일링, lineseg 전체 제거
+
+**5단계 저장**: `doc.save_to_path()` 또는 ZIP 수동 리패키징
+
+> 상세 코드 패턴, 주요 함정, 디자인 토큰 등은 `reference/build-from-scratch.md` 참조.
+
 ## Pandoc 방식 대비 장점
 
 | 항목 | Pandoc 방식 | Build-from-scratch |

@@ -189,3 +189,23 @@ xml_bytes = xml_bytes.replace(
 - **`CELL`의 파손**: 한 행의 짧은 칸들은 앞 쪽에 남고, 긴 텍스트 칸만 중간에서 잘려 다음 쪽에 다른 칸이 비어 있는 고아 조각으로 떨어진다.
 - **머리행 반복**: `hp:tbl@repeatHeader="1"`만으로는 부족하다. 머리행의 각 `<hp:tc>`에 `header="1"`을 함께 줘야 다음 쪽에서 반복된다.
 - **검증은 반드시 페이지 이미지로**: `treatAsChar="0"`(부동 개체)이면 PDF **텍스트 추출 순서가 시각 순서와 다르다** (본문 문단이 표보다 먼저 추출됨). 텍스트만 보고 "표가 사라졌다"고 오판하기 쉽다. 쪽 나눔 검증은 PDF 페이지 이미지 렌더링으로 할 것.
+
+## 구조적 편집 (행/표/단락 추가): raw lxml 필요
+
+> python-hwpx API에 `add_row()`, `insert_row()`가 **없으므로**, 표에 행을 추가/복제하는 경우에만 raw lxml + regex를 사용한다.
+> 단순 셀 편집, 텍스트 치환, 표 생성은 위의 API를 사용하라.
+
+### 3가지 필수 규칙
+
+1. **`<hp:linesegarray>` 제거**: 텍스트가 변경된 모든 `<hp:p>`에서 제거. 한글이 열 때 자동 재계산.
+   - python-hwpx API 사용 시 **자동 처리됨** (내부에서 `_clear_paragraph_layout_cache()` 호출)
+   - raw lxml/regex로 직접 XML을 편집할 때만 수동 제거 필요
+   - openhwp Rust 소스로 검증: `line_segments: Option<LineSegmentArray>`(생략이 스키마적으로 유효)
+
+2. **`rowAddr` 순차**: 새 행의 `<hp:cellAddr rowAddr="N"/>`이 기존 행과 중복 없이 순차적. 중복 → 무한 로딩.
+
+3. **`rowCnt` 일치**: `<hp:tbl rowCnt="N">`이 실제 `<hp:tr>` 수와 일치. 불일치 → "파일이 손상되었습니다".
+
+4. **표 `id` 고유화**: 새 표 복제 시 `id` 중복 금지.
+
+> 상세 코드 패턴 (행 추가, 단락 복제, ZIP 패키징, XML 직렬화 등)은 `reference/structural.md` 참조.
