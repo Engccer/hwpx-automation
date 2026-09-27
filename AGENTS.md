@@ -17,7 +17,7 @@ hwpx-automation/
 ├── hwpx_sign.py          # 서명란에 서명/도장 이미지 삽입 (COM 삽입 + XML floating 후처리)
 ├── rhwp_pdf.py           # macOS·Linux --to-pdf 백엔드 (rhwp CLI + 빈 네모 문자 검출)
 ├── pdf_export.py         # Windows --to-pdf 공통 (변경 추적 경고 자동 응답)
-├── test_*.py             # rhwp_pdf·pdf_export 단위 시험
+├── test_*.py             # 단위 시험 (rhwp_pdf·pdf_export, 문서가 약속한 동작: test_doc_promises)
 ├── SKILL.md              # Claude Code 스킬 정의 (의사결정 트리 + 사용법)
 ├── convert/
 │   ├── hwp2hwpx.bat      # HWP→HWPX 변환 (Windows, JDK 21 필요)

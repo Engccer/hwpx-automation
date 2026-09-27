@@ -15,6 +15,7 @@
 - [reference/com.md](#referencecommd)
 - [reference/warnings-com.md](#referencewarnings-commd)
 - [reference/warnings-editing.md](#referencewarnings-editingmd)
+- [코드 결함](#코드-결함-2026-09-27-스킬-감사-문서대로-동작하게-고침)
 
 ## SKILL.md
 
@@ -196,3 +197,11 @@
 ### 18. hwp2hwpx 변환본의 XML 1.0 불법 제어문자로 파싱 실패
 
 - 2026-08-20 실측, 수정 완료: `--info`·`--set-cell` 등 lxml 경로와 `--find/--replace`의 python-hwpx 경로가 모두 raw 트레이스백으로 죽었다.
+
+## 코드 결함 (2026-09-27 스킬 감사, 문서대로 동작하게 고침)
+
+- `hwpx_convert.py`: 따옴표 보호가 기본으로 모든 입력을 UTF-8 텍스트로 읽어, DOCX는 `UnicodeDecodeError`를 삼키고 늘 실패했다. 보호를 텍스트 형식에만 건다. 따옴표가 든 DOCX(pypandoc으로 만든 fixture)를 고친 코드로 변환하니 따옴표 안 글자가 모두 남았다(Pandoc DOCX 읽기가 따옴표를 글자로 둔다).
+- `--check-env`(Windows): bat에 없는 `set "JAVA_HOME=` 줄을 찾아, java가 PATH에 있어도 Tier 2를 미비로 보고하고 없는 설정을 고치라고 안내했다. bat과 같은 순서로 찾는다.
+- `--delete-rows`·`--delete-empty-rows`: `rowCnt`·`rowAddr`를 갱신하지 않아 스킬 자신의 필수 규칙을 어겼다. 다시 매기고, 세로 병합에 걸린 행은 거부한다.
+- `--normalize`: 가드가 `if n_before and not n_after`라 COM이 입력을 0자로 읽으면(Pandoc 생성물) "0자 → 0자"로 완료를 냈다. 입력 0자면 저장하지 않는다.
+- `hwpx_sign.py`(고치지 않음, 별도 작업): 앵커 이동이 `<hp:p` 여는 태그를 뒤에서 골라 직전 문단 안의 표·글상자 셀 문단에 그림을 넣는다(warnings-com 13번이 금지한 방식). "같은 깊이 직전 문단"으로 고치자 표 안 서명란이 머리말·앞 표로 옮겨졌고, "같은 컨테이너 형제 → 없으면 조상"으로 좁히자 여러 쪽 표의 서명이 표 시작 쪽에 찍힐 위험·캡션 경계 누락이 나왔다(코드 리뷰 두 라운드가 가짜 XML로 재현). 쪽 배치는 한컴 실측 없이는 판정할 수 없어 되돌렸다. 문서에는 위험과 대처(`--pdf` 확인, 좌표 지정, `--inline`)를 적었다.

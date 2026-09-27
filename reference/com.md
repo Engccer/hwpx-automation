@@ -28,7 +28,7 @@ XML 직접 편집으로 불가능한 작업(이미지 삽입, PDF 변환)과 COM
 | COM 네이티브 | **hwpx_com.py** (pyhwpx) | Windows + 한컴오피스 | 신규 생성+COM 후속 작업, 이미지 삽입, PDF |
 
 - **COM 생성 HWPX → XML 파이프라인 읽기·편집**: 안전. COM으로 넣은 결과를 XML로 후처리하고 다시 COM으로 여는 흐름(아래 "이미지 위치/배치 변경", `hwpx_sign.py`)도 이 범위다. → 사례
-- **Pandoc 생성 HWPX → COM**: 금지. COM이 본문을 0자로 인식하고, 같은 파일에 저장하면 내용 전체가 사라진다(`reference/warnings-com.md` 4번). COM으로 여는 명령 전부(`--normalize`·`--insert-image`·Windows `--to-pdf`(`hwpx_edit.py`·`hwpx_com.py` 모두)·`hwpx_sign.py`)에 넣지 않는다. 본문을 0자로 본 채 처리해 정규화·삽입 위치·인쇄·서명 자리 찾기가 모두 어긋난다. `--get-text`로 0자인지 확인하는 호환성 점검만 예외다. 한컴 결과물이 필요하면 `--from-md`로 COM에서 생성한다.
+- **Pandoc 생성 HWPX → COM**: 금지. COM이 본문을 0자로 인식하고, 같은 파일에 저장하면 내용 전체가 사라진다(`reference/warnings-com.md` 4번). COM으로 여는 명령 전부(`--normalize`·`--insert-image`·Windows `--to-pdf`(`hwpx_edit.py`·`hwpx_com.py` 모두)·`hwpx_sign.py`)에 넣지 않는다. 본문을 0자로 본 채 처리해 삽입 위치·인쇄·서명 자리 찾기가 어긋난다(`--normalize`는 입력 0자를 감지해 멈춘다). `--get-text`로 0자인지 확인하는 호환성 점검만 예외다. 한컴 결과물이 필요하면 `--from-md`로 COM에서 생성한다.
 - hwpx_com.py는 입력 파일을 절대 in-place로 덮어쓰지 않는다 (위 사고의 구조적 방지)
 
 ## hwpx_com.py 사용법 (pyhwpx 기반)
@@ -49,8 +49,8 @@ python hwpx_com.py doc.hwpx --get-text
 
 # 한컴 재저장 정규화: python-hwpx로 생성·편집한 HWPX(Pandoc 변환물 제외)를 한컴이
 # 직접 재저장해 lineseg·미리보기(PrvText/PrvImage)·내부 캐시를 네이티브로 재계산.
-# 인쇄·배포 직전 마무리 표준 단계. in-place 금지. 본문 자수 보존을 저장 전후로 비교하지만,
-# 입력 본문을 COM이 0자로 읽으면(Pandoc 변환물) 비교가 통과해 "0자 → 0자"로 완료를 낸다
+# 인쇄·배포 직전 마무리 표준 단계. in-place 금지. 본문 자수 보존을 저장 전후로 비교하고,
+# 입력 본문을 COM이 0자로 읽으면(Pandoc 변환물) 저장하지 않고 오류로 멈춘다
 python hwpx_com.py doc.hwpx --normalize [-o final.hwpx]
 
 # PDF 저장 (hwpx_edit.py --to-pdf와 동일 기능, COM 작업 연속 시 이쪽 사용)

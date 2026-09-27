@@ -276,15 +276,22 @@ def cmd_normalize(filepath, output=None, password=None):
     hwp = create_hwp(visible=False)
     try:
         open_for_com(hwp, filepath, password)
-        n_before = len(extract_full_text(hwp))
+        text_before = extract_full_text(hwp)
+        n_before = len(text_before)
+        if not text_before.strip():
+            # COM이 본문을 0자로 읽으면 전후 비교가 "0자 → 0자"로 통과해 버린다.
+            # 이 경우(대개 Pandoc 생성물)는 저장하지 않는다(warnings-com.md 4번).
+            raise SystemExit("오류: COM이 입력 본문을 0자로 읽었습니다. 입력이 COM 비호환"
+                             "(예: Pandoc 생성물)이라 정규화하지 않습니다 (warnings-com.md 4번).")
         if not hwp.save_as(abs_output, format="HWPX"):
             raise SystemExit(f"오류: HWPX 저장 실패: {abs_output}")
         # save_as 후 현재 문서가 출력본이므로 같은 인스턴스에서 재열어 검증
         open_for_com(hwp, abs_output)
-        n_after = len(extract_full_text(hwp))
+        text_after = extract_full_text(hwp)
+        n_after = len(text_after)
     finally:
         hwp.quit()
-    if n_before and not n_after:
+    if not text_after.strip():
         raise SystemExit("오류: 정규화 후 본문이 0자입니다. 입력이 COM 비호환(예: Pandoc 생성물)일 수 있습니다.")
     print(f"정규화 완료: {abs_output} (본문 {n_before}자 → {n_after}자)")
 

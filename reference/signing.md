@@ -10,7 +10,7 @@
 3. 텍스트가 바뀐 문단의 `<hp:linesegarray>`(줄 레이아웃 캐시)를 안 지우면 **한컴 COM이 문서 열기를 거부**한다. 치명적으로 `hwpx-validate`(XSD)·`--to-md`(recall)는 모두 통과 → **자동 검증으로 못 잡고 PDF 변환(COM Open)에서만 드러남.**
 4. 반대 방향의 함정: **COM이 그림을 넣은 문단은 저장 시 `<hp:linesegarray>`를 아예 빼고 쓴다**(원리: `reference/warnings-com.md` 10번). 삽입 후 파일만 보면 서명줄 좌표를 구할 데이터가 없다. → 도구는 **편집 전 원본**에서 anchor 문단의 lineseg를 읽고, 그 문단에도 캐시가 없으면 직전 줄에서 `vertpos + vertsize + spacing`으로 한 줄 아래를 추정한다(추정 시 WARN 출력).
 
-`hwpx_sign.py`는 (a) COM으로 anchor 자리에 이미지를 넣어 BinData 확보 → (b) XML 후처리로 floating PAPER 절대좌표 전환(크기/curSz 보정) → (c) 앵커를 anchor 문단 바로 앞의 `<hp:p>`로 이동(직전 문단 안에 표·글상자가 있으면 그 안의 마지막 문단이 골라진다) → (d) 세로 좌표를 페이지 여백+원본 lineseg vertpos로 자동 계산 → (e) 변경 문단 lineseg 제거를 모두 자동 수행한다.
+`hwpx_sign.py`는 (a) COM으로 anchor 자리에 이미지를 넣어 BinData 확보 → (b) XML 후처리로 floating PAPER 절대좌표 전환(크기/curSz 보정) → (c) 앵커를 anchor 문단 바로 앞의 `<hp:p>`로 이동(직전 문단 안에 표·글상자가 있으면 그 안의 마지막 문단이 골라져 그림이 다른 쪽·위치에 그려질 수 있다. 그런 문서는 `--pdf`로 쪽과 위치를 확인하고, 어긋나면 `--horz-offset`/`--vert-adjust`로 맞추거나 `--inline`을 쓴다) → (d) 세로 좌표를 페이지 여백+원본 lineseg vertpos로 자동 계산 → (e) 변경 문단 lineseg 제거를 모두 자동 수행한다.
 
 ```bash
 # 기본: 서명란 "(서명)"에 서명 이미지를 우측 정렬·서명줄 세로중앙으로 삽입

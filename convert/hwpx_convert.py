@@ -41,6 +41,9 @@ SUPPORTED_EXTENSIONS = {
     '.txt',              # Plain text
 }
 
+# 따옴표 보호(UTF-8 텍스트로 읽어 치환)를 적용할 수 있는 텍스트 형식
+TEXT_EXTENSIONS = SUPPORTED_EXTENSIONS - {'.docx'}
+
 
 # ── 따옴표 보호 (Pandoc HWPX writer 버그 우회) ─────────────────────────────
 # Pandoc HWPX writer는 따옴표 "쌍" 안의 텍스트를 통째로 누락시킨다(예:
@@ -125,7 +128,9 @@ def convert_file(input_path, output_path, ref_doc, output_format,
             # 따옴표 보호: 입력에 따옴표가 있으면 PUA로 치환한 임시 파일로
             # 변환한 뒤 결과 hwpx에서 원복한다(Pandoc 따옴표 쌍 누락 우회).
             src = None
-            if quote_fix:
+            # 따옴표 보호는 텍스트 입력에만 건다. DOCX 같은 바이너리는 UTF-8로
+            # 읽을 수 없으므로 원본 그대로 Pandoc에 넘긴다.
+            if quote_fix and os.path.splitext(input_path)[1].lower() in TEXT_EXTENSIONS:
                 with open(input_path, 'r', encoding='utf-8') as f:
                     src = f.read()
             protected = _protect_quotes(src) if src is not None else None

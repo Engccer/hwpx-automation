@@ -2,7 +2,7 @@
 name: hwpx-automation
 description: "HWP/HWPX 문서 읽기, 변환, 편집을 위한 통합 워크플로우. HWP 또는 HWPX 파일을 다룰 때 사용. HWP 파일은 모두 HWPX로 변환 후 처리한다. 트리거: (1) HWP/HWPX 파일 읽기/파싱 요청 (2) HWP→HWPX 변환 요청 (3) HWPX 문서 편집(텍스트 치환, 표 셀 채우기, 양식 작성) (4) 한글 문서 템플릿 기반 자동화 작업 (5) HWPX 구조적 편집(행/표/단락 추가) (6) HWPX에 이미지 삽입 (7) HWPX→PDF 변환 (8) 한컴 COM 자동화 (9) HWPX 서명란에 서명·도장 이미지 삽입(signature/seal/도장 삽입, 동의서·계약서·서약서 서명)"
 metadata:
-    version: "1.2.1"
+    version: "1.3.0"
 ---
 
 # HWP/HWPX 작업 자동화 스킬
@@ -12,7 +12,7 @@ metadata:
 이 SKILL.md와 같은 디렉토리에 모든 도구가 포함되어 있다:
 - **hwpx_edit.py**: 이 디렉토리의 `hwpx_edit.py` (편집 명령 + `--to-md` CLI 래퍼)
 - **hwpx-tomd**: `--to-md` 변환 엔진을 단일 소스로 보유한 독립 패키지. `pip install hwpx-tomd` (PyPI·GitHub `Engccer/hwpx-tomd` 공개. 엔진 자체를 수정할 때만 로컬 editable: `pip install -e path/to/hwpx-tomd`). 라이브러리로도 직접 사용 가능(`from hwpx_tomd import to_markdown, convert`). 변환 로직은 이 패키지에만 있고 `hwpx_edit.py`는 호출만 한다(코드 분기 방지).
-- **hwpx_convert.py**: 이 디렉토리의 `convert/hwpx_convert.py` (MD/DOCX/HTML/RST/TEX/TXT → HWPX 변환, `pip install pypandoc-hwpx` 필요). 따옴표 보호가 기본으로 입력을 UTF-8 텍스트로 읽으므로 DOCX는 `--no-quote-fix`를 붙여야 변환된다
+- **hwpx_convert.py**: 이 디렉토리의 `convert/hwpx_convert.py` (MD/DOCX/HTML/RST/TEX/TXT → HWPX 변환, `pip install pypandoc-hwpx` 필요)
 - **hwpx_com.py**: 이 디렉토리의 `hwpx_com.py` (한컴 COM 네이티브 파이프라인, pyhwpx 기반, Windows + 한컴오피스 전용, `pip install pyhwpx` 필요). MD→HWPX 생성·HWP→HWPX 변환·이미지 삽입·본문 추출·한컴 재저장 정규화(--normalize)·PDF 변환 (아래 "한컴 COM 자동화" 참조)
 - **PDF 변경 추적 경고 자동 처리**: 두 CLI의 `--to-pdf`는 `pdf_export.py`를 공유한다. PDF 저장 구간에서만 변경 추적 형식 경고에 저장으로 응답하고 원래 메시지 모드를 복원한다. 원본 이력은 수정하지 않는다. 상세와 적용 범위는 `reference/warnings-com.md` 15번 참조.
 - **rhwp_pdf.py**: Windows가 아닌 OS에서 `hwpx_edit.py --to-pdf`가 쓰는 PDF 백엔드. 오픈소스 조판 엔진 rhwp CLI를 호출하고, 글꼴에 없어 빈 네모로 찍힌 문자를 PDF에서 찾아 보고한다(아래 "macOS·Linux에서 PDF 변환 (rhwp)" 참조)
@@ -31,7 +31,7 @@ python <스킬디렉토리>/hwpx_edit.py --check-env
 기능 계층(tier)별로 무엇이 바로 되는지 한 번에 출력한다(읽기 전용, 아무것도 설치하지 않음). 이 스킬은 API 키를 쓰지 않으므로(전부 로컬 도구) 점검 대상은 pip 패키지와 시스템 런타임이다:
 
 - **Tier 1 (읽기·편집, 필수)**: `python-hwpx`·`lxml`·`hwpx-tomd`. `pip install -r requirements.txt` 한 줄이면 충족하며, 대부분의 작업(`--to-md`·텍스트 치환·셀 편집)은 여기까지면 된다.
-- **Tier 2 (HWP→HWPX)**: JDK 21 + 번들 JAR. 래퍼는 Windows `convert/hwp2hwpx.bat`, macOS/Linux `convert/hwp2hwpx.sh`이며 둘 다 `JAVA_HOME` → PATH 순으로 java를 자동 탐색한다. Windows의 `--check-env`는 bat에 없는 `JAVA_HOME` 설정 줄을 찾으므로 java가 PATH에 있어도 `[경고]`로 표시한다(변환은 된다).
+- **Tier 2 (HWP→HWPX)**: JDK 21 + 번들 JAR. 래퍼는 Windows `convert/hwp2hwpx.bat`, macOS/Linux `convert/hwp2hwpx.sh`이며 `JAVA_HOME` → (Windows는 Adoptium 표준 설치 →) PATH 순으로 java를 자동 탐색한다. `--check-env`도 같은 순서로 찾는다.
 - **Tier 3 (MD/DOCX/HTML→HWPX)**: `pypandoc-hwpx`(+ Pandoc). Pandoc은 `pypandoc-hwpx`가 번들 제공할 수 있어 경고만 떠도 변환이 동작할 수 있다.
 - **Tier 4 (PDF·이미지·서명)**: Windows + 한컴오피스 COM(`pywin32`, 선택적 `pyhwpx`). 보안모듈 DLL·레지스트리·한컴 기동까지의 상세 진단은 `--diagnose-com`으로 위임한다. macOS·Linux는 PDF만 `rhwp` CLI로 되고 이미지 삽입·서명·한컴 정규화는 안 된다.
 
@@ -101,7 +101,7 @@ HWP/HWPX 작업 요청
 | HWPX/HWP → PDF | `hwpx_edit.py --to-pdf` (Windows 한컴 COM · 그 밖의 OS rhwp) | N/A |
 | 무결성 검증, 쪽수 드리프트 감지 | python-hwpx CLI | N/A |
 
-`--delete-rows`·`--delete-empty-rows`는 행을 지운 뒤 표의 `rowCnt`와 뒤 행의 `rowAddr`를 고치지 않는다(아래 "구조적 편집"의 필수 규칙 2·3). 지운 결과를 한글에서 열어 확인하거나 `rowCnt`·`rowAddr`를 직접 맞춘다.
+`--delete-rows`·`--delete-empty-rows`는 행을 지운 뒤 표의 `rowCnt`와 `rowAddr`를 다시 맞춘다(아래 "구조적 편집"의 필수 규칙 2·3). 지울 행이 세로 병합에 걸려 있으면 지우지 않고 멈추므로, 먼저 `--split-cell`로 병합을 푼다.
 
 ## 출력·정리 규칙 (결과물 vs 부산물)
 

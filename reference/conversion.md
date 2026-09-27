@@ -51,7 +51,7 @@ pip install pypandoc-hwpx   # pypandoc + HWPX 변환 지원
 python <스킬디렉토리>/convert/hwpx_convert.py <입력.md> -o <출력.hwpx>
 ```
 
-DOCX 입력은 `--no-quote-fix`를 붙여야 변환된다(따옴표 보호가 입력을 UTF-8 텍스트로 읽는다).
+따옴표 보호는 텍스트 입력(MD·HTML·RST·TEX·TXT)에만 걸린다. DOCX는 그대로 Pandoc에 넘긴다.
 
 ### 알려진 제한사항
 

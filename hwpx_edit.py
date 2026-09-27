@@ -828,6 +828,35 @@ def cmd_delete_after(filepath, marker_text, output=None):
     print(f"'{marker_text}' 이후 {len(elements_to_remove)}개 요소 삭제 완료")
 
 
+def _rows_in_vertical_merge(rows, indices):
+    """indices 중 세로 병합(rowSpan>1)의 시작 행이거나 그 병합에 덮인 행의 목록."""
+    hit = set()
+    for r, row in enumerate(rows):
+        for cell in get_row_cells(row):
+            row_span, _ = get_cell_span(cell)
+            if row_span > 1:
+                hit.update(i for i in indices if r <= i < r + row_span)
+    return sorted(hit)
+
+
+def _renumber_rows(table):
+    """행 삭제 뒤 rowCnt와 각 셀의 rowAddr를 실제 행 순서에 맞춘다
+    (필수 규칙: rowCnt == 실제 tr 수, rowAddr 순차)."""
+    rows = get_table_rows(table)
+    table.set('rowCnt', str(len(rows)))
+    for i, row in enumerate(rows):
+        for addr in row.findall('hp:tc/hp:cellAddr', NS):
+            addr.set('rowAddr', str(i))
+
+
+def _refuse_merged_rows(table_idx, rows, indices):
+    merged = _rows_in_vertical_merge(rows, indices)
+    if merged:
+        print(f"오류: 표 {table_idx}의 행 {merged}이(가) 세로 병합에 걸려 있어 지우면 표가 깨집니다. "
+              f"먼저 --split-cell로 병합을 풀거나 한글에서 지우세요.", file=sys.stderr)
+        sys.exit(1)
+
+
 def cmd_delete_empty_rows(filepath, table_idx, output=None):
     """테이블 끝의 빈 행들을 삭제"""
     root, all_files, section_path = open_hwpx(filepath)
@@ -839,7 +868,7 @@ def cmd_delete_empty_rows(filepath, table_idx, output=None):
 
     table = tables[table_idx]
     rows = get_table_rows(table)
-    removed_count = 0
+    empty = []
 
     for i in range(len(rows) - 1, 0, -1):
         row = rows[i]
@@ -849,14 +878,18 @@ def cmd_delete_empty_rows(filepath, table_idx, output=None):
                 is_empty = False
                 break
         if is_empty:
-            table.remove(row)
-            removed_count += 1
+            empty.append(i)
         else:
             break
 
-    if removed_count == 0:
+    if not empty:
         print(f"표 {table_idx}: 빈 행이 없습니다.")
         return
+    _refuse_merged_rows(table_idx, rows, empty)
+    for i in empty:
+        table.remove(rows[i])
+    removed_count = len(empty)
+    _renumber_rows(table)
 
     save_hwpx(filepath, root, all_files, section_path, output)
     print(f"표 {table_idx}: 끝에서 {removed_count}개 빈 행 삭제 완료")
@@ -909,18 +942,22 @@ def cmd_delete_rows(filepath, table_idx, row_indices, output=None):
 
     table = tables[table_idx]
     rows = get_table_rows(table)
-    removed = []
+    targets = []
 
-    for idx in sorted(row_indices, reverse=True):
+    for idx in sorted(set(row_indices), reverse=True):
         if idx >= len(rows):
             print(f"경고: 행 {idx}이(가) 없습니다. 건너뜁니다.", file=sys.stderr)
             continue
-        table.remove(rows[idx])
-        removed.append(idx)
+        targets.append(idx)
 
-    if not removed:
+    if not targets:
         print("삭제할 행이 없습니다.")
         return
+    _refuse_merged_rows(table_idx, rows, targets)
+    for idx in targets:
+        table.remove(rows[idx])
+    removed = targets
+    _renumber_rows(table)
 
     save_hwpx(filepath, root, all_files, section_path, output)
     print(f"표 {table_idx}: 행 {removed} 삭제 완료")
@@ -1354,6 +1391,25 @@ def cmd_diagnose_com():
         close_hwp_com(pythoncom_mod, hwp)
 
 
+ADOPTIUM_JDK21_GLOB = r"C:\Program Files\Eclipse Adoptium\jdk-21*"
+
+
+def find_windows_java(environ, adoptium_glob=ADOPTIUM_JDK21_GLOB, which=None):
+    """hwp2hwpx.bat과 같은 순서(JAVA_HOME → Adoptium jdk-21* → PATH)로 java.exe를 찾는다.
+    Adoptium이 여럿이면 bat의 for 루프처럼 이름순 마지막(높은 버전)을 쓴다."""
+    import glob as _glob
+    home = environ.get("JAVA_HOME")
+    if home:
+        exe = os.path.join(home, "bin", "java.exe")
+        if os.path.exists(exe):
+            return exe
+    for d in sorted(_glob.glob(adoptium_glob), reverse=True):
+        exe = os.path.join(d, "bin", "java.exe")
+        if os.path.exists(exe):
+            return exe
+    return (which or shutil.which)("java")
+
+
 def cmd_check_env():
     """기능 계층(tier)별 의존성·런타임 준비 상태를 한 번에 리포트.
 
@@ -1365,7 +1421,6 @@ def cmd_check_env():
     """
     import glob as _glob
     import importlib.util
-    import re as _re
     import shutil
     import subprocess
 
@@ -1407,20 +1462,6 @@ def cmd_check_env():
     # Tier 2: HWP → HWPX 변환 (JDK 21 + 번들 JAR)
     print("\n[Tier 2] HWP→HWPX 변환 (JDK 21 + 번들 JAR)")
     t2_ok = True
-    # hwp2hwpx.bat이 실제로 사용하는 JAVA_HOME을 단일 소스로 읽는다(경로가 바뀌면
-    # 점검도 따라간다). 없으면 PATH의 java로 폴백 점검.
-    java_home = None
-    bat_path = os.path.join(convert_dir, "hwp2hwpx.bat")
-    if os.path.exists(bat_path):
-        try:
-            with open(bat_path, encoding="utf-8", errors="ignore") as fh:
-                for line in fh:
-                    m = _re.search(r'set\s+"JAVA_HOME=([^"]+)"', line, _re.IGNORECASE)
-                    if m:
-                        java_home = m.group(1).strip()
-                        break
-        except OSError:
-            pass
 
     def java_version(exe):
         try:
@@ -1430,30 +1471,19 @@ def cmd_check_env():
         except Exception:
             return ""
 
-    java_exe = os.path.join(java_home, "bin", "java.exe") if java_home else None
     if sys.platform != "win32":
-        # hwp2hwpx.sh는 환경변수 JAVA_HOME → PATH 순으로 java를 찾는다(.bat의 JAVA_HOME과 무관).
+        # hwp2hwpx.sh는 환경변수 JAVA_HOME → PATH 순으로 java를 찾는다.
         java_home_env = os.environ.get("JAVA_HOME")
         env_java = os.path.join(java_home_env, "bin", "java") if java_home_env else None
-        sh_java = env_java if env_java and os.access(env_java, os.X_OK) else shutil.which("java")
-        if sh_java:
-            ver = java_version(sh_java)
-            print(f"  [O] JDK          {sh_java}{('  ·  ' + ver) if ver else ''}")
-        else:
-            print(f"  [설치] JDK        JDK 21 설치(또는 JAVA_HOME 지정): https://adoptium.net/ (Temurin 21)")
-            t2_ok = False
-    elif java_exe and os.path.exists(java_exe):
-        print(f"  [O] JDK          {java_home}")
+        found_java = env_java if env_java and os.access(env_java, os.X_OK) else shutil.which("java")
     else:
-        path_java = shutil.which("java")
-        if path_java:
-            ver = java_version(path_java)
-            print(f"  [경고] JDK        hwp2hwpx.bat의 JAVA_HOME 경로 없음 → PATH의 java 사용 가능")
-            print(f"          {path_java}{('  ·  ' + ver) if ver else ''}")
-            print(f"          JDK 21 권장. 경로가 다르면 convert/hwp2hwpx.bat의 JAVA_HOME을 수정")
-        else:
-            print(f"  [설치] JDK        JDK 21 설치 후 convert/hwp2hwpx.bat의 JAVA_HOME 지정")
-            print(f"          다운로드: https://adoptium.net/ (Temurin 21)")
+        # hwp2hwpx.bat과 같은 탐색 순서를 쓴다(점검과 실제 실행이 어긋나지 않게).
+        found_java = find_windows_java(os.environ)
+    if found_java:
+        ver = java_version(found_java)
+        print(f"  [O] JDK          {found_java}{('  ·  ' + ver) if ver else ''}")
+    else:
+        print(f"  [설치] JDK        JDK 21 설치(또는 JAVA_HOME 지정): https://adoptium.net/ (Temurin 21)")
         t2_ok = False
     for name, pattern in [
         ("hwp2hwpx", os.path.join(convert_dir, "hwp2hwpx*.jar")),
