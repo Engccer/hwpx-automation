@@ -83,7 +83,7 @@ hwpx-automation/
 ├── convert/
 │   ├── hwp2hwpx.bat      # HWP→HWPX 변환 (Windows)
 │   ├── hwp2hwpx.sh       # HWP→HWPX 변환 (macOS/Linux)
-│   ├── hwp2hwpx-1.0.0.jar
+│   ├── hwp2hwpx-1.0.0-c9d8a27p1.jar
 │   └── lib/              # hwplib, hwpxlib
 ├── reference/            # 상세 레퍼런스 문서
 │   ├── api.md

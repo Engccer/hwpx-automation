@@ -1,12 +1,17 @@
 # MD → HWPX 생성 (Build-from-scratch 방식)
 
-python-hwpx API로 문서 구조를 처음부터 빌드하고, XML 후처리로 세밀한 스타일링을 적용하는 방식.
-Pandoc 방식(`hwpx_convert.py`)의 한계를 완전히 해결한다.
+## 목차
+
+- [핵심 워크플로우: MD → HWPX 생성 (Build-from-scratch 방식)](#핵심-워크플로우-md--hwpx-생성-build-from-scratch-방식)
+- [5단계 워크플로우](#5단계-워크플로우)
+- [precompute_styles 패턴](#precompute_styles-패턴)
+- [디자인 토큰 (DOCX 스크립트와 공유 가능)](#디자인-토큰-docx-스크립트와-공유-가능)
+- [주요 함정 (Gotchas)](#주요-함정-gotchas)
 
 ## 핵심 워크플로우: MD → HWPX 생성 (Build-from-scratch 방식)
 
 > 보고서급 문서에 적합. python-hwpx API로 문서 구조를 처음부터 빌드하고, XML 후처리로 세밀한 스타일링을 적용한다.
-> Pandoc 방식의 한계 (따옴표 안 텍스트 누락, blockquote 누락, 각주 미변환, 제한적 스타일)를 완전히 해결.
+> Pandoc 방식의 한계(blockquote 누락, 제한적 스타일)를 해결한다. 인라인 마크다운은 `parse_inline()`으로 직접 처리해야 한다. → 사례
 
 ### 언제 사용하는가
 
@@ -15,11 +20,11 @@ Pandoc 방식(`hwpx_convert.py`)의 한계를 완전히 해결한다.
 | 표 스타일 (헤더 배경, 교대 행, 볼드 셀) | 후처리 필요 | 직접 제어 |
 | 따옴표 안 텍스트 (`"…"`, `'…'`) | `hwpx_convert.py` 자동 보호(내장) | 직접 제어 (문제 없음) |
 | 인용문 (blockquote) | 누락 → 마커 전처리 필요 | 좌측 컬러바 + 배경색 직접 적용 |
-| 각주 | 문서 끝 일반 텍스트 | 위첨자 + 각주 섹션 분리 |
+| 각주 | HWPX 각주 요소(`hp:footNote`) | 위첨자 + 각주 섹션 분리 |
 | 커스텀 글꼴 | 제한적 | fontface 직접 추가 |
 | 구현 비용 | 낮음 | 높음 (프로젝트별 스크립트 작성) |
 
-### 5단계 워크플로우
+### 단계 개요
 
 ```
 [1] MD 파싱 → 블록 리스트 (heading, paragraph, table, blockquote, list, footnote)
@@ -44,18 +49,7 @@ Pandoc 방식(`hwpx_convert.py`)의 한계를 완전히 해결한다.
 
 **5단계 저장**: `doc.save_to_path()` 또는 ZIP 수동 리패키징
 
-> 상세 코드 패턴, 주요 함정, 디자인 토큰 등은 `reference/build-from-scratch.md` 참조.
-
-## Pandoc 방식 대비 장점
-
-| 항목 | Pandoc 방식 | Build-from-scratch |
-|------|------------|-------------------|
-| Blockquote | 내용 누락 (마커 전처리 필요) | 좌측 컬러바 + 배경색 직접 적용 |
-| 각주 `[^N]` | 문서 끝 일반 텍스트 | 위첨자 숫자 + 별도 각주 섹션 |
-| 표 스타일 | 헤더/합계 배경색만 후처리 | 헤더/교대행/합계행/볼드셀/기본폰트 모두 제어 |
-| 글꼴 | 변환기 기본값 (맑은 고딕 10pt) | fontface 추가, 크기/색상/굵기 완전 제어 |
-| 인라인 마크다운 | pandoc이 처리 | `parse_inline()`으로 직접 처리 필요 |
-| 표지/머리글/바닥글 | API로 추가 가능 | API로 추가 가능 |
+> 상세 코드 패턴은 아래 "5단계 워크플로우", 함정은 "주요 함정 (Gotchas)", 디자인 토큰은 "디자인 토큰" 절.
 
 ## 5단계 워크플로우
 
@@ -321,7 +315,8 @@ section_xml = re.sub(r"<hp:linesegarray>.*?</hp:linesegarray>", "", section_xml,
 ```python
 doc.save_to_path(output_path)
 # 또는 ZIP 수동 리패키징 (스타일 주입 후):
-#   mimetype → ZIP_STORED (첫 항목), 나머지 → ZIP_DEFLATED
+#   mimetype 첫 항목·ZIP_STORED, 나머지는 원본 항목의 압축 방식,
+#   XML은 standalone="yes" 선언 포함 (reference/warnings-editing.md 15번)
 ```
 
 ## precompute_styles 패턴
@@ -444,21 +439,4 @@ clean = re.sub(r"\[\^\d+\]", "", clean)                # [^1] → 제거
 
 ### 7. ensure_run_style 호환성
 
-python-hwpx의 `ensure_run_style()` 메서드는 내부적으로 `xml.etree.ElementTree.SubElement`를 사용하지만,
-실제 문서 요소는 `lxml.etree._Element`이므로 **TypeError 발생**.
-→ charPr/paraPr는 API가 아닌 XML 문자열 주입 방식으로 처리해야 함.
-
-## 실제 적용 사례
-
-DPI 보고서 HWPX 생성 스크립트 (`generate_hwpx.py`):
-- 입력: 534행 마크다운 (7장 + 14개 각주, 8개 표)
-- 출력: 42KB HWPX (659 단락, 8 표, 22쪽)
-- 스타일: 21 charPr, 7 borderFill, 16 paraPr, 맑은 고딕 폰트
-- 소요: 스크립트 작성 ~2시간, 이후 재생성 <5초
-
-## 주의사항
-
-1. **build-from-scratch lineSpacing 단위**: HWPML PERCENT 타입은 정수 그대로 사용 (160% = `value="160"`). `* 100` 하면 16000%가 되어 수백 쪽 문서 생성
-2. **build-from-scratch fontRef**: 빈 템플릿의 기본 폰트(함초롬돋움/바탕)가 아닌 맑은 고딕 등을 사용하려면 fontface에 새 폰트를 추가하고 charPr의 fontRef ID를 변경해야 함
-3. **build-from-scratch set_cell_text**: `set_cell_text()`로 생성된 run은 charPrIDRef="0" (템플릿 기본값)을 사용. XML 후처리에서 해당 셀의 charPrIDRef를 커스텀 ID로 교체 필요
-4. **style_tables_xml 루프**: `for` 루프에서 section_xml을 수정하면 이후 표 위치가 달라지므로, 반드시 `while` 루프 + 매 반복 tables 리스트 재계산 사용
+이 방식의 스크립트는 charPr/paraPr를 API가 아닌 XML 문자열 주입(2단계)으로 만든다. 옛 python-hwpx에서 `ensure_run_style()`이 `lxml` 요소에 `xml.etree` `SubElement`를 써 TypeError를 냈기 때문이다. 현행 판(3.x·6.x)은 새 문서에서 정상 동작하고, 6.x에서는 deprecated(→ `doc.styles.ensure_run`)다. run 단위 서식만 필요하면 `add_run(bold=…)`을 쓴다(`reference/api.md`). → 사례

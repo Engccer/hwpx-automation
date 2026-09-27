@@ -200,7 +200,7 @@ def anchor_geometry(src_xml: str, anchor: str) -> dict | None:
     # 앵커가 든 문단 = 앵커 텍스트를 자기 텍스트로 가진 문단 중 가장 깊은 것.
     # 원문 XML 부분문자열이 아니라 태그를 벗긴 자기 텍스트로 찾으므로
     # "(서명)"이 여러 <hp:t> 런으로 쪼개져 있어도 잡힌다.
-    # 머리글·꼬리말·각주는 COM의 본문 검색 대상이 아니므로 후보에서 뺀다.
+    # 머리글·바닥글·각주는 COM의 본문 검색 대상이 아니므로 후보에서 뺀다.
     target = None
     for span in spans:
         if _open_containers(src_xml, span[0], _NON_BODY_CONTAINERS):
@@ -336,7 +336,7 @@ def to_floating(doc: str, out: str, w_hu: int, h_hu: int,
         raise RuntimeError(
             "서명줄 줄 정보(vertpos·vertsize·horzsize)를 읽지 못했습니다.\n"
             "  원인 후보: 원본에 레이아웃 캐시가 없고 같은 컨테이너에 기준 줄도 없음,\n"
-            "  또는 anchor 텍스트가 본문에 없음(머리글·꼬리말은 대상이 아님).\n"
+            "  또는 anchor 텍스트가 본문에 없음(머리글·바닥글은 대상이 아님).\n"
             "  --horz-offset / --vert-adjust로 좌표를 직접 주거나 --inline을 쓰세요.")
     vertpos, vertsize, horzsize = ls["vertpos"], ls["vertsize"], ls["horzsize"]
 
@@ -539,7 +539,8 @@ def main() -> int:
         if rc == 0:
             print(f"[OK] 검증 PDF: {pdf}")
         else:
-            print("[WARN] PDF 변환 실패(한컴 COM 잔류 시 taskkill /F /IM Hwp.exe 후 재시도)",
+            print("[WARN] PDF 변환 실패(한컴 COM 잔류 의심: 사용자가 연 한글 문서가 없는지 확인한 뒤 "
+                  "taskkill /F /IM Hwp.exe 후 재시도. reference/warnings-com.md 9번)",
                   file=sys.stderr)
     return 0
 

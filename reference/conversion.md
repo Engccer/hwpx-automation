@@ -1,24 +1,38 @@
 # MD → HWPX 변환 및 스타일 후처리
 
+## 목차
+
+- [핵심 워크플로우: MD → HWPX 변환 (Pandoc 방식)](#핵심-워크플로우-md--hwpx-변환-pandoc-방식)
+- [hwpx_convert.py 기본 변환](#hwpx_convertpy-기본-변환)
+- [스타일 후처리: header.xml 수정](#스타일-후처리-headerxml-수정)
+- [스타일 후처리: section0.xml 수정](#스타일-후처리-section0xml-수정)
+- [전체 변환 워크플로우 예시](#전체-변환-워크플로우-예시)
+- [필수 후처리: 빈 셀 수정](#필수-후처리-빈-셀-수정)
+- [변환 결과 구조와 함정](#변환-결과-구조와-함정)
+- [인쇄용 배포 문서 디자인](#인쇄용-배포-문서-디자인)
+- [주의사항](#주의사항)
+
 ## 핵심 워크플로우: MD → HWPX 변환 (Pandoc 방식)
 
-> 간단한 문서에 적합. 복잡한 보고서는 아래 "Build-from-scratch 방식" 참조.
+> 간단한 문서에 적합. 복잡한 보고서는 `reference/build-from-scratch.md` 참조.
 
 1. **사전 요구사항 확인**: `pip install pypandoc-hwpx` (미설치 시 ModuleNotFoundError)
-2. **전처리**: (a) 따옴표(`"…"`, `'…'`, `"…"`, `'…'`)는 **`hwpx_convert.py`가 자동 보호한다**(변환 단계에 내장, 2026-06-09 도구 반영). Pandoc HWPX writer가 따옴표 쌍 안 텍스트를 통째 누락시키는 버그를 변환 전 PUA(U+E000~) 치환 → 변환 후 Contents/*.xml에서 원복으로 우회한다(아포스트로피도 안전 왕복). 끄려면 `--no-quote-fix`. **수동 PUA 전처리 더는 불필요.** (b) `> ` blockquote → `【인용】` 마커 치환 또는 일반 문단으로 변환은 **여전히 수동 필수**.
+2. **전처리**: (a) 따옴표(`"…"`, `'…'`, `"…"`, `'…'`)는 **`hwpx_convert.py`가 자동 보호한다**(아래 "따옴표 보호 (자동)"). Pandoc HWPX writer가 따옴표 쌍 안 텍스트를 통째 누락시키는 버그를 변환 전 PUA(U+E000~) 치환 → 변환 후 Contents/*.xml에서 원복으로 우회한다(아포스트로피도 안전 왕복). 끄려면 `--no-quote-fix`. **수동 PUA 전처리 더는 불필요.** (b) `> ` blockquote → `【인용】` 마커 치환 또는 일반 문단으로 변환은 **여전히 수동 필수**.
 3. **기본 변환**: `python convert/hwpx_convert.py <입력.md> -o <출력.hwpx>` (따옴표 보호 자동 적용)
 4. **빈 셀 수정** (필수!): `python hwpx_edit.py <출력.hwpx> --fix-empty-cells`: MD 표의 빈 셀(` | | `)이 HWPX에서 `<hp:subList>`만 있고 `<hp:p>`가 없는 상태로 변환됨. 한글 엔진이 이를 만나면 약 15초 로딩 후 안전 종료함(XSD 스키마는 통과하므로 `hwpx-validate`로는 탐지 불가). `hwpx_convert.py`는 이 보정을 자동 적용하지 않으므로 **변환 직후 반드시 실행**.
 5. **스타일 후처리** (raw XML 편집):
    - header.xml: borderFill 추가 (표 배경색), charPr 추가 (굵은/이탤릭), 본문 글꼴 크기 변경
-   - section0.xml: PUA 마커 → 스마트 따옴표 복원(`postprocess_quotes`), 표 헤더 행 배경색, 합계 행 배경색, 인용문 좌측 여백+이탤릭, `【인용】` 마커 제거
+   - section0.xml: 표 헤더 행 배경색, 합계 행 배경색, 인용문 좌측 여백+이탤릭, `【인용】` 마커 제거
    - lineseg 전체 제거 (`re.sub(r'<hp:linesegarray>.*?</hp:linesegarray>', '', xml, flags=re.DOTALL)`)
+   - 제목 글자색 검정 보정(아래 "제목 글자색이 파란색으로 나온다")
+   - 재패키징은 `reference/warnings-editing.md` 15번 규칙(mimetype 첫 항목·STORED, `standalone="yes"`)
 6. **머리글/바닥글**: python-hwpx API (`doc.set_header_text()`, `doc.set_footer_text()`)
 7. **검증**: `hwpx-validate <출력.hwpx>`
-8. **인쇄용 문서면 디자인 보정** (안내문·가정통신문·고사지·**학생 작성용 양식** 등): 기본 변환물은 균일 180% 줄간격 + 큰 섹션 제목으로 페이지 수가 부풀고 표가 경계에서 잘린다. 줄간격 용도별 차등화(읽는 곳은 조이고 쓰는 곳은 200~215%로 넓힘), 섹션 제목 위계 압축, 용지 위·헤더 여백 축소, 논리 구획 앞 `pageBreak="1"` 삽입, 핵심 평가어 굵게+밑줄 강조를 적용. 학생이 손으로 쓸 작성칸·내용 구획은 표가 아니라 **`hp:rect` 작성칸/구획 박스**로 만든다(재사용 함수 `make_rect_box` 제공) → `reference/conversion.md`의 "인쇄용 배포 문서 디자인" 참조.
+8. **인쇄용 문서면 디자인 보정** (안내문·가정통신문·고사지·**학생 작성용 양식** 등): 기본 변환물은 균일 180% 줄간격 + 큰 섹션 제목으로 페이지 수가 부풀고 표가 경계에서 잘린다. 줄간격 용도별 차등화(읽는 곳은 조이고 쓰는 곳은 200~215%로 넓힘), 섹션 제목 위계 압축, 용지 위·헤더 여백 축소, 논리 구획 앞 `pageBreak="1"` 삽입, 핵심 평가어 굵게+밑줄 강조를 적용. 학생이 손으로 쓸 작성칸·내용 구획은 표가 아니라 **`hp:rect` 작성칸/구획 박스**로 만든다(재사용 함수 `make_rect_box` 제공) → 아래 "인쇄용 배포 문서 디자인" 참조.
 
 **주의**: 스타일 후처리에서 한국어 텍스트 검색 시, `python -c "..."` 터미널 명령은 cp949 인코딩 문제 발생. 반드시 `.py` 파일(UTF-8)로 작성하거나 유니코드 이스케이프(`"\uc778\uc6a9"` = "인용") 사용.
 
-> 상세 코드 패턴 (borderFill/charPr 추가, 표 행 스타일링, 인용문 스타일링 등)은 `reference/conversion.md` 참조.
+> 상세 코드 패턴 (borderFill/charPr 추가, 표 행 스타일링, 인용문 스타일링 등)은 아래 절들에 있다.
 
 ## hwpx_convert.py 기본 변환
 
@@ -37,6 +51,8 @@ pip install pypandoc-hwpx   # pypandoc + HWPX 변환 지원
 python <스킬디렉토리>/convert/hwpx_convert.py <입력.md> -o <출력.hwpx>
 ```
 
+DOCX 입력은 `--no-quote-fix`를 붙여야 변환된다(따옴표 보호가 입력을 UTF-8 텍스트로 읽는다).
+
 ### 알려진 제한사항
 
 | 요소 | 변환 결과 | 해결 방법 |
@@ -47,7 +63,7 @@ python <스킬디렉토리>/convert/hwpx_convert.py <입력.md> -o <출력.hwpx>
 | 목록 (`-`, `1.`) | 정상 변환 (paraPrIDRef에 들여쓰기 적용) | - |
 | **빈 표 셀 (`\| \|`)** | **`<hp:p>` 누락 → 한글 크래시** | `fix_empty_cells()` 필수 (아래 참조) |
 | **blockquote (`>`)** | **내용 전체 누락** | 전처리 필요 (아래 참조) |
-| **따옴표 안 텍스트 (`"…"`, `'…'`, `"…"`, `'…'`)** | **내용 전체 누락 (스마트·ASCII 따옴표 모두 해당)** | PUA 마커 전처리+후처리 필요 (아래 참조) |
+| 따옴표 안 텍스트 (`"…"`, `'…'`, `"…"`, `'…'`) | 보존 (`hwpx_convert.py` 자동 보호. `--no-quote-fix`로 끄면 누락) | - |
 | 각주 (`[^N]`) | 정상 변환 (페이지 하단 각주) | 일부 각주가 문서 끝 미주로 남을 수 있음 |
 | 수평선 (`---`) | 변환되지 않음 | - |
 | 인라인 코드, 코드 블록 | 일반 텍스트로 변환 | - |
@@ -79,40 +95,9 @@ def preprocess_md(input_path, output_path):
 
 변환 후 후처리 스크립트에서 `【인용】` 마커를 찾아 스타일을 적용하고 마커를 제거한다.
 
-### 따옴표 전처리/후처리 패턴
+### 따옴표 보호 (자동)
 
-Pandoc의 HWPX writer는 모든 종류의 따옴표(`"…"`, `'…'`, `"…"`, `'…'`) 안의 텍스트를 통째로 누락시킨다. 한국어 문서에서 대화체·인용·강조에 따옴표가 빈번하게 사용되므로 **blockquote 누락만큼 심각한 데이터 손실**이다.
-
-**해결**: 전처리에서 따옴표를 유니코드 사설 영역(PUA) 마커로 치환 → Pandoc 변환 → 후처리에서 마커를 스마트 따옴표로 복원.
-
-```python
-import re
-
-# PUA 마커 정의 (U+FFF0~FFF3, Pandoc이 건드리지 않음)
-QUOT_OPEN   = '\uFFF0'  # 여는 큰따옴표 마커
-QUOT_CLOSE  = '\uFFF1'  # 닫는 큰따옴표 마커
-SQUOT_OPEN  = '\uFFF2'  # 여는 작은따옴표 마커
-SQUOT_CLOSE = '\uFFF3'  # 닫는 작은따옴표 마커
-
-def preprocess_quotes(text):
-    """변환 전: 따옴표 → PUA 마커 치환"""
-    # 스마트 따옴표
-    text = text.replace('\u201c', QUOT_OPEN).replace('\u201d', QUOT_CLOSE)
-    text = text.replace('\u2018', SQUOT_OPEN).replace('\u2019', SQUOT_CLOSE)
-    # ASCII 큰따옴표 (쌍 단위, 내용 있는 경우만)
-    text = re.sub(r'"([^"\n]+?)"', lambda m: QUOT_OPEN + m.group(1) + QUOT_CLOSE, text)
-    # ASCII 작은따옴표 (쌍 단위, 내용 있는 경우만, 1글자도 포함)
-    text = re.sub(r"'([^'\n]+?)'", lambda m: SQUOT_OPEN + m.group(1) + SQUOT_CLOSE, text)
-    return text
-
-def postprocess_quotes(xml_text):
-    """변환 후: PUA 마커 → 스마트 따옴표 복원 (section0.xml에 적용)"""
-    xml_text = xml_text.replace(QUOT_OPEN,   '\u201c')  # \u201c = "
-    xml_text = xml_text.replace(QUOT_CLOSE,  '\u201d')  # \u201d = "
-    xml_text = xml_text.replace(SQUOT_OPEN,  '\u2018')  # \u2018 = '
-    xml_text = xml_text.replace(SQUOT_CLOSE, '\u2019')  # \u2019 = '
-    return xml_text
-```
+Pandoc의 HWPX writer는 따옴표(`"…"`, `'…'`, `"…"`, `'…'`) 안의 텍스트를 통째로 누락시킨다. `hwpx_convert.py`가 기본으로 이를 막는다: 변환 전에 따옴표를 사설 영역(U+E000~) 문자로 바꾸고, 변환 후 `Contents/*.xml`에서 원래 문자로 되돌린다(아포스트로피도 원형 그대로 왕복). 수동 전처리·후처리를 하지 않는다. 끄려면 `--no-quote-fix`(끄면 따옴표 안 텍스트가 누락된다). → 사례
 
 **주의: `re.sub` replacement string의 역참조 함정**:
 
@@ -128,9 +113,7 @@ re.sub(r'"([^"]+)"', lambda m: '\u300e' + m.group(1) + '\u300f', text)
 
 ### HWPX 변환 결과 텍스트 검증 시 주의사항
 
-**`hwpx_edit.py --to-md`의 맹점**: 추출 도구 자체도 따옴표 안 텍스트를 누락시킬 수 있다. `--to-md` 출력만으로 검증하면 따옴표 누락이 검증에서도 걸러지지 않는다.
-
-**`<hp:t>` join 방식으로 검증**: Pandoc은 특수 문자 경계에서 텍스트를 별도 `<hp:run>`으로 분리하므로, 단순 substring 검색이 실패할 수 있다. 정확한 검증은 모든 `<hp:t>` 텍스트를 join:
+`hwpx_edit.py --to-md`는 따옴표 안 글자까지 옮기고 recall을 스스로 검사한다. XML 원문과 직접 대조하려면 **`<hp:t>` join 방식으로 검증**한다: Pandoc은 특수 문자 경계에서 텍스트를 별도 `<hp:run>`으로 분리하므로, 단순 substring 검색이 실패할 수 있다. 정확한 검증은 모든 `<hp:t>` 텍스트를 join:
 
 ```python
 import zipfile, re
@@ -249,7 +232,7 @@ def adjust_font_size(header_xml, char_pr_id=0, new_height=1100):
 
 장 제목 등 단락을 1행 1열 배경색 표로 감싸는 패턴.
 
-**⚠️ 핵심 주의사항 (2026-04 실측 확인)**
+**⚠️ 핵심 주의사항**
 
 1. **`<hp:ctrl>` 래퍼 금지**: 표를 단락 내부에 삽입할 때 `<hp:run><hp:ctrl><hp:tbl>…</hp:tbl></hp:ctrl></hp:run>` 구조는 XSD 스키마는 통과하지만 한컴 COM의 `Open()`에서 RPC 크래시(`-2147023170`: 원격 프로시저 호출 실패) 발생. Pandoc 원본 표 구조와 동일하게 **`<hp:run>` 직계**에 `<hp:tbl>`을 두어야 함.
 
@@ -263,13 +246,13 @@ def adjust_font_size(header_xml, char_pr_id=0, new_height=1100):
 
 2. **`<hp:subList id="">` 빈 id 금지**: 셀 내부 subList의 `id` 속성은 고유한 숫자(정수 문자열)를 반드시 부여해야 함. 빈 문자열은 COM Open 크래시의 원인.
 
-3. **Pandoc 출력의 heading styleIDRef 매핑** (기본값, 2026-04 실측):
+3. **Pandoc 출력의 heading styleIDRef 매핑** (기본값):
    - `#` (h1) → styleIDRef="2"
    - `##` (h2) → styleIDRef="3"
    - `###` (h3) → styleIDRef="4"
    - `####` (h4) → styleIDRef="5"
 
-   **주의**: 중집위 회의자료 등 다른 템플릿에서는 `##`→4로 매핑되기도 함. 새 문서 작업 시 실제 분포를 먼저 확인할 것:
+   **주의**: 다른 템플릿에서는 `##`→4로 매핑되기도 함. 새 문서 작업 시 실제 분포를 먼저 확인할 것:
 
    ```bash
    python -c "import zipfile, re; s = zipfile.ZipFile('doc.hwpx').read('Contents/section0.xml').decode(); from collections import Counter; print(Counter(re.findall(r'styleIDRef=\"(\d+)\"', s)))"
@@ -336,7 +319,7 @@ def wrap_chapter_headings(section_xml, chapter_bf_id, chapter_char_id,
     return pattern.sub(repl, section_xml)
 ```
 
-검증 경로: `hwpx-validate` 통과 + 한컴 COM `Open()` 통과 + 한글 수동 오픈 정상. 다건 MD→HWPX 변환 작업에서 확인.
+검증 경로: `hwpx-validate` 통과 + 한컴 COM `Open()` 통과 + 한글 수동 오픈 정상. → 사례
 
 ### 표 헤더/합계 행 스타일링
 
@@ -352,14 +335,16 @@ def style_table_rows(section_xml, header_bf_id, summary_bf_id, bold_char_id,
         summary_table_indices = set()
 
     tables = list(re.finditer(r'<hp:tbl\b[^>]*>', section_xml))
+    tbl_idx = 0
 
-    for tbl_idx, tbl_match in enumerate(tables):
-        tbl_start = tbl_match.start()
+    while tbl_idx < len(tables):  # for 금지: 치환으로 길이가 바뀌면 뒤 표 위치가 어긋난다
+        tbl_start = tables[tbl_idx].start()
         tbl_end = section_xml.find('</hp:tbl>', tbl_start) + len('</hp:tbl>')
         tbl_xml = section_xml[tbl_start:tbl_end]
 
         rows = list(re.finditer(r'<hp:tr\b', tbl_xml))
         if not rows:
+            tbl_idx += 1
             continue
 
         # 헤더 행 (첫 번째 행)
@@ -383,13 +368,14 @@ def style_table_rows(section_xml, header_bf_id, summary_bf_id, bold_char_id,
         section_xml = section_xml[:tbl_start] + tbl_xml + section_xml[tbl_end:]
         # 이후 표 위치 재계산
         tables = list(re.finditer(r'<hp:tbl\b[^>]*>', section_xml))
+        tbl_idx += 1
 
     return section_xml
 ```
 
 ### 표 열 너비 조정 (가독성)
 
-> **열 너비뿐 아니라 행 높이·셀 다문단도 같은 raw 후처리로 조정한다(lessons 교훈 9).** 예: 서답형 답안지 답란 확장: `colAddr`별 `cellSz width` 재배분(답란 열 넓게)·`rowAddr`별 `cellSz height` 확대(작성 공간)·답란 셀의 `<hp:p>`를 deepcopy로 복제해 "(1)"·빈·"(2)"·빈 다문단으로 분리(텍스트 바꾼 문단은 `<hp:linesegarray>` 제거, 재패키징 시 mimetype 첫 항목·ZIP_STORED). 표 식별은 헤더 셀 텍스트로 한다.
+> **열 너비뿐 아니라 행 높이·셀 다문단도 같은 raw 후처리로 조정한다.** 예: 서답형 답안지 답란 확장: `colAddr`별 `cellSz width` 재배분(답란 열 넓게)·`rowAddr`별 `cellSz height` 확대(작성 공간)·답란 셀의 `<hp:p>`를 deepcopy로 복제해 "(1)"·빈·"(2)"·빈 다문단으로 분리(텍스트 바꾼 문단은 `<hp:linesegarray>` 제거, 재패키징 시 mimetype 첫 항목·ZIP_STORED). 표 식별은 헤더 셀 텍스트로 한다.
 
 **문제**: Pandoc HWPX 기본 변환은 모든 표의 열을 **균등 너비**로 생성한다. 내용 길이와 무관하게 일률 너비가 적용되어, 짧은 헤더(예: `순위`, `응답률`)와 긴 헤더(예: `개선 과제`)가 같은 폭을 차지하며 여백만 남고 내용이 눈에 들어오지 않는다.
 
@@ -546,8 +532,7 @@ OUTPUT_HWPX = "report.hwpx"
 TEMP_MD = "_temp_for_hwpx.md"
 CONVERTER = "convert/hwpx_convert.py"  # 환경에 맞게 조정 (스킬 디렉토리 기준 경로)
 
-# 1. 전처리: 따옴표 마커 치환 + blockquote 마커 삽입
-# (preprocess_md 안에서 preprocess_quotes 호출 필수)
+# 1. 전처리: blockquote 마커 삽입 (따옴표는 hwpx_convert.py가 자동 보호)
 preprocess_md(INPUT_MD, TEMP_MD)
 
 # 2. 기본 변환
@@ -570,8 +555,6 @@ header_xml = adjust_font_size(header_xml, char_pr_id=0, new_height=1100)
 
 section_xml = style_table_rows(section_xml, hdr_bf, sum_bf, bold_id, {0, 1, 3})
 section_xml, cnt = style_blockquotes(section_xml, quote_para_id, italic_id)
-# 따옴표 마커 → 스마트 따옴표 복원
-section_xml = postprocess_quotes(section_xml)
 
 section_xml = re.sub(r'<hp:linesegarray>.*?</hp:linesegarray>', '', section_xml, flags=re.DOTALL)
 
@@ -584,12 +567,17 @@ section_xml = etree.tostring(section_root, encoding='unicode')
 files['Contents/header.xml'] = header_xml.encode('utf-8')
 files['Contents/section0.xml'] = section_xml.encode('utf-8')
 
-with zipfile.ZipFile(OUTPUT_HWPX, 'w', zipfile.ZIP_DEFLATED) as z:
-    for name in file_list:
-        if name.endswith('/'):
-            continue
-        ct = zipfile.ZIP_STORED if name == 'mimetype' else zipfile.ZIP_DEFLATED
-        z.writestr(name, files[name], compress_type=ct)
+# 재패키징: mimetype 첫 항목·ZIP_STORED, 나머지는 원본 항목의 압축 방식,
+# XML은 standalone="yes" 선언 포함 (reference/warnings-editing.md 15번)
+with zipfile.ZipFile(OUTPUT_HWPX, 'r') as z:
+    ctype = {i.filename: i.compress_type for i in z.infolist()}
+order = ['mimetype'] + [n for n in file_list if n != 'mimetype' and not n.endswith('/')]
+with zipfile.ZipFile(OUTPUT_HWPX, 'w') as z:
+    for name in order:
+        data = files[name]
+        if name in ('Contents/header.xml', 'Contents/section0.xml') and not data.startswith(b'<?xml'):
+            data = b'<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>' + data
+        z.writestr(name, data, compress_type=zipfile.ZIP_STORED if name == 'mimetype' else ctype[name])
 
 # 4. python-hwpx API로 머리글/바닥글 추가
 from hwpx.document import HwpxDocument
@@ -638,7 +626,7 @@ def fix_empty_cells(section_root):
 **원인**: `<hp:subList>` 내부에 `<hp:p>` 자식 요소가 0개
 **해결**: 빈 `<hp:p><hp:run><hp:t></hp:t></hp:run></hp:p>` 삽입
 
-## 주의사항
+## 변환 결과 구조와 함정
 
 ### 한국어 텍스트 검색 시 인코딩 함정
 
@@ -671,9 +659,9 @@ header.xml
 |------|--------|
 | 본문 글꼴 | 맑은 고딕 10pt (charPr id=0, height=1000) |
 | 표 셀 borderFill | id=3 (실선 테두리, 배경 없음) |
-| 제목 스타일 | Heading 1~9 자동 매핑 (## → Heading 2 등). **글자색은 Word Office 테마 파란색** (아래 참조) |
-| 용지 | A4, 좌우 72mm, 상 42.55mm, 하 49.6mm |
-| 각주 | 문서 끝 텍스트로 변환 (HWPX 각주 요소 아님) |
+| 제목 스타일 | 제목 1~9 자동 매핑 (`#` → 제목 2, `##` → 제목 3 등). **글자색은 Word Office 테마 파란색** (아래 참조) |
+| 용지 | A4, 좌우 7200(25.4mm), 위 4255(15mm), 아래 4960(17.5mm), 머리말 4250 HWPUNIT |
+| 각주 | HWPX 각주 요소(`hp:footNote`)로 변환 |
 | **줄간격** | **180%** (`lineSpacing type="PERCENT" value="180"`), 160% 등으로 변경 시 후처리 필수 |
 
 ### Pandoc HWPX lineSpacing 주의사항
@@ -692,7 +680,7 @@ header_xml = re.sub(r'(lineSpacing[^/]*?)value="180"', r'\1value="160"', header_
 header_xml = re.sub(r'(<hc:lineSpacing[^/]*?)value="\d+"', r'\1value="160"', header_xml)
 ```
 
-### 제목 글자색이 파란색으로 나온다 (2026-07-29)
+### 제목 글자색이 파란색으로 나온다
 
 Pandoc HWPX writer는 제목 스타일 charPr에 **Word의 Office 테마 색상**을 그대로 박는다. 국내 제출·배포 문서는 본문·제목 모두 검정이 관행이므로, 제목이 있는 문서를 변환했으면 **거의 항상 검정 보정이 필요하다**. 텍스트 검증(`--to-md` recall)·`hwpx-validate`로는 절대 드러나지 않고 렌더링에서만 보이므로, 변환 후 PDF 육안 확인 단계에서 잡는다.
 
@@ -725,9 +713,9 @@ header_xml = re.sub(r'<hh:charPr id="\d+"[^>]*textColor="[^"]*"[^>]*>', blacken,
 
 글자 크기(`height`)는 건드리지 않는다. 제목 위계는 크기·굵기로 이미 구분되므로 색만 빼도 구조가 유지된다.
 
-## 인쇄용 배포 문서 디자인 (실측 교훈, 2026-06-01, 2026-06-05 보강)
+## 인쇄용 배포 문서 디자인
 
-`hwpx_convert.py`(Pandoc 경로)·build-from-scratch가 찍어내는 기본 스타일은 **화면 가독성 기준**이라, 안내문·가정통신문·고사지·**학생 작성용 양식**처럼 **인쇄·배포**가 목적인 문서에서는 페이지 수를 부풀리고 표를 페이지 경계에서 자른다. 자동 생성 초안과 교사가 한글에서 인쇄용으로 수동 완성한 최종본을 XML 단위로 비교해 도출한 교훈(2026-06-05 성취경험 글쓰기 양식·예시문 비교로 3개 축과 rect 박스 패턴 추가):
+`hwpx_convert.py`(Pandoc 경로)·build-from-scratch가 찍어내는 기본 스타일은 **화면 가독성 기준**이라, 안내문·가정통신문·고사지·**학생 작성용 양식**처럼 **인쇄·배포**가 목적인 문서에서는 페이지 수를 부풀리고 표를 페이지 경계에서 자른다. 자동 생성 초안과 교사가 한글에서 인쇄용으로 수동 완성한 최종본을 XML 단위로 비교해 도출한 교훈이다. → 사례
 
 | 축 | 자동 생성 기본값 | 인쇄 최종본 | 교훈 |
 |----|-----------------|------------|------|
@@ -762,9 +750,9 @@ section_xml = re.sub(r'(<hp:margin[^>]*?)top="\d+"',    r'\1top="2834"',    sect
 #    underline charPr 본문: <hh:bold/> + <hh:underline type="BOTTOM" shape="SOLID" color="#000000"/>
 ```
 
-### 학생 작성용 양식: `hp:rect` 작성칸/구획 박스 (2026-06-05)
+### 학생 작성용 양식: `hp:rect` 작성칸/구획 박스
 
-학생이 **손으로 쓸 빈 영역**(편지 작성칸)이나 **내용 구획**(예시문 영어/해석 분리)은 표(`tbl`)가 아니라 **`hp:rect` 사각형 도형**으로 만든다. 표 셀은 페이지 경계에서 잘리고 행 추가가 까다롭지만, rect는 `pos`를 **PAPER 절대좌표**로 고정해 원하는 위치·크기에 테두리 박스를 띄우고 그 안에 안내 텍스트(`Dear ___,` ... `Best,`)와 빈 줄을 담는다. 실측: 성취경험 글쓰기 양식(rect 1개, 편지칸)·예시문(rect 2개, 영어/해석 박스).
+학생이 **손으로 쓸 빈 영역**(편지 작성칸)이나 **내용 구획**(예시문 영어/해석 분리)은 표(`tbl`)가 아니라 **`hp:rect` 사각형 도형**으로 만든다. 표 셀은 페이지 경계에서 잘리고 행 추가가 까다롭지만, rect는 `pos`를 **PAPER 절대좌표**로 고정해 원하는 위치·크기에 테두리 박스를 띄우고 그 안에 안내 텍스트(`Dear ___,` ... `Best,`)와 빈 줄을 담는다. → 사례
 
 **구조 요약** (HWPUNIT: 1inch=7200, 1mm≈283):
 - floating object: `textWrap="IN_FRONT_OF_TEXT"`, `pos vertRelTo/horzRelTo="PAPER"`
@@ -844,11 +832,11 @@ box = make_rect_box(
 ## 주의사항
 
 1. **hwpx_convert.py blockquote 누락**: `>` blockquote 내용이 변환 시 완전히 누락됨. 반드시 전처리로 마커 치환 필요
-2. **hwpx_convert.py 따옴표 안 텍스트 누락**: `"…"`, `'…'`, `"…"`, `'…'` 안의 텍스트가 통째로 누락됨. PUA 마커 전처리+후처리 필수 (위 "따옴표 전처리/후처리 패턴" 참조)
-3. **hwpx_convert.py 각주**: `[^N]` 각주가 HWPX 각주 요소가 아닌 문서 끝 일반 텍스트로 변환됨
+2. **따옴표 안 텍스트**: `hwpx_convert.py`가 자동 보호한다. `--no-quote-fix`로 끄면 누락된다 (위 "따옴표 보호 (자동)")
+3. **빈 표 셀**: 변환 직후 `--fix-empty-cells` 필수 (위 "필수 후처리: 빈 셀 수정")
 4. **한국어 검색 인코딩**: Windows 터미널(cp949)에서 `python -c` 한국어 → HWPX UTF-8 불일치. `.py` 파일 또는 유니코드 이스케이프 사용
 5. **`re.sub` 역참조 함정**: 비-raw 문자열에서 `'\uXXXX\\1\uYYYY'` 형태의 replacement를 사용하면 `\1`이 그룹 역참조가 아닌 SOH 제어문자(U+0001)로 해석됨. 반드시 `lambda m: ... + m.group(1) + ...` 사용
-6. **변환 결과 검증**: `hwpx_edit.py --to-md`도 따옴표 안 텍스트를 누락시킬 수 있으므로 검증에 부적합. `<hp:t>` 텍스트를 join하여 검증 (위 "HWPX 변환 결과 텍스트 검증" 참조)
+6. **변환 결과 검증**: `hwpx_edit.py --to-md`의 recall, 또는 `<hp:t>` 텍스트 join (위 "HWPX 변환 결과 텍스트 검증 시 주의사항")
 7. **변환 스크립트 보존**: MD→HWPX 변환 시 생성한 Python 스크립트는 삭제하지 않고 프로젝트 폴더에 보관한다 (향후 재변환·수정 용도). 사용자가 명시적으로 삭제를 요청한 경우에만 삭제
 8. **`pypandoc.convert_file()` 입력 경로 대괄호 함정**: pypandoc은 내부에서 `glob.glob(str(source))`를 `glob.escape` 없이 호출하므로, 파일명/경로의 `[`, `]`, `*`, `?`가 glob 문자 클래스로 오인되어 매칭 실패 → `WindowsPath` fallback → `TypeError: 'WindowsPath' object is not iterable`. 한글과 무관한 라이브러리 자체 버그. 대표 재현 파일명 패턴: `[붙임]`, `[공고]`, `[수정]`, `2. [안건]` 등.
-   **해결**: MD→HWPX 변환 시 입력 MD를 항상 `tempfile.TemporaryDirectory()` 안에 ASCII-safe 이름(`input.md`)으로 쓴 뒤 `hwpx_convert.py`에 넘긴다. 출력 경로는 대괄호가 있어도 안전 (`--output=`은 glob 대상이 아님). (2026-04-20 검증)
+   **해결**: MD→HWPX 변환 시 입력 MD를 항상 `tempfile.TemporaryDirectory()` 안에 ASCII-safe 이름(`input.md`)으로 쓴 뒤 `hwpx_convert.py`에 넘긴다. 출력 경로는 대괄호가 있어도 안전 (`--output=`은 glob 대상이 아님).

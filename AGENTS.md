@@ -1,7 +1,7 @@
 > 🤖 **이 파일은 자동 생성됩니다. 직접 수정하지 마세요.**
 > 정본은 `CLAUDE.md` 입니다. 내용을 바꾸려면 `CLAUDE.md` 를 수정한 뒤
 > 프로젝트 루트에서 `python sync_agent_docs.py` 를 실행하세요.
-> 이 파일을 직접 고치면 다음 동기화 때 경고와 함께 덮어쓰기 대상이 됩니다.
+> 이 파일을 직접 고치면 다음 동기화 때 경고와 함께 건너뛰며, --force 로 실행하면 덮어써집니다.
 
 <!-- SYNC-BODY-START: 이 줄 아래 본문은 CLAUDE.md 와 100% 동일하게 자동 생성됨 -->
 # hwpx-automation
@@ -16,13 +16,18 @@ hwpx-automation/
 ├── hwpx_com.py           # 한컴 COM 네이티브 파이프라인 CLI (pyhwpx, Windows 전용)
 ├── hwpx_sign.py          # 서명란에 서명/도장 이미지 삽입 (COM 삽입 + XML floating 후처리)
 ├── rhwp_pdf.py           # macOS·Linux --to-pdf 백엔드 (rhwp CLI + 빈 네모 문자 검출)
+├── pdf_export.py         # Windows --to-pdf 공통 (변경 추적 경고 자동 응답)
+├── test_*.py             # rhwp_pdf·pdf_export 단위 시험
 ├── SKILL.md              # Claude Code 스킬 정의 (의사결정 트리 + 사용법)
 ├── convert/
 │   ├── hwp2hwpx.bat      # HWP→HWPX 변환 (Windows, JDK 21 필요)
 │   ├── hwp2hwpx.sh       # HWP→HWPX 변환 (macOS/Linux, JDK 21 필요)
-│   ├── hwp2hwpx-1.0.0.jar
+│   ├── hwp2hwpx-1.0.0-c9d8a27p1.jar  # 상류 커밋 + 자체 패치 (파일명 해시가 버전)
 │   ├── Hwp2HwpxCLI.java  # 변환기 소스
-│   └── lib/              # hwplib-1.1.10.jar, hwpxlib-1.0.8.jar
+│   ├── hwpx_convert.py   # MD/DOCX/HTML 등 → HWPX (Pandoc)
+│   ├── hwp_xml_to_md.py  # pyhwp XML → MD 폴백 파서
+│   ├── patches/          # JAR 자체 패치 + 재빌드 절차
+│   └── lib/              # hwplib-1.1.10.jar, hwpxlib-1.0.9.jar
 ├── reference/            # 상세 레퍼런스 (API, 구조적 편집, 파일 형식 등)
 ├── vendor/               # 서드파티 바이너리 (한컴 FilePathChecker DLL 등, .gitignore 처리)
 │   └── README.md         # DLL 다운로드·레지스트리 등록 절차 + 라이선스 고지
@@ -74,6 +79,7 @@ python hwpx_com.py --diagnose                              # pyhwpx + COM 진단
 python hwpx_com.py output.hwpx --from-md input.md           # MD → COM 네이티브 HWPX 생성
 python hwpx_com.py <파일.hwp> --from-hwp                    # HWP → HWPX 변환 (JDK 없는 기기 폴백)
 python hwpx_com.py <파일.hwpx> --insert-image img.png       # 문서 끝 이미지 삽입 (별도 파일 저장)
+python hwpx_com.py <파일.hwpx> --normalize                  # 한컴 재저장 정규화 (python-hwpx 산출물, 별도 파일)
 python hwpx_com.py <파일.hwpx> --get-text                   # COM 기준 본문 추출 (호환성 점검)
 python hwpx_com.py <파일.hwpx> --to-pdf                     # PDF 저장
 ```
@@ -123,7 +129,13 @@ bash convert/hwp2hwpx.sh input.hwp [output.hwpx]    # macOS/Linux
 | `reference/structural.md` | 구조적 편집 (행/표/단락 추가) 가이드 |
 | `reference/format.md` | HWPX 파일 형식 상세 |
 | `reference/build-from-scratch.md` | Markdown → HWPX 직접 빌드 |
-| `reference/conversion.md` | HWP→HWPX 변환 상세 |
+| `reference/conversion.md` | MD → HWPX 변환(Pandoc) 워크플로우·스타일 후처리 |
+| `reference/hwp-conversion.md` | HWP→HWPX 번들 JAR 출처·폴백 |
+| `reference/encrypted-hwpx.md` | 암호화 HWPX 감지·해제 |
+| `reference/com.md` | 한컴 COM 자동화 (hwpx_com.py, 보안모듈, 원격 실행) |
+| `reference/signing.md` | 서명/도장 이미지 삽입 |
+| `reference/rhwp-pdf.md` | macOS·Linux PDF (rhwp) |
+| `reference/cases.md` | 규칙의 근거가 된 실측·사고 경위 |
 | `reference/warnings-editing.md` | 편집 시 주의사항 |
 | `reference/warnings-com.md` | 한컴 COM 자동화 주의사항 |
 | `reference/update-checklist.md` | 업데이트 체크리스트 |
@@ -131,5 +143,6 @@ bash convert/hwp2hwpx.sh input.hwp [output.hwpx]    # macOS/Linux
 ## 코드 컨벤션
 
 - hwpx_edit.py에 새 기능 추가 시 기존 CLI 인수 패턴(`--동작`, `--동작 인수`)을 따른다
-- 편집 기능은 반드시 `save_hwpx()` 함수를 통해 저장 (sanitize 자동 적용)
+- 편집 기능은 반드시 `save_hwpx()` 함수를 통해 저장 (sanitize 자동 적용). 저장 경로에 조건을 걸지 않는다
+- HWPX를 쓰는 새 경로는 `zipfile.ZipFile(..., 'w')`를 직접 쓰지 말고 `write_hwpx_zip()`을, XML 직렬화는 `serialize_xml()`을 쓴다. HWPX를 읽는 새 경로는 `zipfile`로 읽은 직후 `sanitize_xml_parts()`를 태운다(`reference/warnings-editing.md` 15·18번)
 - 구조적 편집(raw XML) 후에는 `lineseg` 수동 제거 필수

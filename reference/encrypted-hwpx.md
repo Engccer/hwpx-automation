@@ -2,9 +2,19 @@
 
 비밀번호가 설정된 HWPX는 AES-256-CBC로 `Contents/section0.xml`, `Contents/header.xml`, `settings.xml`, 이미지 파일이 모두 암호화된다. `hwpx_edit.py` 같은 XML 직접 파서는 실패하고, python-hwpx도 마찬가지다. 한컴 COM으로 먼저 암호를 제거해야 한다.
 
+## 목차
+
+- [증상](#증상)
+- [감지](#감지)
+- [해제 스크립트 (한컴 COM)](#해제-스크립트-한컴-com)
+- [검증](#검증)
+- [함정](#함정)
+- [참고 ParameterSet: `Password` (ID 92)](#참고-parameterset-password-id-92)
+
+
 ## 증상
 
-- `hwpx_edit.py --to-md` 실행 시 `lxml.etree.XMLSyntaxError: Start tag expected, '<' not found`
+- `hwpx_edit.py`가 "이 HWPX 파일은 암호화되어 있습니다 (AES-256-CBC)."로 시작하는 오류와 해제 스크립트를 출력하고 멈춘다
 - `unzip -p file.hwpx Contents/section0.xml` 출력이 바이너리 덤프
 - `META-INF/manifest.xml`에 `<odf:file-entry>` 마다 `<odf:encryption-data>` 하위 요소 존재
 
@@ -81,15 +91,11 @@ unzip -p output.hwpx META-INF/manifest.xml | grep -c encryption-data
 
 4. **`Ask=0`이 핵심**: `Ask=1`이면 한글이 "암호 확인" 대화상자를 띄우려 하고 `-NonInteractive` 환경에서 멈춘다.
 
-5. **보안 DLL 경로 검증**: 레지스트리에 등록된 `FilePathCheckerModuleExample.dll` 경로에 실제 파일이 있어야 한다. 경로는 있지만 파일이 없으면 `RegisterModule`이 조용히 실패하고 보안 팝업이 매 Open/SaveAs마다 뜬다.
-   ```bash
-   reg query "HKCU\SOFTWARE\HNC\HwpAutomation\Modules"  # 등록 경로 확인
-   ls -la "<등록경로>"                                   # 파일 존재 확인
-   ```
+5. **보안 DLL 경로 검증**: 레지스트리에 등록된 DLL 경로에 실제 파일이 없으면 보안 팝업이 매 Open/SaveAs마다 뜬다. 진단: `reference/warnings-com.md` 5번.
 
-6. **HWPX 전용**: `FilePasswordChange`는 HWPX뿐 아니라 HWP에도 동작하지만, 이 스킬의 주 대상은 HWPX다. HWP면 먼저 `hwp2hwpx.bat`로 변환해도 되지만 변환 자체가 암호 해제 효과도 있는지는 확인되지 않았다.
+6. **HWPX 전용**: `FilePasswordChange`는 HWPX뿐 아니라 HWP에도 동작하지만, 이 스킬의 주 대상은 HWPX다. HWP면 먼저 hwp2hwpx로 변환해도 되지만 변환 자체가 암호 해제 효과도 있는지는 확인되지 않았다.
 
-7. **COM 프로세스 잔류**: 해제 도중 에러 발생 시 `Hwp.exe` 프로세스가 남을 수 있다. 다음 실행 전 `taskkill /F /IM Hwp.exe`로 정리.
+7. **COM 프로세스 잔류**: 해제 도중 에러 발생 시 `Hwp.exe` 프로세스가 남을 수 있다. 정리 절차(사용자가 연 문서 확인 뒤 강제 종료)는 `reference/warnings-com.md` 9번.
 
 ## 참고 ParameterSet: `Password` (ID 92)
 
