@@ -373,6 +373,8 @@ def style_table_rows(section_xml, header_bf_id, summary_bf_id, bold_char_id,
     return section_xml
 ```
 
+예시는 while 루프로 표 위치를 매번 다시 계산한다. → 사례
+
 ### 표 열 너비 조정 (가독성)
 
 > **열 너비뿐 아니라 행 높이·셀 다문단도 같은 raw 후처리로 조정한다.** 예: 서답형 답안지 답란 확장: `colAddr`별 `cellSz width` 재배분(답란 열 넓게)·`rowAddr`별 `cellSz height` 확대(작성 공간)·답란 셀의 `<hp:p>`를 deepcopy로 복제해 "(1)"·빈·"(2)"·빈 다문단으로 분리(텍스트 바꾼 문단은 `<hp:linesegarray>` 제거, 재패키징 시 mimetype 첫 항목·ZIP_STORED). 표 식별은 헤더 셀 텍스트로 한다.
@@ -575,7 +577,8 @@ order = ['mimetype'] + [n for n in file_list if n != 'mimetype' and not n.endswi
 with zipfile.ZipFile(OUTPUT_HWPX, 'w') as z:
     for name in order:
         data = files[name]
-        if name in ('Contents/header.xml', 'Contents/section0.xml') and not data.startswith(b'<?xml'):
+        if name in ('Contents/header.xml', 'Contents/section0.xml'):
+            data = re.sub(rb'^\s*<\?xml[^>]*\?>\s*', b'', data)  # 기존 선언을 standalone 선언으로 교체
             data = b'<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>' + data
         z.writestr(name, data, compress_type=zipfile.ZIP_STORED if name == 'mimetype' else ctype[name])
 
@@ -682,7 +685,7 @@ header_xml = re.sub(r'(<hc:lineSpacing[^/]*?)value="\d+"', r'\1value="160"', hea
 
 ### 제목 글자색이 파란색으로 나온다
 
-Pandoc HWPX writer는 제목 스타일 charPr에 **Word의 Office 테마 색상**을 그대로 박는다. 국내 제출·배포 문서는 본문·제목 모두 검정이 관행이므로, 제목이 있는 문서를 변환했으면 **거의 항상 검정 보정이 필요하다**. 텍스트 검증(`--to-md` recall)·`hwpx-validate`로는 절대 드러나지 않고 렌더링에서만 보이므로, 변환 후 PDF 육안 확인 단계에서 잡는다.
+Pandoc HWPX writer는 제목 스타일 charPr에 **Word의 Office 테마 색상**을 그대로 박는다. → 사례 국내 제출·배포 문서는 본문·제목 모두 검정이 관행이므로, 제목이 있는 문서를 변환했으면 **거의 항상 검정 보정이 필요하다**. 텍스트 검증(`--to-md` recall)·`hwpx-validate`로는 절대 드러나지 않고 렌더링에서만 보이므로, 변환 후 PDF 육안 확인 단계에서 잡는다.
 
 기본 charPr 색상표(빈 템플릿 기준, id는 문서마다 동일):
 
@@ -839,4 +842,4 @@ box = make_rect_box(
 6. **변환 결과 검증**: `hwpx_edit.py --to-md`의 recall, 또는 `<hp:t>` 텍스트 join (위 "HWPX 변환 결과 텍스트 검증 시 주의사항")
 7. **변환 스크립트 보존**: MD→HWPX 변환 시 생성한 Python 스크립트는 삭제하지 않고 프로젝트 폴더에 보관한다 (향후 재변환·수정 용도). 사용자가 명시적으로 삭제를 요청한 경우에만 삭제
 8. **`pypandoc.convert_file()` 입력 경로 대괄호 함정**: pypandoc은 내부에서 `glob.glob(str(source))`를 `glob.escape` 없이 호출하므로, 파일명/경로의 `[`, `]`, `*`, `?`가 glob 문자 클래스로 오인되어 매칭 실패 → `WindowsPath` fallback → `TypeError: 'WindowsPath' object is not iterable`. 한글과 무관한 라이브러리 자체 버그. 대표 재현 파일명 패턴: `[붙임]`, `[공고]`, `[수정]`, `2. [안건]` 등.
-   **해결**: MD→HWPX 변환 시 입력 MD를 항상 `tempfile.TemporaryDirectory()` 안에 ASCII-safe 이름(`input.md`)으로 쓴 뒤 `hwpx_convert.py`에 넘긴다. 출력 경로는 대괄호가 있어도 안전 (`--output=`은 glob 대상이 아님).
+   **해결**: MD→HWPX 변환 시 입력 MD를 항상 `tempfile.TemporaryDirectory()` 안에 ASCII-safe 이름(`input.md`)으로 쓴 뒤 `hwpx_convert.py`에 넘긴다. 출력 경로는 대괄호가 있어도 안전 (`--output=`은 glob 대상이 아님). → 사례

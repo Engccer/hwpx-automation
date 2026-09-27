@@ -171,11 +171,8 @@ with zipfile.ZipFile(output, 'w') as zf:
 ### XML 직렬화 주의사항
 
 ```python
-xml_bytes = etree.tostring(root, encoding='UTF-8')
-xml_bytes = xml_bytes.replace(
-    b"<?xml version='1.0' encoding='UTF-8'?>",
-    b'<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>'
-)
+xml_bytes = etree.tostring(root, xml_declaration=True, encoding='UTF-8',
+                           standalone=True)   # hwpx_edit.py serialize_xml()과 같다
 ```
 
 `standalone="yes"` 선언이 빠지면 한글은 열어도 `hwpx-validate-package`가 ERROR를 낸다(`reference/warnings-editing.md` 15번).

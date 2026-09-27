@@ -13,14 +13,14 @@
 8. **HWP→HWPX 변환 후 검은 배경**: `--sanitize` 또는 `save_hwpx()` 자동 수정
 9. **HWPML 2016 → 2011**: python-hwpx v2.8+는 네임스페이스 자동 변환 지원
 10. **`--to-md`는 표 밖 본문도 추출한다**: 문서 제목, 지도교사, 머리글 등 표 바깥 텍스트도 나온다(엔진 hwpx-tomd, SKILL.md "`--to-md` 보장과 한계"). 추출 범위 밖은 이미지 속 글자다
-11. **HWP→HWPX 변환 후 `PrvText.txt` 누락**: hwp2hwpx 변환 결과에는 `Preview/PrvText.txt`가 없다(container.xml은 선언). python-hwpx API(`HwpxDocument.open()`)·`hwpx-pack`·`hwpx-validate`가 이 누락으로 실패한다. 한글·`--to-md`·`--set-cell`은 정상이다. 정본·배포·검증 대상이거나 python-hwpx로 열어야 하면 `python hwpx_edit.py <파일.hwpx> --add-preview`로 보정한다(ZIP 안에 넣으므로 디스크에 빈 파일을 만드는 것으로는 안 된다)
+11. **HWP→HWPX 변환 후 `PrvText.txt` 누락**: hwp2hwpx 변환 결과에는 `Preview/PrvText.txt`가 없다(container.xml은 선언). python-hwpx API(`HwpxDocument.open()`)·`hwpx-pack`·`hwpx-validate`가 이 누락으로 실패한다. 한글·`--to-md`·`--set-cell`은 정상이다. 정본·배포·검증 대상이거나 python-hwpx로 열어야 하면 `python hwpx_edit.py <파일.hwpx> --add-preview`로 보정한다(가장 간단하다. 손으로 할 때는 ZIP 안에 `Preview/PrvText.txt`가 들어가야 한다)
 12. **manifest.xml self-closing 태그 주의**: HWP→HWPX 변환 결과의 manifest.xml이 `<odf:manifest .../>` (self-closing) 형태일 수 있음. `replace('</odf:manifest>', ...)` 패턴이 실패하므로, self-closing 여부를 먼저 확인하고 처리
-13. **양식의 "한 줄로 입력" 문단에 긴 텍스트 채우면 글자가 겹쳐 뭉개짐**: 사람이 디자인한 양식의 제목 문단에는 문단 모양 "한 줄로 입력"(`paraPr`의 `<hh:breakSetting ... lineWrap="SQUEEZE"/>`)이 걸려 있는 경우가 있다. 짧은 제목 전제의 디자인이라, 자동화로 **긴 제목·문장을 채우면 한글이 줄바꿈 대신 장평을 무제한 압축**해 글자가 서로 겹쳐 판독 불가가 된다(음수 자간 charPr과 결합하면 더 심함). `hwpx-validate`(XSD)와 `--to-md` recall로는 잡히지 않고 **렌더링(PDF·인쇄)에서만 드러난다**.
+13. **양식의 "한 줄로 입력" 문단에 긴 텍스트 채우면 글자가 겹쳐 뭉개짐**: 사람이 디자인한 양식의 제목 문단에는 문단 모양 "한 줄로 입력"(`paraPr`의 `<hh:breakSetting ... lineWrap="SQUEEZE"/>`)이 걸려 있는 경우가 있다. 짧은 제목 전제의 디자인이라, 자동화로 **긴 제목·문장을 채우면 한글이 줄바꿈 대신 장평을 무제한 압축**해 글자가 서로 겹쳐 판독 불가가 된다(음수 자간 charPr과 결합하면 더 심함). `hwpx-validate`(XSD)와 `--to-md` recall로는 잡히지 않고 **렌더링(PDF·인쇄)에서만 드러난다**. → 사례
     - **감지(`--list-squeeze`)**: SQUEEZE 문단 중 추정 자연 폭(charPr height·장평·자간 반영 근사)이 컨테이너 가용 폭(셀·글상자·본문)의 1.1배를 넘는 문단만 나열.
     - **보정(`--fix-squeeze`)**: 원본 paraPr은 남기고 `lineWrap="BREAK"` 복제 paraPr을 새 id로 추가해 과압축 문단만 재지정(같은 paraPr을 공유하는 짧은 라벨의 의도된 디자인은 보존). 재지정 문단의 `linesegarray`는 제거해 한글이 재계산하게 함.
     - **자동 경고**: `--find/--replace`·`--set-cell`이 텍스트를 채운 직후 그 텍스트가 SQUEEZE 문단에서 과압축되면 stderr로 경고하고 `--fix-squeeze`를 안내한다.
     - **워크플로우 규칙**: 양식 채우기에서 제목·긴 문장을 채운 뒤에는 `--list-squeeze`로 확인하거나 PDF로 육안 검증하라. 자동 생성 문서의 제목은 폰트 축소·자간 압축으로 한 줄에 욱여넣지 말고 자연 줄바꿈(2줄)을 허용하는 것이 기본이다.
-14. **양식의 기입 예시(placeholder) 글자모양이 그대로 상속됨**: 관공서 배포 양식은 기입 예시를 **회색(`textColor="#808080"`)·이탤릭** charPr로 넣어 둔다. 이 셀을 `--set-cell`이나 python-hwpx `fill_by_path`로 채우면 텍스트만 바뀌고 `charPrIDRef`는 그대로라 **제출본이 회색 이탤릭으로 인쇄된다**. 13번(SQUEEZE)과 같은 계열: `hwpx-validate`·`--to-md` recall로는 안 잡히고 렌더링에서만 드러난다.
+14. **양식의 기입 예시(placeholder) 글자모양이 그대로 상속됨**: 관공서 배포 양식은 기입 예시를 **회색(`textColor="#808080"`)·이탤릭** charPr로 넣어 둔다. 이 셀을 `--set-cell`이나 python-hwpx `fill_by_path`로 채우면 텍스트만 바뀌고 `charPrIDRef`는 그대로라 **제출본이 회색 이탤릭으로 인쇄된다**. 13번(SQUEEZE)과 같은 계열: `hwpx-validate`·`--to-md` recall로는 안 잡히고 렌더링에서만 드러난다. → 사례
     - **감지**: 채울 셀의 `<hp:run charPrIDRef>`가 가리키는 `header.xml`의 charPr에 회색 `textColor`나 `<hh:italic/>`이 있는지 확인. 예시 행·기입 칸·라벨이 각각 다른 charPr id를 쓰므로 셀마다 봐야 한다.
     - **보정 패턴** (양식의 글꼴·크기·자간은 보존하고 서식만 정상화, `--fix-squeeze`의 복제 paraPr 패턴과 동형):
       ```python
@@ -34,7 +34,7 @@
       # 채운 셀의 <hp:run charPrIDRef>만 새 id로 교체
       ```
     - **워크플로우 규칙**: 양식 채우기 후 제출 전 PDF 렌더링으로 글자색·기울임을 육안 확인하라. Pandoc 변환물의 파란 제목 함정(`reference/conversion.md`)과 같은 "텍스트 검증으로는 안 잡히는" 부류다.
-15. **HWPX를 쓸 때 패키지 규격 — mimetype 압축·`standalone="yes"`**: 모든 ZIP 항목을 `ZIP_DEFLATED`로 쓰거나 `etree.tostring`에 `standalone=True`를 주지 않으면 **편집 전에는 통과하던 문서가 편집만으로** `hwpx-validate-package`에서 ERROR 2건(`mimetype: must use ZIP_STORED`, `missing XML declaration with standalone="yes"`)을 낸다. → 사례 한글은 정상적으로 열고 `hwpx-validate`(XSD)·`--to-md` recall도 통과하므로 **자동 검증으로는 드러나지 않는다** — 13·14번과 같은 계열이다. 공문서 제출본처럼 규격 검증을 통과해야 하는 산출물에서 문제가 된다.
+15. **HWPX를 쓸 때 패키지 규격 — mimetype 압축·`standalone="yes"`**: 모든 ZIP 항목을 `ZIP_DEFLATED`로 쓰거나 `etree.tostring`에 `standalone=True`를 주지 않으면 **편집 전에는 통과하던 문서가 편집만으로** `hwpx-validate-package`에서 ERROR 2건(`mimetype: must use ZIP_STORED`, `missing XML declaration with standalone="yes"`)을 낸다. 한글은 정상적으로 열고 `hwpx-validate`(XSD)·`--to-md` recall도 통과하므로 **자동 검증으로는 드러나지 않는다** — 13·14번과 같은 계열이다. 공문서 제출본처럼 규격 검증을 통과해야 하는 산출물에서 문제가 된다. → 사례
     - **현재 구현**: `write_hwpx_zip()`이 mimetype을 **첫 항목 + ZIP_STORED**로 쓰고, 나머지는 `zip_layout()`이 읽어 둔 **원본의 항목별 압축 방식을 복제**한다(한컴이 STORED로 두는 `version.xml`·`Preview/PrvImage.png`·`BinData/*` 보존). XML 직렬화는 `serialize_xml()` 한 곳으로 모아 `standalone="yes"`를 보장한다(section뿐 아니라 **header.xml도 검증 대상**이므로 sanitize·fix-squeeze 경로도 이 함수를 쓴다).
     - **직접 짜는 스크립트도 같다**: `reference/conversion.md`·`build-from-scratch.md`·`structural.md`의 재패키징 예시처럼 직접 ZIP을 쓸 때는 mimetype을 첫 항목·`ZIP_STORED`로 두고 나머지는 원본 항목의 압축 방식을 따르며, XML은 `standalone="yes"` 선언과 함께 직렬화한다. `hwpx_edit.py` 안의 새 경로는 `write_hwpx_zip()`·`serialize_xml()`을 쓴다(CLAUDE.md 코드 컨벤션).
     - **검증 습관**: 편집 명령을 추가·수정했으면 산출물에 `hwpx-validate-package`를 돌려 **원본과 같은 상태(WARN만)로 유지되는지** 확인한다. XSD 통과만으로는 이 부류를 못 잡는다.

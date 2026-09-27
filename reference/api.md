@@ -139,7 +139,7 @@ if not report.ok:
         print(f"{issue.part_name}: {issue.message} (line {issue.line})")
 ```
 
-저장할 때마다 검증하려면 문서를 만들 때 `validate_on_save=True`를 준다(`save_to_path`의 인자가 아니다).
+저장할 때마다 검증하려면 연 뒤 `doc.validate_on_save = True`로 켠다(`save_to_path`·`open`의 인자가 아니다).
 
 ## 양식 채우기·이미지·도형·기타
 

@@ -13,7 +13,7 @@
 
 hwp2hwpx가 예외로 죽는 문서는 Windows 한컴오피스 COM으로 HWPX를 만들면 정식 경로(`--to-md`)를 그대로 탈 수 있다: `python hwpx_com.py <파일.hwp> --from-hwp -o <파일.hwpx>`. 원격(SSH)에서 돌릴 때는 `reference/com.md` "원격 실행"을 따른다.
 
-예외 유형별 원인:
+예외 유형별 원인(→ 사례):
 
 | 예외 | 위치 | 원인 |
 |---|---|---|

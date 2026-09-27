@@ -72,16 +72,17 @@ HWP/HWPX 작업 요청
 │     (hwp2hwpx 변환물은 PrvText 누락으로 hwpx-validate가 실패한다. 아래 "HWP → HWPX 변환")
 ├── PDF 만들기 → hwpx_edit.py --to-pdf
 │   (Windows는 한컴 COM, macOS·Linux는 rhwp. 아래 "macOS·Linux에서 PDF 변환 (rhwp)")
-│   ※ Pandoc(hwpx_convert.py) 변환물은 Windows COM으로 PDF를 내지 않는다(아래 줄)
+│   ※ Pandoc(hwpx_convert.py) 변환물은 Windows COM으로 PDF를 내지 않는다(아래 줄).
+│     한컴 PDF가 필요하면 hwpx_com.py --from-md로 COM에서 생성한다
 └── 새로 생성 (마크다운 등에서)
     ├── 간단한 문서 (스타일 최소, 빠른 변환)
     │   → hwpx_convert.py + 스타일 후처리 (아래 "MD → HWPX 변환 (Pandoc)" 참조)
-    ├── 보고서급 문서 (표/인용문/각주/커스텀 스타일 필요)
+    ├── 보고서급 문서 (표 스타일/인용문/커스텀 스타일 필요)
     │   → python-hwpx build-from-scratch (아래 "MD → HWPX 생성 (Build-from-scratch)" 참조)
     └── 한컴 충실도 최우선 + 이후 COM 후속 작업(이미지 삽입·정규화·PDF) 예정
         → hwpx_com.py --from-md (COM 네이티브 생성, Windows + 한컴오피스 필요)
         ※ COM은 Pandoc 생성물의 본문을 0자로 읽는다. Pandoc 생성물은 --normalize·
-          --insert-image·Windows --to-pdf 등 COM을 여는 명령에 넣지 않는다
+          Windows --to-pdf에 넣지 않는다
           (reference/warnings-com.md 4번). COM 생성물은 XML 파이프라인에서 읽고 편집해도 안전하다
 ```
 
@@ -108,7 +109,8 @@ HWP/HWPX 작업 요청
 - **도구 기본 출력**: `hwpx_edit.py`와 hwp2hwpx 래퍼(`.bat`·`.sh`)는 `-o`(래퍼는 두 번째 인자) 미지정 시 입력 폴더의 `_work-hwpx-automation/`에 저장한다(원본 비파괴). 입력이 이미 `_work-hwpx-automation/` 안에 있으면 같은 폴더의 같은 이름, 즉 그 파일 자리에 쓴다.
 - **입력 옆에 쓰는 도구**: `hwpx_com.py`는 `<입력>.pdf`·`<입력>_img.hwpx`·`<입력>_norm.hwpx`, `--from-hwp`는 `<입력>.hwpx`, `hwpx_sign.py`는 `<입력>_서명.hwpx`를 입력 파일 옆에 만든다. 부산물로 둘 것이면 `-o`로 `_work-hwpx-automation/`을 지정한다.
 - **여러 편집을 이어 할 때**: 편집 명령은 매번 입력 파일을 새로 읽는다. 원본에 `--set-cell` 등을 여러 번 부르면 마지막 호출만 남으므로, 두 번째 호출부터는 앞 호출의 결과(`_work-hwpx-automation/<이름>.hwpx`)를 입력으로 준다. 셀이 많으면 스크립트 한 번으로 처리한다.
-- **작업 마무리**: 작업 종료 시 **최종 결과물은 작업 폴더로** 옮기고(또는 처음부터 `-o`로 작업 폴더를 지정), 그 전까지의 **중간 부산물은 `_work-hwpx-automation/`에 잔류**시킨다. 작업 폴더에는 원본과 최종 결과물만 남아 깔끔하게 유지된다.
+- **작업 마무리**: 작업 종료 시 **최종 결과물은 작업 폴더로** 옮기고(또는 처음부터 `-o`로 작업 폴더를 지정), 그 전까지의 **중간 부산물은 `_work-hwpx-automation/`에 잔류**시킨다. 작업 폴더에는 원본과 최종 결과물만 남아 깔끔하게 유지된다. 최종본 이름이 원본과 같으면 옮길 때 원본을 덮으므로 새 이름을 준다.
+- **비교 기준 남기기**: `_work-hwpx-automation/` 안 파일을 입력으로 주면 그 자리를 덮으므로, 편집 전 파일을 `hwpx-page-guard --reference`의 기준으로 쓰려면 첫 편집에 `-o`로 새 이름을 준다.
 
 ### 시나리오별 결과물/부산물
 
@@ -262,7 +264,7 @@ bash convert/hwp2hwpx.sh <입력.hwp> [출력.hwpx]    # macOS/Linux
 - 요구사항: JDK 21. 두 래퍼 모두 `JAVA_HOME` → (Windows는 Adoptium 표준 설치 →) PATH 순으로 java를 자동 탐색
 - **JDK 없는 Windows 폴백**: 한컴오피스가 있으면 `python hwpx_com.py <입력.hwp> --from-hwp [-o 출력.hwpx]`로 COM 변환(변환 후 본문 글자 수 재검증 내장). JDK 설치 전까지의 우회이며, 연속·배치 호출 전에는 잔류 `Hwp.exe`를 정리할 것(`reference/warnings-com.md` 9번)
 - Windows(.bat): 입력 경로에 cp949 외 문자(en-dash, em-dash 등)가 있어도 내부에서 `%TEMP%`로 staging해 처리. macOS/Linux(.sh)는 JVM이 UTF-8 argv를 그대로 받으므로 staging 불필요
-- ⚠ **Git Bash에서 호출 금지**: Windows에서 Claude Code의 Bash 도구는 Git Bash다. `cmd.exe /c`를 거치는 Git Bash에서 한글·공백 경로 인자를 넘기면 cp949 이중 셸 해석으로 깨져(`Exit code 2` + 깨진 바이트) Usage 분기로 빠진다. bat 내부 `%TEMP%` staging은 JVM argv 문제만 막을 뿐 그 앞단 cmd.exe 인자 전달 깨짐은 못 막는다. **PowerShell에서 직접 호출**하거나, 정 Bash가 필요하면 입력을 ASCII 경로 임시 폴더에 복사한 뒤 `java -cp "<convert>/*;<convert>/lib/*;<convert>" Hwp2HwpxCLI in.hwp out.hwpx`를 직접 실행한다(`<convert>`는 이 스킬의 `convert` 폴더. Java 클래스패스는 `폴더/*`만 JAR 와일드카드로 받는다)
+- ⚠ **Git Bash에서 호출 금지**: Windows에서 Claude Code의 Bash 도구는 Git Bash이므로 이 셸에서는 아래 `java -cp` 직접 호출을 쓴다. `cmd.exe /c`를 거치는 Git Bash에서 한글·공백 경로 인자를 넘기면 cp949 이중 셸 해석으로 깨져(`Exit code 2` + 깨진 바이트) Usage 분기로 빠진다. bat 내부 `%TEMP%` staging은 JVM argv 문제만 막을 뿐 그 앞단 cmd.exe 인자 전달 깨짐은 못 막는다. **PowerShell에서 직접 호출**하거나, 정 Bash가 필요하면 입력을 ASCII 경로 임시 폴더에 복사한 뒤 `java -cp "<convert>/*;<convert>/lib/*;<convert>" Hwp2HwpxCLI in.hwp out.hwpx`를 직접 실행한다(`<convert>`는 이 스킬의 `convert` 폴더. Java 클래스패스는 `폴더/*`만 JAR 와일드카드로 받는다)
 - ⚠ **변환물은 `hwpx-validate`가 `Preview/PrvText.txt` 누락으로 실패한다**(container.xml은 선언, ZIP엔 Preview/ 없음). 한글은 정상 열림·`--to-md` recall 100%라 읽기·편집엔 무해. 변환물을 **정본·배포·검증 대상**으로 쓸 때만 `python hwpx_edit.py <파일.hwpx> --add-preview`로 보정한다(section 무변형). `--find/--replace`는 이 누락으로 여는 것을 거부하며, 그때 출력하는 두 단계(`--add-preview` 후 보정본으로 재실행)를 따른다.
 
 ### 번들 JAR 출처·폴백 (hwp2hwpx가 예외로 죽을 때)
@@ -314,6 +316,8 @@ Windows가 아닌 OS에서 `--to-pdf`를 쓰거나 rhwp 설치·출력 해석(`�
 Windows + 한컴오피스에서 COM(`hwpx_com.py`·보안모듈·암호 해제·이미지 삽입)을 쓸 때 `reference/com.md`를 읽는다. SSH 세션에서는 COM 서버가 뜨지 않는다(같은 문서 "원격 실행").
 
 ## 상세 레퍼런스
+
+규칙 끝의 "→ 사례"는 `reference/cases.md`의 같은 제목 절(근거가 된 실측·경위)을 가리킨다. 작업에는 필요 없다.
 
 | 주제 | 파일 | 내용 |
 |------|------|------|

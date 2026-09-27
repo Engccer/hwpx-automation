@@ -28,7 +28,7 @@ XML 직접 편집으로 불가능한 작업(이미지 삽입, PDF 변환)과 COM
 | COM 네이티브 | **hwpx_com.py** (pyhwpx) | Windows + 한컴오피스 | 신규 생성+COM 후속 작업, 이미지 삽입, PDF |
 
 - **COM 생성 HWPX → XML 파이프라인 읽기·편집**: 안전. COM으로 넣은 결과를 XML로 후처리하고 다시 COM으로 여는 흐름(아래 "이미지 위치/배치 변경", `hwpx_sign.py`)도 이 범위다. → 사례
-- **Pandoc 생성 HWPX → COM**: 금지. COM이 본문을 0자로 인식하고, 같은 파일에 저장하면 내용 전체가 사라진다(`reference/warnings-com.md` 4번). `--normalize`·`--insert-image`·Windows `--to-pdf`(`hwpx_edit.py`·`hwpx_com.py` 모두)처럼 COM이 여는 명령에도 넣지 않는다. 한컴 결과물이 필요하면 `--from-md`로 COM에서 생성한다.
+- **Pandoc 생성 HWPX → COM**: 금지. COM이 본문을 0자로 인식하고, 같은 파일에 저장하면 내용 전체가 사라진다(`reference/warnings-com.md` 4번). `--normalize`·Windows `--to-pdf`(`hwpx_edit.py`·`hwpx_com.py` 모두)에도 넣지 않는다(본문을 0자로 읽은 채 처리한다). 이미지 삽입은 별도 파일로 저장하면 내용이 보존된다(`reference/warnings-com.md` 4번). 한컴 결과물이 필요하면 `--from-md`로 COM에서 생성한다.
 - hwpx_com.py는 입력 파일을 절대 in-place로 덮어쓰지 않는다 (위 사고의 구조적 방지)
 
 ## hwpx_com.py 사용법 (pyhwpx 기반)
