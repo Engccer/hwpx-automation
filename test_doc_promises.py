@@ -15,6 +15,12 @@ import zipfile
 
 from lxml import etree
 
+try:
+    import pymupdf  # noqa: F401
+    _HAS_PYMUPDF = True
+except ImportError:
+    _HAS_PYMUPDF = False
+
 import hwpx_com
 import hwpx_edit
 
@@ -313,6 +319,108 @@ class ConvertDocxWithQuoteFix(unittest.TestCase):
                 quiet(lambda: hwpx_convert.convert_file(str(src), str(Path(tmp) / "o.hwpx"), None, "hwpx"))
             self.assertEqual(len(seen), 1)
             self.assertNotIn('"', seen[0])
+
+
+class FindReplaceRoundTrip(unittest.TestCase):
+    """hwpx_edit.py --find/--replace는 설치된 python-hwpx 세대와 무관하게 치환 결과를
+    파일에 저장해야 한다(6.x에서 저장 API 개명으로 메모리 치환만 되고 파일은 그대로
+    남던 회귀의 방지. 이 시험은 설치된 세대 하나에서만 돈다)."""
+
+    def test_replacement_reaches_output_file(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        src = Path(tmp.name) / "t.hwpx"
+        make_table_hwpx(src)
+        out = Path(tmp.name) / "o.hwpx"
+        code, so, se = quiet(hwpx_edit.cmd_find_replace, str(src), "R1C1", "홍길동", str(out))
+        self.assertEqual(code, 0, se)
+        self.assertTrue(out.exists(), "치환 결과 파일이 없다")
+        texts = [t.text or "" for t in read_table(out).iter("{%s}t" % HP)]
+        self.assertIn("홍길동", texts)
+        self.assertNotIn("R1C1", texts)
+        self.assertIn("1건 치환", so)
+
+
+class SignPdfImageGate(unittest.TestCase):
+    """hwpx_sign.py --pdf: 검증 PDF에 이미지 객체가 하나도 없으면 서명이 렌더되지
+    않은 문서이므로 [OK]가 아니라 실패로 끝나야 한다."""
+
+    def _pdf(self, path, with_image):
+        import pymupdf
+        doc = pymupdf.open()
+        page = doc.new_page()
+        page.insert_text((72, 72), "( sign )")
+        if with_image:
+            pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 20, 10), False)
+            pix.clear_with(0)
+            page.insert_image(pymupdf.Rect(100, 100, 150, 130), pixmap=pix)
+        doc.save(str(path))
+        doc.close()
+
+    @unittest.skipUnless(_HAS_PYMUPDF, "PyMuPDF 없음")
+    def test_count_pdf_images(self):
+        import hwpx_sign
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        a, b = Path(tmp.name) / "a.pdf", Path(tmp.name) / "b.pdf"
+        self._pdf(a, False)
+        self._pdf(b, True)
+        self.assertEqual(hwpx_sign.count_pdf_images(str(a)), 0)
+        self.assertEqual(hwpx_sign.count_pdf_images(str(b)), 1)
+
+    def _run_main(self, image_count):
+        import hwpx_sign
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        doc = Path(tmp.name) / "d.hwpx"
+        doc.write_bytes(b"PK")
+        img = Path(tmp.name) / "s.png"
+        img.write_bytes(b"png")
+        argv = ["hwpx_sign.py", str(doc), "--image", str(img), "--pdf"]
+        with mock.patch.object(sys, "argv", argv), \
+                mock.patch.object(hwpx_sign, "com_insert"), \
+                mock.patch.object(hwpx_sign, "to_floating", return_value=(0, 0)), \
+                mock.patch.object(hwpx_sign.subprocess, "run", return_value=mock.Mock(returncode=0)), \
+                mock.patch.object(hwpx_sign, "count_pdf_images", return_value=image_count):
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = hwpx_sign.main()
+        return code, out.getvalue(), err.getvalue()
+
+    def test_pdf_without_image_fails(self):
+        code, out, err = self._run_main(0)
+        self.assertEqual(code, 1)
+        self.assertIn("[ERROR]", err)
+        self.assertNotIn("[OK] 검증 PDF", out)
+
+    def test_pdf_with_image_passes(self):
+        code, out, err = self._run_main(1)
+        self.assertEqual(code, 0)
+        self.assertIn("[OK] 검증 PDF", out)
+
+    def test_missing_pymupdf_is_reported_not_fatal(self):
+        code, out, err = self._run_main(None)
+        self.assertEqual(code, 0)
+        self.assertIn("PyMuPDF", out + err)
+
+    def test_locked_output_file_gives_taskkill_hint(self):
+        import hwpx_sign
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        doc = Path(tmp.name) / "d.hwpx"
+        doc.write_bytes(b"PK")
+        img = Path(tmp.name) / "s.png"
+        img.write_bytes(b"png")
+        argv = ["hwpx_sign.py", str(doc), "--image", str(img)]
+        with mock.patch.object(sys, "argv", argv), \
+                mock.patch("shutil.copyfile", side_effect=PermissionError(13, "locked")), \
+                mock.patch.object(hwpx_sign, "com_insert") as com:
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = hwpx_sign.main()
+        self.assertEqual(code, 1)
+        self.assertIn("taskkill", err.getvalue())
+        com.assert_not_called()
 
 
 if __name__ == "__main__":

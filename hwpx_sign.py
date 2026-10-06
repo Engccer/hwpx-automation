@@ -39,6 +39,31 @@ import zipfile
 MM = 7200 / 25.4  # 1mm in HWPUNIT
 
 
+def count_pdf_images(pdf: str) -> int | None:
+    """PDF 전체의 이미지 객체 수. PyMuPDF가 없으면 None.
+
+    hp:pic이 렌더되지 않은 문서는 한글·hwpx-validate가 모두 통과하고 PDF도 정상
+    생성되므로, 서명이 실제로 그려졌는지는 PDF의 이미지 객체 수로만 결정적으로
+    판별된다(0이면 서명 없는 문서).
+    """
+    try:
+        import pymupdf
+    except ImportError:
+        try:
+            import fitz as pymupdf  # 구버전 이름
+        except ImportError:
+            return None
+    with pymupdf.open(pdf) as doc:
+        return sum(len(page.get_images(full=True)) for page in doc)
+
+
+def _locked_output_hint(e: Exception) -> None:
+    print(f"[ERROR] 출력 파일을 쓸 수 없음: {e}\n"
+          "  직전 실행이 남긴 Hwp.exe가 파일을 잠그고 있을 가능성이 큽니다. "
+          "taskkill /F /IM Hwp.exe 후 재시도(reference/warnings-com.md 9번).",
+          file=sys.stderr)
+
+
 def mm2hu(mm: float) -> int:
     return round(mm * MM)
 
@@ -484,13 +509,17 @@ def main() -> int:
     except Exception:
         src_xml = None
 
-    # 입력을 출력으로 복사 후 그 위에서 작업(원본 비파괴)
-    if os.path.abspath(out) != os.path.abspath(args.doc):
-        import shutil
-        shutil.copyfile(args.doc, out)
-
-    com_insert(out, args.image, args.anchor, args.width_mm, h_mm,
-               keep_anchor=args.keep_anchor)
+    # 입력을 출력으로 복사 후 그 위에서 작업(원본 비파괴). 출력 경로에 처음 쓰는
+    # 곳이라 직전 실행의 Hwp.exe가 잠근 파일이면 여기서 PermissionError가 난다.
+    try:
+        if os.path.abspath(out) != os.path.abspath(args.doc):
+            import shutil
+            shutil.copyfile(args.doc, out)
+        com_insert(out, args.image, args.anchor, args.width_mm, h_mm,
+                   keep_anchor=args.keep_anchor)
+    except PermissionError as e:
+        _locked_output_hint(e)
+        return 1
 
     # --keep-anchor는 COM의 "Cancel" 액션이 선택을 실제로 해제했는지에 달려 있다.
     # 빌드에 따라 무시되면 InsertPicture가 선택된 앵커를 그대로 대체해, 옵션이
@@ -513,6 +542,9 @@ def main() -> int:
                 args.horz_offset, args.vert_adjust, mm2hu(args.gap_mm),
                 src_xml=src_xml, anchor=args.anchor,
                 img_name=os.path.basename(args.image))
+        except PermissionError as e:
+            _locked_output_hint(e)
+            return 1
         except RuntimeError as e:
             # 좌표를 신뢰할 수 없을 때의 안내는 트레이스백 없이 그대로 보여준다.
             # COM 삽입까지는 끝난 상태이므로 중간 산출물 경로도 알려준다.
@@ -537,7 +569,25 @@ def main() -> int:
             [sys.executable, os.path.join(here, "hwpx_edit.py"), out, "--to-pdf", "-o", pdf]
         ).returncode
         if rc == 0:
-            print(f"[OK] 검증 PDF: {pdf}")
+            try:
+                n_img = count_pdf_images(pdf)
+            except Exception as e:  # 변환은 0으로 끝났는데 PDF를 열지 못함
+                print(f"[WARN] 검증 PDF를 열지 못해 이미지 객체 수 검증을 생략: {e}",
+                      file=sys.stderr)
+                n_img = None
+            if n_img == 0:
+                print(f"[ERROR] 검증 PDF에 이미지 객체가 없습니다: {pdf}\n"
+                      "  서명이 그려지지 않은 문서입니다(hp:pic이 hp:run 밖에 놓였거나 "
+                      "BinData 누락). 이 파일을 제출하지 마세요. reference/signing.md 참조.",
+                      file=sys.stderr)
+                return 1
+            if n_img is None:
+                print(f"[OK] 검증 PDF: {pdf} (이미지 객체 수 검증 생략. PyMuPDF를 설치하거나 "
+                      "pdfimages -list로 직접 확인)")
+            else:
+                print(f"[OK] 검증 PDF: {pdf} (이미지 객체 {n_img}개. 로고·직인 등 다른 "
+                      "이미지가 있는 문서는 이 수만으로 서명 유무를 단정할 수 없으니 "
+                      "서명 구역을 육안 확인)")
         else:
             print("[WARN] PDF 변환 실패(한컴 COM 잔류 의심: 사용자가 연 한글 문서가 없는지 확인한 뒤 "
                   "taskkill /F /IM Hwp.exe 후 재시도. reference/warnings-com.md 9번)",

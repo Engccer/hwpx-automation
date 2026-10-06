@@ -14,3 +14,6 @@ hwpx-tomd>=0.2.1,<1.0.0
 # 선택: COM 네이티브 파이프라인(hwpx_com.py): Windows + 한컴오피스 전용.
 # pyhwpx가 pywin32·pandas·openpyxl 등을 함께 끌어오므로 기본 설치에 포함하지 않는다.
 # 필요 시: pip install pyhwpx   (1.7.2에서 검증, 2026-06-10)
+
+# 선택: hwpx_sign.py --pdf의 이미지 객체 수 검증(서명이 실제로 그려졌는지). 없으면 검증을 생략하고 고지한다.
+# pymupdf
