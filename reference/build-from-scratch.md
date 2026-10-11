@@ -440,3 +440,11 @@ clean = re.sub(r"\[\^\d+\]", "", clean)                # [^1] → 제거
 ### 7. ensure_run_style 호환성
 
 이 방식의 스크립트는 charPr/paraPr를 API가 아닌 XML 문자열 주입(2단계)으로 만든다. 옛 python-hwpx에서 `ensure_run_style()`이 `lxml` 요소에 `xml.etree` `SubElement`를 써 TypeError를 냈기 때문이다. 현행 판(3.x·6.x)은 새 문서에서 정상 동작하고, 6.x에서는 deprecated(→ `doc.styles.ensure_run`)다. run 단위 서식만 필요하면 `add_run(bold=…)`을 쓴다(`reference/api.md`). → 사례
+
+### 8. python-hwpx 6.x 파사드가 민팅한 스타일이 저장본에 남지 않는 문제
+
+`doc.styles.apply_paragraph_format()`·`ensure_run_style()`·`ensure_border_fill()`이 돌려준 id를 문단·run에 달아 저장하면 **section0.xml은 그 id(20번대·7번대)를 참조하는데 header.xml에는 항목이 없고 `itemCnt`만 늘어난다**(python-hwpx 6.6.0, `HwpxDocument.new()` 기준 실측). `hwpx-validate`는 통과하고 한글도 열리지만 서식이 전부 기본값(내어쓰기·keepWithNext·정렬 무시)으로 풀린다. 2단계처럼 빈 템플릿을 한 번 저장한 ZIP의 header.xml에 charPr·paraPr·borderFill XML을 **직접 주입한 사본을 다시 열어** 빌드하면 안전하다. 저장 뒤 `paraPrIDRef`·`charPrIDRef`가 header.xml에 실재하는지 한 줄로 대조할 것. → 사례
+
+### 9. 표 쪽 경계: 글자처럼 취급과 부동의 혼용
+
+한 쪽에 들어가는 표는 `treatAsChar="1"` + `pageBreak="NONE"`(통째로 다음 쪽으로 밀리되 본문 순서는 유지), 한 쪽을 넘길 만큼 글이 많은 표만 `treatAsChar="0"` + `pageBreak="TABLE"` + 머리 행 반복으로 둔다. 모든 표를 부동으로 두면 자리가 모자라 밀린 표 위로 뒤 문단이 흘러 들어와 **문서 순서가 뒤집힌다**(장 제목 뒤에 다른 절의 표가 오는 식). 조합별 결과는 `reference/structural.md` "표에 행을 추가·확장한 뒤 쪽 나눔" 표. → 사례
