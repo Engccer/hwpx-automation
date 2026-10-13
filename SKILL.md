@@ -79,12 +79,17 @@ HWP/HWPX 작업 요청
     │   → hwpx_convert.py + 스타일 후처리 (아래 "MD → HWPX 변환 (Pandoc)" 참조)
     ├── 보고서급 문서 (표 스타일/인용문/커스텀 스타일 필요)
     │   → python-hwpx build-from-scratch (아래 "MD → HWPX 생성 (Build-from-scratch)" 참조)
-    └── 한컴 충실도 최우선 + 이후 COM 후속 작업(이미지 삽입·정규화·PDF) 예정
-        → hwpx_com.py --from-md (COM 네이티브 생성, Windows + 한컴오피스 필요)
-        ※ COM은 Pandoc 생성물의 본문을 0자로 읽는다. Pandoc 생성물은 COM으로 처리하지
-          않는다(--normalize·--insert-image·Windows --to-pdf·hwpx_sign.py 모두. --get-text
-          호환성 점검만 예외, reference/warnings-com.md 4번). COM 생성물은 XML 파이프라인에서
-          읽고 편집해도 안전하다
+    ├── 한컴 충실도 최우선 + 이후 COM 후속 작업(이미지 삽입·정규화·PDF) 예정
+    │   → hwpx_com.py --from-md (COM 네이티브 생성, Windows + 한컴오피스 필요)
+    │   ⚠ 한컴 13.0.0.3903 PC에서는 HAction.Run이 전부 무시돼 본문이 한 덩어리가 된다
+    │     (reference/warnings-com.md 16번). 쓰기 전에 PDF 페이지 이미지로 확인한다
+    │   ※ COM은 Pandoc 생성물의 본문을 0자로 읽는다. Pandoc 생성물은 COM으로 처리하지
+    │     않는다(--normalize·--insert-image·Windows --to-pdf·hwpx_sign.py 모두. --get-text
+    │     호환성 점검만 예외, reference/warnings-com.md 4번). COM 생성물은 XML 파이프라인에서
+    │     읽고 편집해도 안전하다
+    └── 제출 서식(용지·여백·글꼴·줄 간격)이 지정된 원고
+        → python-docx로 서식째 DOCX 조립 → COM으로 열어 HWPX 저장
+          (여백 대응 규칙: reference/warnings-com.md 16번)
 ```
 
 ## 도구별 용도 선택
