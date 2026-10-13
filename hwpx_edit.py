@@ -595,10 +595,15 @@ def cmd_set_cell(filepath, table_idx, row_idx, col_idx, text, output=None):
     # 셀 안의 첫 번째 <hp:t> 요소를 찾아서 텍스트 설정
     t_elems = cell.findall('.//hp:t', NS)
     if t_elems:
-        # 첫 번째 <hp:t>에 텍스트 설정, 나머지 비우기
-        t_elems[0].text = text
-        for t in t_elems[1:]:
+        # hp:t의 tab/lineBreak 같은 자식 뒤 tail에도 기존 본문이 남는다.
+        # text만 바꾸면 그 본문이 새 값 뒤에 붙으므로 모든 텍스트 내용을
+        # 비운다. 문단·run·hp:t 자체와 서식 속성은 그대로 보존한다.
+        for t in t_elems:
+            for child in list(t):
+                t.remove(child)
             t.text = ''
+        # 첫 번째 <hp:t>에 새 값을 넣고 나머지는 빈 텍스트로 유지한다.
+        t_elems[0].text = text
     else:
         # <hp:t> 요소가 없으면 첫 번째 run에 추가
         runs = cell.findall('.//hp:run', NS)
