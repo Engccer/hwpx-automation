@@ -1,4 +1,5 @@
 # hwpx-automation 시험 시나리오
+<!-- sanitize: allow-file 시험 전제가 검증 환경(Claude Code)을 명시한다 -->
 
 skill-audit 6·8단계 전후 시험용. 시험자에게는 "시나리오" 절만 주고 "채점 항목"은 주지 않는다. T1~T4는 한 시험자, T5(평범한 하루)는 별도 시험자에게 준다.
 

@@ -1,6 +1,6 @@
 # hwpx-automation
 
-HWP/HWPX 문서 읽기, 변환, 편집을 위한 CLI 도구 + Claude Code 스킬
+HWP/HWPX 문서 읽기, 변환, 편집을 위한 CLI 도구 + 코딩 에이전트 스킬
 
 ## 기능
 
@@ -8,7 +8,7 @@ HWP/HWPX 문서 읽기, 변환, 편집을 위한 CLI 도구 + Claude Code 스킬
 - **HWP → HWPX 변환**: Java 기반, 서식 100% 보존
 - **HWPX/HWP → PDF 변환**: Windows는 한컴오피스 COM(원본 조판 보존), macOS·Linux는 오픈소스 rhwp(글꼴 대체, 글꼴에 없는 문자 자동 검출)
 - **HWPX 편집**: 텍스트 치환, 표 셀 채우기, 병합 셀 분할
-- **Claude Code 스킬**: `SKILL.md`를 통한 AI 에이전트 자동화 워크플로우
+- **에이전트 스킬**: `SKILL.md`를 통한 AI 에이전트 자동화 워크플로우
 
 ## 빠른 시작
 
@@ -56,13 +56,13 @@ convert/hwp2hwpx.bat input.hwp output.hwpx        # Windows
 bash convert/hwp2hwpx.sh input.hwp output.hwpx    # macOS/Linux
 ```
 
-## Claude Code 스킬로 사용
+## 에이전트 스킬로 사용
 
-이 저장소를 Claude Code의 스킬 디렉토리에 배치하면, HWP/HWPX 관련 작업 시 자동으로 `SKILL.md`의 의사결정 트리를 따라 최적의 도구를 선택합니다.
+이 저장소를 스킬(`SKILL.md`)을 인식하는 코딩 에이전트의 스킬 디렉토리(Claude Code는 `~/.claude/skills/`)에 배치하면, HWP/HWPX 관련 작업 시 자동으로 `SKILL.md`의 의사결정 트리를 따라 최적의 도구를 선택합니다. <!-- sanitize: allow 설치 대상 안내 -->
 
 ```bash
 # 스킬 디렉토리에 심링크 (예시)
-ln -s /path/to/hwpx-automation ~/.claude/skills/hwpx-automation
+ln -s /path/to/hwpx-automation ~/.claude/skills/hwpx-automation  # sanitize: allow 설치 예시
 ```
 
 ## 시스템 요구사항
@@ -79,7 +79,7 @@ ln -s /path/to/hwpx-automation ~/.claude/skills/hwpx-automation
 ```
 hwpx-automation/
 ├── hwpx_edit.py          # HWPX 읽기/편집 CLI
-├── SKILL.md              # Claude Code 스킬 정의
+├── SKILL.md              # 에이전트 스킬 정의
 ├── convert/
 │   ├── hwp2hwpx.bat      # HWP→HWPX 변환 (Windows)
 │   ├── hwp2hwpx.sh       # HWP→HWPX 변환 (macOS/Linux)

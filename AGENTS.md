@@ -6,7 +6,7 @@
 <!-- SYNC-BODY-START: 이 줄 아래 본문은 CLAUDE.md 와 100% 동일하게 자동 생성됨 -->
 # hwpx-automation
 
-HWP/HWPX 문서 읽기, 변환, 편집을 위한 CLI 도구 + Claude Code 스킬
+HWP/HWPX 문서 읽기, 변환, 편집을 위한 CLI 도구 + 코딩 에이전트 스킬
 
 ## 프로젝트 구조
 
@@ -18,7 +18,7 @@ hwpx-automation/
 ├── rhwp_pdf.py           # macOS·Linux --to-pdf 백엔드 (rhwp CLI + 빈 네모 문자 검출)
 ├── pdf_export.py         # Windows --to-pdf 공통 (변경 추적 경고 자동 응답)
 ├── test_*.py             # 단위 시험 (rhwp_pdf·pdf_export, 문서가 약속한 동작: test_doc_promises)
-├── SKILL.md              # Claude Code 스킬 정의 (의사결정 트리 + 사용법)
+├── SKILL.md              # 에이전트 스킬 정의 (의사결정 트리 + 사용법)
 ├── convert/
 │   ├── hwp2hwpx.bat      # HWP→HWPX 변환 (Windows, JDK 21 필요)
 │   ├── hwp2hwpx.sh       # HWP→HWPX 변환 (macOS/Linux, JDK 21 필요)
