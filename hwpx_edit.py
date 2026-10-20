@@ -1754,6 +1754,10 @@ def main():
         print(f"오류: 파일을 찾을 수 없습니다: {args.file}", file=sys.stderr)
         sys.exit(1)
 
+    # -o 의 부모 폴더가 없으면 저장 단계(임시 파일 생성)에서 FileNotFoundError로 죽는다
+    if args.output:
+        os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
+
     if args.info:
         cmd_info(args.file)
     elif args.to_md:
