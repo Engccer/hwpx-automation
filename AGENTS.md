@@ -140,6 +140,10 @@ bash convert/hwp2hwpx.sh input.hwp [output.hwpx]    # macOS/Linux
 | `reference/warnings-com.md` | 한컴 COM 자동화 주의사항 |
 | `reference/update-checklist.md` | 업데이트 체크리스트 |
 
+## 배포
+
+장교조 공유 드라이브 `.claude/skills/hwpx-automation/`은 이 저장소의 `origin/master` 사본이다. 드라이브 루트의 `sync_agent_docs.py`가 실행될 때마다 `_external_skills.json` 매니페스트를 보고 최신 커밋의 추적 파일을 그 폴더에 풀어 넣는다(`.gitignore` 파일은 보존). 따라서 드라이브 사본은 손대지 않고, 이 저장소에 커밋·push하면 다음 동기화에서 반영된다.
+
 ## 코드 컨벤션
 
 - hwpx_edit.py에 새 기능 추가 시 기존 CLI 인수 패턴(`--동작`, `--동작 인수`)을 따른다
