@@ -41,7 +41,7 @@ fi
 
 # macOS/Linux JVM은 UTF-8 로케일에서 argv를 그대로 받으므로
 # .bat의 임시 폴더 staging(cp949 우회)이 여기서는 필요 없다.
-CP="$TOOL_DIR/hwp2hwpx-1.0.0-c9d8a27p1.jar:$TOOL_DIR/lib/hwplib-1.1.10.jar:$TOOL_DIR/lib/hwpxlib-1.0.9.jar:$TOOL_DIR"
+CP="$TOOL_DIR/hwp2hwpx-1.0.0-edc0527p1.jar:$TOOL_DIR/lib/hwplib-1.1.11.jar:$TOOL_DIR/lib/hwpxlib-1.0.9.jar:$TOOL_DIR"
 
 # 20MB급 HWP(그림 많은 안내서)는 기본 힙으로 불안하다(2026-08-28 실측: 23MB·21MB 파일에서 -Xmx6g로 성공).
 # 필요 시 HWP2HWPX_JAVA_OPTS="-Xmx8g" 로 조정한다.

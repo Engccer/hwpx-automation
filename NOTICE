@@ -1,11 +1,11 @@
 This project includes the following third-party software:
 
-hwplib v1.1.10
+hwplib v1.1.11
   Copyright (c) neolord0
   License: Apache License 2.0
   https://github.com/neolord0/hwplib
 
-hwpxlib v1.0.8
+hwpxlib v1.0.9
   Copyright (c) neolord0
   License: Apache License 2.0
   https://github.com/neolord0/hwpxlib

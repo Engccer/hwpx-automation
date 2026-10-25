@@ -16,12 +16,12 @@ hwpx-automation/
 ├── convert/
 │   ├── hwp2hwpx.bat      # HWP→HWPX 변환 (Windows, JDK 21 필요)
 │   ├── hwp2hwpx.sh       # HWP→HWPX 변환 (macOS/Linux, JDK 21 필요)
-│   ├── hwp2hwpx-1.0.0-c9d8a27p1.jar  # 상류 커밋 + 자체 패치 (파일명 해시가 버전)
+│   ├── hwp2hwpx-1.0.0-edc0527p1.jar  # 상류 커밋 + 자체 패치 (파일명 해시가 버전)
 │   ├── Hwp2HwpxCLI.java  # 변환기 소스
 │   ├── hwpx_convert.py   # MD/DOCX/HTML 등 → HWPX (Pandoc)
 │   ├── hwp_xml_to_md.py  # pyhwp XML → MD 폴백 파서
 │   ├── patches/          # JAR 자체 패치 + 재빌드 절차
-│   └── lib/              # hwplib-1.1.10.jar, hwpxlib-1.0.9.jar
+│   └── lib/              # hwplib-1.1.11.jar, hwpxlib-1.0.9.jar
 ├── reference/            # 상세 레퍼런스 (API, 구조적 편집, 파일 형식 등)
 ├── vendor/               # 서드파티 바이너리 (한컴 FilePathChecker DLL 등, .gitignore 처리)
 │   └── README.md         # DLL 다운로드·레지스트리 등록 절차 + 라이선스 고지
@@ -136,7 +136,7 @@ bash convert/hwp2hwpx.sh input.hwp [output.hwpx]    # macOS/Linux
 
 ## 배포
 
-장교조 공유 드라이브 `.claude/skills/hwpx-automation/`은 이 저장소의 `origin/master` 사본이다. 드라이브 루트의 `sync_agent_docs.py`가 실행될 때마다 `_external_skills.json` 매니페스트를 보고 최신 커밋의 추적 파일을 그 폴더에 풀어 넣는다(`.gitignore` 파일은 보존). 따라서 드라이브 사본은 손대지 않고, 이 저장소에 커밋·push하면 다음 동기화에서 반영된다.
+외부 작업 공간에 배포한 사본은 이 저장소의 `origin/master`를 기준으로 한다. 작업 공간의 `sync_agent_docs.py`가 실행될 때마다 `_external_skills.json` 매니페스트에 지정한 대상 디렉터리에 최신 커밋의 추적 파일을 풀어 넣는다(`.gitignore` 파일은 보존). 배포한 사본은 직접 수정하지 않고, 이 저장소에 커밋·push하면 다음 동기화에서 반영된다.
 
 ## 코드 컨벤션
 

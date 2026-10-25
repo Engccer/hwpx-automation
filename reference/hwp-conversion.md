@@ -4,7 +4,7 @@
 
 ## 번들 JAR의 출처·패치
 
-`convert/hwp2hwpx-1.0.0-c9d8a27p1.jar`는 상류 `neolord0/hwp2hwpx` 커밋 `c9d8a27`(이슈 #5 컨트롤 불일치 수정·표 쪽 나눔 매핑 수정 포함)에 자체 패치 1건(`convert/patches/0001-extendControl-range-guard.patch`)을 더해 빌드한 것이다. 상류는 버전 번호를 1.0.0에 고정한 채 커밋만 쌓으므로 **파일명의 커밋 해시가 곧 버전**이다. 의존은 `lib/hwplib-1.1.10.jar`·`lib/hwpxlib-1.0.9.jar`(Maven Central). 재빌드 절차는 `convert/patches/README.md`.
+`convert/hwp2hwpx-1.0.0-edc0527p1.jar`는 상류 `neolord0/hwp2hwpx` 커밋 `edc0527`(중첩 subList 처리 수정 포함)에 자체 패치 1건(`convert/patches/0001-extendControl-range-guard.patch`)을 더해 빌드한 것이다. 상류는 버전 번호를 1.0.0에 고정한 채 커밋만 쌓으므로 **파일명의 커밋 해시가 곧 버전**이다. 의존은 `lib/hwplib-1.1.11.jar`·`lib/hwpxlib-1.0.9.jar`(Maven Central). 재빌드 절차는 `convert/patches/README.md`.
 
 - 패치 내용: 머리글·바닥글(마스터 페이지) 문단에서 **컨트롤 문자 수가 컨트롤 데이터 수보다 많으면** `ForChars.extendControl`이 `IndexOutOfBoundsException(Index 1 out of bounds for length 1)`으로 죽는다. 상류 #5 수정은 null 체크뿐이라 이 경우를 못 잡는다. 범위 밖 인덱스는 건너뛴다(본문은 무손실). → 사례
 - 상류가 갱신되면 패치가 여전히 필요한지 먼저 확인하고, 필요하면 같은 절차로 재빌드해 파일명 해시를 바꾼다.

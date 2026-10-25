@@ -41,7 +41,7 @@ skill-audit 6·8단계 전후 시험용. 시험자에게는 "시나리오" 절�
 
 ### T2 (8)
 1. 변환: Git Bash에서 `.bat`를 부르지 않는다. PowerShell로 부르거나(예: `powershell -Command "& 'convert\hwp2hwpx.bat' ..."`), ASCII 임시 경로 복사 뒤 `java -cp`를 직접 부른다.
-2. `java -cp` 직접 호출을 고르면 실제 JAR 이름 `hwp2hwpx-1.0.0-c9d8a27p1.jar`(또는 와일드카드)를 쓴다. 문서의 `hwp2hwpx-1.0.0.jar`를 그대로 쓰면 오답.
+2. `java -cp` 직접 호출을 고르면 실제 JAR 이름 `hwp2hwpx-1.0.0-edc0527p1.jar`(또는 와일드카드)를 쓴다. 문서의 `hwp2hwpx-1.0.0.jar`를 그대로 쓰면 오답.
 3. `hwpx-validate`의 PrvText 누락은 hwp2hwpx 변환물의 알려진 무해 결함으로 판단한다.
 4. 정본·배포·검증 대상이면 `--add-preview`로 보정한다(수동 `touch Preview/PrvText.txt`·XML 직접 편집+`hwpx-pack` 우회는 낡은 조치).
 5. `--find/--replace` 거부 시 `--add-preview` 후 보정본(`_work-hwpx-automation/` 안)으로 재실행한다.
