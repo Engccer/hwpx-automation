@@ -117,4 +117,6 @@ git push origin feat/<name>:master && git -C ~/Mac-Projects/hwpx-automation pull
 
 ## 정정·종료 기록
 
-(웨이브 진행 중 코디네이터가 적는다)
+- 2026-10-28 07:30, 9b7e7d7 기준. §2-1 ② 정정: 허용 목록은 header.xml 개요 블록에 그치지 않는다. 세션 sign이 실측하고 코디네이터가 한컴 저장 HWPX(문단 16,671개)로 재현했다: rhwp 재직렬화는 모든 문서에서 section*.xml의 `hp:p id`를 0,1,2…로 다시 매기고(문단 수·내용은 그대로) `hp:shadow type="NONE"`을 지운다(32→22). `allow_rhwp=True`는 이 둘도 allowed로 보낸다. 조건: p id는 문단 수가 같고 id를 뺀 속성 묶음이 같을 때만, shadow는 `type="NONE"`일 때만. 둘 다 "허용된 손실(rhwp 재직렬화)" 줄에 건수로 보고한다. 개요 블록 허용은 본문이 쓰지 않는 paraPr 안의 손실로 좁힌다(본문이 쓰는 paraPr의 개요 단계 손실은 실패). 기존 시그니처 호출의 동작은 바뀌지 않는다.
+- M6 완료(9b7e7d7): hunyong-samsung `C:\Users\pc\.local\bin\rhwp.exe` v0.8.7, 해시 대조, `setx` 불필요.
+- M2 통합(718bc46, 세션 edit): 단위 91건. 리뷰 8번(cross_check BinData 해시 미대조)은 hwpx_gate 소유자인 sign의 M3 범위로 넘겼다(07:40 전파).
