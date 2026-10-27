@@ -4,18 +4,14 @@
 
 | 묶음 | 항목 | 자리 | 순서 |
 |---|---|---|---|
-| 변환 | **M2 HWP→HWPX rhwp 기본과 JAR 교차 대조** | 로컬 | 완료 |
-| 서명 | **M3 서명 삽입 rhwp 백엔드** | 로컬 | 완료 |
-| PDF | **M4 PDF 백엔드 플래그** | 로컬 | 완료 |
-| 신규 | **M5 누름틀·격자 좌표·역변환** | 로컬 | 완료 |
-| 문서 | **M7 문서 분배** | 로컬 | 신규·서명 뒤 |
-
-M2·M4·M5는 모두 `hwpx_edit.py`를 고치므로 차례로 둔다. 병렬 세션 계획은 `docs/plans/2026-10-28-rhwp-parallel-plan.md`.
+| 게이트 | **cross_check에 chart·ole·equation 수 대조 추가** | 로컬 | 병행 |
 
 ## 열린 항목
 
-- [x] **M2 HWP→HWPX rhwp 기본과 JAR 교차 대조**: `--from-hwp`·`--engine rhwp|jar`(기본 rhwp)·`hwp_to_hwpx()`, `cross_check`, `--check-env` Tier 재정의, SKILL.md 예외 문장. 2026-10-28 완료.
-- [x] **M3 서명 삽입 rhwp 백엔드**: `--backend rhwp|com`(기본 rhwp), search→render-tree→measure-width→insert-image→앵커 문단 이동, 결과는 항상 `.hwpx`, 게이트 `allow_rhwp`. 2026-10-28 완료.
-- [x] **M4 PDF 백엔드 플래그**: `--pdf-backend rhwp|com`(기본 rhwp 모든 OS), Pandoc 산출물 PDF는 rhwp. 2026-10-28 완료.
-- [x] **M5 누름틀·격자 좌표·역변환**: `--tables`·`--fields`·`--fill-fields`·`--grid-set-cell`·`--to-hwp`(배포용, JAR 왕복 대조). 2026-10-28 완료. `--grid-set-cell` 실기 통합 시험은 `hwpx_gate.gate(allow_rhwp=)`(M3) 통합 뒤에 돈다.
-- [ ] **M7 문서 분배**: SKILL.md 원칙 문장·의사결정 트리·Tier 표, `reference/rhwp.md`, doc-audit. 플랜 M7.
+- [ ] **cross_check에 chart·ole·equation 수 대조 추가**: `hwpx_gate.cross_check`는 표·셀·그림·BinData만 센다. `--to-hwp`는 `hwpx_edit._embedded_counts()`로 따로 막았지만 HWP→HWPX 변환의 rhwp·JAR 교차 대조에는 차트·OLE·수식이 빠져도 통과하는 빈틈이 있다. `_embedded_counts()`를 `cross_check`로 옮기고 `--to-hwp`는 그것을 쓰게 한다.
+
+## 감시 항목 (조건이 생기면 처리)
+
+- **누름틀 실표본 통합 시험**: `--fields`·`--fill-fields`는 가짜 rhwp로만 시험했다. 누름틀이 든 익명 표본이 생기면 `test_rhwp_integration.py`에 실제 rhwp 시험을 추가한다.
+- **암호 HWPX의 rhwp PDF 해제 실측**: `--to-pdf --password`가 rhwp `--password-stdin`으로 암호 문서를 푸는지 표본이 없어 확인하지 못했다. 실패 안내는 Windows `--pdf-backend com`을 가리킨다. 암호 표본이 생기면 재고 `reference/rhwp.md` 폴백 표를 맞춘다.
+- **한컴 2024 실사용 확인 결과 반영**: 위원장 실사용 확인(PROGRESS "실기 확인 대기")에서 열리지 않거나 위치가 어긋나는 문서군이 나오면 그 축을 COM 폴백 기본으로 되돌리고 CLAUDE.md에 사유를 적는다.

@@ -13,7 +13,7 @@ skill-audit 6·8단계 전후 시험용. 시험자에게는 "시나리오" 절�
 
 ### T2. 받은 HWP 신청서 양식 채우기 (Windows, Claude Code)
 
-`D:\업무\2026 신청서.hwp`(한글 파일명·공백 포함)를 받았다. 표의 성명·소속·연락처 칸 세 곳을 채우고, 결과 HWPX를 작업 폴더에 남기려 한다. JDK 21은 설치돼 있다. 변환 명령을 어떤 셸로 어떻게 부르는가? 변환물에 `hwpx-validate`를 돌렸더니 `Preview/PrvText.txt` 관련 오류가 났다면 어떻게 판단하고 무엇을 하는가? `--find/--replace`가 PrvText 오류로 거부하면? 세 칸을 채울 때 명령을 어떻게 이어 부르는가? 결과물과 부산물은 각각 어디에 남는가?
+`D:\업무\2026 신청서.hwp`(한글 파일명·공백 포함)를 받았다. 표의 성명·소속·연락처 칸 세 곳을 채우고, 결과 HWPX를 작업 폴더에 남기려 한다. JDK 21과 rhwp v0.8.7이 설치돼 있다. 변환은 어떤 명령으로 하며, 무엇을 완료 보고에 적는가? rhwp 변환이 실패하면 어떻게 하는가? JAR 래퍼(`hwp2hwpx.bat`)를 직접 불러 만든 변환물에 `hwpx-validate`를 돌렸더니 `Preview/PrvText.txt` 관련 오류가 났다면 어떻게 판단하고 무엇을 하는가? 세 칸을 채울 때 명령을 어떻게 이어 부르는가? 결과물과 부산물은 각각 어디에 남는가?
 
 ### T3. 고사지 HWPX 읽기 (macOS)
 
@@ -36,15 +36,15 @@ skill-audit 6·8단계 전후 시험용. 시험자에게는 "시나리오" 절�
 4. 빈 칸: 변환 직후 `hwpx_edit.py --fix-empty-cells`를 반드시 실행한다(`hwpx_convert.py`는 자동 적용 안 함).
 5. 스타일 후처리 등 raw XML 편집을 했으면 lineseg를 제거한다.
 6. `--normalize`를 Pandoc 변환물에 쓰지 않는다(COM이 Pandoc 본문을 0자로 읽음 → 빈 문서. 도구 가드도 이 경우를 못 잡는다는 점까지 짚으면 가점 메모).
-7. PDF: Windows에서 Pandoc 변환물을 COM(`--to-pdf`)으로 내는 것의 위험(본문 미인식)을 인지하고 대안(COM 네이티브 `--from-md`로 생성하거나 한글에서 한 번 저장한 파일, 또는 rhwp)을 든다. 문서가 이 경우를 정하지 않았음을 적으면 정답.
+7. PDF: `hwpx_edit.py --to-pdf`(기본 rhwp, Windows에서도)로 낸다. Pandoc 변환물을 `--pdf-backend com`·`hwpx_com.py --to-pdf`에 넣지 않는다(COM이 본문을 0자로 읽음). 한컴 PDF가 꼭 필요하면 `hwpx_com.py --from-md`로 COM에서 생성한 문서로 낸다.
 8. 최종 결과물을 작업 폴더로 두고 중간본은 `_work-hwpx-automation/`에 남긴다.
 
 ### T2 (8)
-1. 변환: Git Bash에서 `.bat`를 부르지 않는다. PowerShell로 부르거나(예: `powershell -Command "& 'convert\hwp2hwpx.bat' ..."`), ASCII 임시 경로 복사 뒤 `java -cp`를 직접 부른다.
-2. `java -cp` 직접 호출을 고르면 실제 JAR 이름 `hwp2hwpx-1.0.0-edc0527p1.jar`(또는 와일드카드)를 쓴다. 문서의 `hwp2hwpx-1.0.0.jar`를 그대로 쓰면 오답.
-3. `hwpx-validate`의 PrvText 누락은 hwp2hwpx 변환물의 알려진 무해 결함으로 판단한다.
-4. 정본·배포·검증 대상이면 `--add-preview`로 보정한다(수동 `touch Preview/PrvText.txt`·XML 직접 편집+`hwpx-pack` 우회는 낡은 조치).
-5. `--find/--replace` 거부 시 `--add-preview` 후 보정본(`_work-hwpx-automation/` 안)으로 재실행한다.
+1. 변환: `python hwpx_edit.py "D:\업무\2026 신청서.hwp" --from-hwp`(또는 `.hwp`를 편집 명령에 바로 준다). Python 진입이라 Git Bash에서도 된다. 래퍼 `.bat`를 Git Bash에서 직접 부르지 않는다.
+2. 출력 끝줄 `engine=rhwp status=<passed|unverified>`를 완료 보고에 옮긴다. `unverified`를 "검증됨"이라 하지 않는다.
+3. rhwp 실패(exit 1)면 `.rejected.hwpx`가 남고 stderr의 JAR 폴백(`--engine jar`)을 따른다. 폴백으로 전환했으면 완료 보고에 엔진과 사유를 쓴다. 조용히 다른 도구로 넘어가지 않는다.
+4. PrvText 누락은 JAR 변환물의 알려진 무해 결함으로 판단하고, 정본·배포·검증 대상이면 `--add-preview`로 보정한다(`--engine jar`는 보정을 포함한다. 수동 `touch Preview/PrvText.txt`·XML 직접 편집+`hwpx-pack` 우회는 낡은 조치).
+5. 래퍼를 Git Bash에서 굳이 부른다면 PowerShell을 거치거나 ASCII 임시 경로 복사 뒤 `java -cp`를 직접 부르고, 실제 JAR 이름 `hwp2hwpx-1.0.0-edc0527p1.jar`(또는 와일드카드)를 쓴다. 언급이 없으면 0, `hwp2hwpx-1.0.0.jar`를 쓰면 오답.
 6. 세 칸: `--set-cell`을 원본에 반복 호출하면 마지막만 남는다 → 두 번째부터 앞 결과를 입력으로 쓰거나 스크립트 한 번으로 채운다.
 7. 결과물은 작업 폴더로 옮기거나 `-o`로 지정하고, 변환 HWPX·중간본은 `_work-hwpx-automation/`에 남긴다.
 8. 양식 편집 뒤 `--list-squeeze`(과압축)·`hwpx-page-guard`(쪽수) 확인을 든다.
@@ -63,7 +63,7 @@ skill-audit 6·8단계 전후 시험용. 시험자에게는 "시나리오" 절�
 4. `--pdf`로 검증 PDF를 만들고 서명 구역을 확대해 렌더 이미지를 육안 확인한다(텍스트 추출로 판단하지 않는다). 맥 PDF는 rhwp 조판이라 한컴과 다를 수 있음을 안다.
 5. 결과 HWPX 기본 위치는 입력 옆 `동의서_서명.hwpx`(`_work-hwpx-automation/` 아님). 완료 보고에 출력 끝줄의 `engine=rhwp`를 적는다.
 6. 게이트 실패면 산출물이 `_work-hwpx-automation/`에 남고, 표 안 앵커는 삽입 전에 멈춘다. 그때만 Windows에서 `--backend com`(SSH면 `schtasks /IT`)으로 넣는다. 조용히 다른 엔진으로 넘어가지 않는다.
-7. "허용된 손실(rhwp 재직렬화)" 줄을 실패로 오해하지 않는다.
+7. "허용된 손실(rhwp 재직렬화)" 줄을 실패로 오해하지 않고, 완료 보고에 그 줄을 그대로 옮긴다.
 8. 겹침을 결함으로 보고 "고칠까요"라고 되묻지 않는다.
 
 ### T5 (6)

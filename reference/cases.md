@@ -11,7 +11,7 @@
 - [reference/api.md](#referenceapimd)
 - [reference/structural.md](#referencestructuralmd)
 - [reference/signing.md](#referencesigningmd)
-- [reference/rhwp-pdf.md](#referencerhwp-pdfmd)
+- [reference/rhwp.md](#referencerhwpmd)
 - [reference/com.md](#referencecommd)
 - [reference/warnings-com.md](#referencewarnings-commd)
 - [reference/warnings-editing.md](#referencewarnings-editingmd)
@@ -124,7 +124,18 @@
 
 - 2026-08-24 서약서 실측, 수정 완료. 앵커 이동 대상인 직전 문단이 빈 문단이면 그 run이 self-closing이라 `</hp:run>` 앞 삽입이 실패하고, 예전 폴백은 pic을 `</hp:p>` 앞(=run 밖)에 넣었다.
 
-## reference/rhwp-pdf.md
+## reference/rhwp.md
+
+### 독립 손실 게이트 (`hwpx_gate.py`)
+
+- 2026-10-28 재설계 실측(rhwp v0.8.7, 표본 HWP 3건·HWPX 2건): `edit replace-text` 35건은 `hwpx-validate` 통과·tomd recall 100%였지만 header.xml `hp:switch`가 23→20으로 줄었고(미사용 paraPr의 개요 heading 3개), rhwp `--verify`·`hwpx-roundtrip`은 차이 0으로 PASS였다. 기존 lxml 도구는 header.xml 바이트가 같았다.
+- 같은 날 서명 삽입 왕복(한컴 저장 공문 2건, 학교 양식 3건, 익명 표본): 문단 id 재부여는 모든 표본에서 나왔고(공문 154개·65개), 한컴 저장 HWPX(문단 16,671개)로 재현하니 `hp:shadow type="NONE"`이 32→22로 줄었다. 공문 2건은 허용 목록으로 통과했고, 표·글상자가 많은 학교 양식은 표 셀 속성·대각선 테두리 손실로 게이트가 막았다.
+- HWP 3건의 rhwp·JAR 변환물은 글자·표·셀·그림 수가 같았고 BinData 170개는 바이트까지 같았다. 그래서 `cross_check`는 BinData 해시 불일치를 실패로 둔다.
+
+### 명령별 계약 (v0.8.7 실측)
+
+- 2026-10-28: `insert-image`가 그림을 쪽 첫 문단에 어울림으로 붙여, 첫 문단이 빈 공문과 익명 표본에서 rhwp 조판이 한 줄 올라가 서명이 앵커에서 벗어났다. 앵커 문단 맨 앞·글 앞으로 옮긴 뒤 익명 동의서에서 그림 중심이 "(서명)" 상자 중심과 0.5px 안에서 같았다.
+- 같은 날 표본 만들기: python-hwpx로 만든 가상 양식을 rhwp `convert`로 바꾼 HWP는 `export-hwpx --verify`가 exit 3(차이 13건)이었고, 한 번 더 왕복한 HWP는 차이 0이었다. 그 HWPX에 `--grid-set-cell`을 하면 본문이 쓰는 paraPr 1개가 사라져 게이트가 거부했다.
 
 ### 충실도
 

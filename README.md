@@ -5,97 +5,49 @@ HWP/HWPX 문서 읽기, 변환, 편집을 위한 CLI 도구 + 코딩 에이전�
 ## 기능
 
 - **HWPX → Markdown 변환**: XML 직접 파싱, API 불필요, 무료
-- **HWP → HWPX 변환**: Java 기반, 서식 100% 보존
-- **HWPX/HWP → PDF 변환**: Windows는 한컴오피스 COM(원본 조판 보존), macOS·Linux는 오픈소스 rhwp(글꼴 대체, 글꼴에 없는 문자 자동 검출)
-- **HWPX 편집**: 텍스트 치환, 표 셀 채우기, 병합 셀 분할
+- **HWP → HWPX 변환**: 오픈소스 엔진 rhwp로 변환하고, JDK가 있으면 번들 JAR 변환물과 교차 대조
+- **HWPX 편집**: 텍스트 치환, 표 셀 채우기, 행 삭제(원본 바이트 보존), 누름틀 채우기, 병합 셀 분할
+- **서명·도장 삽입**: 서명란의 "(서명)" 위에 서명 이미지를 겹쳐 찍기
+- **PDF 변환**: rhwp(모든 OS, 글꼴에 없는 문자 자동 검출). 한컴과 같은 조판이 필요하면 Windows 한컴오피스
+- **배포용 HWP 사본**: 상대가 `.hwp`를 요구할 때 HWPX에서 내보내기(정본은 HWPX)
 - **에이전트 스킬**: `SKILL.md`를 통한 AI 에이전트 자동화 워크플로우
 
-## 빠른 시작
+## 설치
+
+- Python 3.10+, `pip install -r requirements.txt` (python-hwpx, lxml, hwpx-tomd)
+- [rhwp](https://github.com/edwardkim/rhwp/releases) CLI v0.8.7 이상: 변환·PDF·서명의 기본 엔진. 릴리스 바이너리를 PATH에 둔다
+- 선택: JDK 21(HWP 변환 교차 대조·JAR 폴백), Windows + 한컴오피스 + `pywin32`(한컴 COM 폴백)
 
 ```bash
-# 의존성 설치 (읽기·편집 핵심: python-hwpx, lxml, hwpx-tomd)
-pip install -r requirements.txt
-
-# 환경 점검: 기능 계층별로 무엇이 바로 되는지 확인 (읽기 전용, 첫 실행 시 권장)
-python hwpx_edit.py --check-env
-
-# HWPX → Markdown 변환
-python hwpx_edit.py document.hwpx --to-md
-
-# 문서 구조 확인 (표 목록, 셀 구조)
-python hwpx_edit.py document.hwpx --info
-
-# 텍스트 치환
-python hwpx_edit.py document.hwpx --find "이전 텍스트" --replace "새 텍스트"
-
-# 표 셀에 텍스트 입력 (표0, 행1, 셀0)
-python hwpx_edit.py document.hwpx --set-cell 0,1,0 "내용"
-
-# 병합 셀 분할
-python hwpx_edit.py document.hwpx --split-cell 0,1,0
-
-# "한 줄로 입력"(lineWrap=SQUEEZE) 과압축 감지·보정
-# (양식의 제목 문단에 긴 텍스트를 채우면 한글이 줄바꿈 대신 장평을 압축해
-#  글자가 겹쳐 뭉개지는 문제. 과압축 문단만 자연 줄바꿈으로 전환)
-python hwpx_edit.py document.hwpx --list-squeeze
-python hwpx_edit.py document.hwpx --fix-squeeze
-
-# 한컴 COM 자동화 진단 (Windows + 한컴오피스 필요)
-python hwpx_edit.py --diagnose-com
-
-# HWPX/HWP → PDF 저장
-python hwpx_edit.py document.hwpx --to-pdf
-python hwpx_edit.py document.hwpx --to-pdf -o document.pdf
+python hwpx_edit.py --check-env   # 기능 계층별로 무엇이 바로 되는지 확인 (읽기 전용)
 ```
 
-## HWP → HWPX 변환
+## 실행
 
 ```bash
-# JDK 21 필요
-convert/hwp2hwpx.bat input.hwp output.hwpx        # Windows
-bash convert/hwp2hwpx.sh input.hwp output.hwpx    # macOS/Linux
+python hwpx_edit.py document.hwpx --to-md                          # Markdown으로 읽기
+python hwpx_edit.py document.hwp --from-hwp                        # HWP → HWPX
+python hwpx_edit.py document.hwpx --find "이전" --replace "이후"    # 텍스트 치환
+python hwpx_edit.py document.hwpx --set-cell 0,1,0 "내용"           # 표 셀 입력 (표0, 행1, 셀0)
+python hwpx_edit.py document.hwpx --to-pdf -o document.pdf         # PDF
+python hwpx_sign.py 동의서.hwpx --image 서명.png --anchor "(서명)" --pdf   # 서명 삽입
 ```
+
+결과는 원본을 덮지 않고 입력 폴더의 `_work-hwpx-automation/`에 생긴다(`-o`로 지정 가능). 서명본은 입력 옆 `<입력>_서명.hwpx`. 전체 명령은 `python hwpx_edit.py -h`.
 
 ## 에이전트 스킬로 사용
 
 이 저장소를 스킬(`SKILL.md`)을 인식하는 코딩 에이전트의 스킬 디렉토리(Claude Code는 `~/.claude/skills/`)에 배치하면, HWP/HWPX 관련 작업 시 자동으로 `SKILL.md`의 의사결정 트리를 따라 최적의 도구를 선택합니다. <!-- sanitize: allow 설치 대상 안내 -->
 
 ```bash
-# 스킬 디렉토리에 심링크 (예시)
 ln -s /path/to/hwpx-automation ~/.claude/skills/hwpx-automation  # sanitize: allow 설치 예시
 ```
 
-## 시스템 요구사항
+## 문서
 
-- Python 3.10+
-- JDK 21 (HWP → HWPX 변환 시)
-- `python-hwpx`, `lxml`
-- HWPX/HWP → PDF 변환 시: Windows는 한컴오피스 + `pywin32`, macOS·Linux는 [rhwp](https://github.com/edwardkim/rhwp/releases) CLI
-
-플랫폼별 지원 범위: HWPX 읽기(`--to-md`)와 텍스트·표 편집은 순수 Python이라 Windows/macOS/Linux 어디서나 동작합니다. HWP → HWPX 변환은 JDK 21만 있으면 크로스플랫폼이며, Windows는 `convert/hwp2hwpx.bat`, macOS/Linux는 `convert/hwp2hwpx.sh`를 사용합니다. PDF 변환은 Windows에서 한컴오피스 COM, macOS·Linux에서 rhwp CLI를 사용합니다. 그 밖의 한컴 COM 자동화(이미지 삽입·서명·한컴 정규화)는 Windows + 한컴오피스 전용입니다.
-
-## 프로젝트 구조
-
-```
-hwpx-automation/
-├── hwpx_edit.py          # HWPX 읽기/편집 CLI
-├── SKILL.md              # 에이전트 스킬 정의
-├── convert/
-│   ├── hwp2hwpx.bat      # HWP→HWPX 변환 (Windows)
-│   ├── hwp2hwpx.sh       # HWP→HWPX 변환 (macOS/Linux)
-│   ├── hwp2hwpx-1.0.0-edc0527p1.jar
-│   └── lib/              # hwplib, hwpxlib
-├── reference/            # 상세 레퍼런스 문서
-│   ├── api.md
-│   ├── structural.md
-│   ├── format.md
-│   └── ...
-└── requirements.txt
-```
-
-## 참조 문서
-
-`reference/` 폴더에 상세한 API 문서, 구조적 편집 가이드, 파일 형식 설명이 있습니다.
+- `SKILL.md`: 의사결정 트리와 사용법
+- `reference/`: 상세 레퍼런스(rhwp 엔진, 서명, 변환, 한컴 COM, python-hwpx API 등)
+- `CLAUDE.md`: 개발 규칙과 함정
 
 일부 레퍼런스 파일(action-table.md, hwp-automation.md, parameterset-table.md)은 [한컴 개발자 센터 아카이브](https://github.com/hancom-io/devcenter-archive)의 PDF를 파싱한 것으로, 저작권 고려로 `.gitignore`에서 제외되어 있습니다. 필요 시 해당 PDF를 직접 다운로드하여 파싱하세요.
 
@@ -112,7 +64,7 @@ hwpx-automation/
 | [hwplib](https://github.com/neolord0/hwplib) | Apache-2.0 | JAR 포함 |
 | [hwpxlib](https://github.com/neolord0/hwpxlib) | Apache-2.0 | JAR 포함 |
 | [hwp2hwpx](https://github.com/neolord0/hwp2hwpx) | Apache-2.0 | JAR 포함 |
-| [rhwp](https://github.com/edwardkim/rhwp) | MIT | 별도 설치 CLI (macOS·Linux PDF 변환) |
+| [rhwp](https://github.com/edwardkim/rhwp) | MIT | 별도 설치 CLI (변환·PDF·서명 기본 엔진) |
 
 > **주의**: `python-hwpx`는 비상업적 라이선스입니다. 이 프로젝트를 상업적 목적으로 사용하려면 `python-hwpx`의 라이선스 조건을 별도로 확인하세요.
 

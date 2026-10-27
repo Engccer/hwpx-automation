@@ -7,6 +7,8 @@ metadata:
 
 # HWP/HWPX 작업 자동화 스킬
 
+**정본 형식은 HWPX다.** `.hwp`는 어느 명령에서든 입구에서 HWPX로 변환해 작업하고 결과물도 HWPX로 저장한다. 상대가 `.hwp`를 요구할 때만 마지막 단계에서 `--to-hwp`로 배포용 사본을 만든다.
+
 ## 도구 위치
 
 이 SKILL.md와 같은 디렉토리에 모든 도구가 포함되어 있다:
@@ -14,9 +16,10 @@ metadata:
 - **hwpx-tomd**: `--to-md` 변환 엔진을 단일 소스로 보유한 독립 패키지. `pip install hwpx-tomd` (PyPI·GitHub `Engccer/hwpx-tomd` 공개. 엔진 자체를 수정할 때만 로컬 editable: `pip install -e path/to/hwpx-tomd`). 라이브러리로도 직접 사용 가능(`from hwpx_tomd import to_markdown, convert`). 변환 로직은 이 패키지에만 있고 `hwpx_edit.py`는 호출만 한다(코드 분기 방지).
 - **hwpx_convert.py**: 이 디렉토리의 `convert/hwpx_convert.py` (MD/DOCX/HTML/RST/TEX/TXT → HWPX 변환, `pip install pypandoc-hwpx` 필요)
 - **hwpx_com.py**: 이 디렉토리의 `hwpx_com.py` (한컴 COM 네이티브 파이프라인, pyhwpx 기반, Windows + 한컴오피스 전용, `pip install pyhwpx` 필요). MD→HWPX 생성·HWP→HWPX 변환·이미지 삽입·본문 추출·한컴 재저장 정규화(--normalize)·PDF 변환 (아래 "한컴 COM 자동화" 참조)
-- **PDF 변경 추적 경고 자동 처리**: 두 CLI의 `--to-pdf`는 `pdf_export.py`를 공유한다. PDF 저장 구간에서만 변경 추적 형식 경고에 저장으로 응답하고 원래 메시지 모드를 복원한다. 원본 이력은 수정하지 않는다. 상세와 적용 범위는 `reference/warnings-com.md` 15번 참조.
-- **rhwp_pdf.py**: `hwpx_edit.py --to-pdf`의 기본 PDF 백엔드(모든 OS. Windows 한컴은 `--pdf-backend com`). 오픈소스 조판 엔진 rhwp CLI를 호출하고, 글꼴에 없어 빈 네모로 찍힌 문자를 PDF에서 찾아 보고한다(아래 "macOS·Linux에서 PDF 변환 (rhwp)" 참조)
-- **hwpx_sign.py**: 이 디렉토리의 `hwpx_sign.py` (서명란(기준 텍스트 "(서명)" 등)에 서명/도장 이미지를 삽입하는 전용 도구, Windows + 한컴오피스 필요. 아래 "서명/도장 이미지 삽입" 참조)
+- **PDF 변경 추적 경고 자동 처리**: 한컴 COM PDF(`hwpx_edit.py --to-pdf --pdf-backend com`·`hwpx_com.py --to-pdf`)는 `pdf_export.py`를 공유한다. PDF 저장 구간에서만 변경 추적 형식 경고에 저장으로 응답하고 원래 메시지 모드를 복원한다. 원본 이력은 수정하지 않는다. 상세와 적용 범위는 `reference/warnings-com.md` 15번 참조.
+- **rhwp_pdf.py**: `hwpx_edit.py --to-pdf`의 기본 PDF 백엔드(모든 OS. Windows 한컴은 `--pdf-backend com`). 오픈소스 조판 엔진 rhwp CLI를 호출하고, 글꼴에 없어 빈 네모로 찍힌 문자를 PDF에서 찾아 보고한다(아래 "PDF 변환 (rhwp)" 참조)
+- **hwpx_sign.py**: 이 디렉토리의 `hwpx_sign.py` (서명란(기준 텍스트 "(서명)" 등)에 서명/도장 이미지를 삽입하는 전용 도구. 기본 rhwp(모든 OS), `--backend com`은 Windows + 한컴오피스 폴백. 아래 "서명/도장 이미지 삽입" 참조)
+- **rhwp**: 별도 설치 CLI(v0.8.7 이상). HWP→HWPX 변환·PDF·서명·누름틀·격자 좌표 셀·배포용 HWP 내보내기의 기본 엔진이다. 설치·호출 계약·손실 게이트·폴백 조건은 `reference/rhwp.md`. k-skill `rhwp-edit`·`rhwp-advanced`·`hwp`는 같은 엔진의 WASM·안내형 래퍼이고 HWP5 출력만 내므로, HWPX 결과물이 필요한 작업은 이 스킬로 한다
 - **hwp2hwpx**: 이 디렉토리의 `convert/hwp2hwpx.bat`(Windows) 또는 `convert/hwp2hwpx.sh`(macOS/Linux)
 - **python-hwpx CLI**: `pip install python-hwpx`에 포함: `hwpx-validate`, `hwpx-page-guard` 등. 머신마다 설치본 버전이 다르다(3.x·6.x). `hwpx_edit.py`는 양쪽을 지원하고, API를 직접 부를 때만 이름 차이를 확인한다(`reference/api.md`)
 
@@ -30,10 +33,14 @@ python <스킬디렉토리>/hwpx_edit.py --check-env
 
 기능 계층(tier)별로 무엇이 바로 되는지 한 번에 출력한다(읽기 전용, 아무것도 설치하지 않음). 이 스킬은 API 키를 쓰지 않으므로(전부 로컬 도구) 점검 대상은 pip 패키지와 시스템 런타임이다:
 
-- **Tier 1 (읽기·편집, 필수)**: `python-hwpx`·`lxml`·`hwpx-tomd`. `pip install -r requirements.txt` 한 줄이면 충족하며, 대부분의 작업(`--to-md`·텍스트 치환·셀 편집)은 여기까지면 된다.
-- **Tier 2 (HWP→HWPX·PDF·이미지, 기본 엔진)**: `rhwp` CLI v0.8.7 이상(모든 OS). GitHub Releases 바이너리를 PATH에 두거나 `HWPX_RHWP_BIN`으로 경로를 준다. 버전도 함께 표시한다.
-- **Tier 3 (MD/DOCX/HTML→HWPX)**: `pypandoc-hwpx`(+ Pandoc). Pandoc은 `pypandoc-hwpx`가 번들 제공할 수 있어 경고만 떠도 변환이 동작할 수 있다.
-- **Tier 4 (폴백, 명시할 때만)**: JDK 21 + 번들 JAR(`--engine jar`, rhwp 변환물의 교차 대조), Windows + 한컴오피스 COM(`pywin32`, 선택적 `pyhwpx`). java는 `JAVA_HOME` → (Windows는 Adoptium 표준 설치 →) PATH 순으로 래퍼와 같게 찾는다. COM 상세 진단(보안모듈 DLL·레지스트리·한컴 기동)은 `--diagnose-com`으로 위임한다.
+| Tier | 용도 | 필요한 것 |
+|---|---|---|
+| 1 (필수) | 읽기·편집: `--to-md`·텍스트 치환·`--set-cell`·행 삭제 | `python-hwpx`·`lxml`·`hwpx-tomd`. `pip install -r requirements.txt` 한 줄 |
+| 2 (기본 엔진) | HWP→HWPX 변환·PDF·이미지(서명)·누름틀·격자 좌표 셀·`--to-hwp` | `rhwp` CLI v0.8.7 이상(모든 OS). PATH에 두거나 `HWPX_RHWP_BIN`으로 경로를 준다. 버전도 표시한다 |
+| 3 | MD/DOCX/HTML→HWPX | `pypandoc-hwpx`(+ Pandoc. 번들 제공될 수 있어 경고만 떠도 동작할 수 있다) |
+| 4 (폴백, 명시할 때만) | `--engine jar`·rhwp 변환물 교차 대조, `--pdf-backend com`·`--backend com`·`hwpx_com.py` | JDK 21 + 번들 JAR, Windows + 한컴오피스 COM(`pywin32`, 선택적 `pyhwpx`) |
+
+java는 `JAVA_HOME` → (Windows는 Adoptium 표준 설치 →) PATH 순으로 래퍼와 같게 찾는다. JDK가 없으면 HWP 변환은 되지만 교차 대조를 못 해 `unverified`다. COM 상세 진단(보안모듈 DLL·레지스트리·한컴 기동)은 `--diagnose-com`으로 위임한다.
 
 처음 클론한 환경이거나 특정 워크플로우가 의존성·런타임 누락으로 실패하면 먼저 실행해 무엇을 설치할지 확인한다. 환경이 준비된 뒤에는 매 작업마다 실행할 필요가 없다.
 
@@ -41,39 +48,42 @@ python <스킬디렉토리>/hwpx_edit.py --check-env
 
 ```
 HWP/HWPX 작업 요청
-├── 읽기 (내용 파악)
-│   ├── HWP 파일 → 먼저 HWPX로 변환 (아래 "HWP → HWPX 변환": 셸 규칙·JDK 없는 Windows 폴백)
-│   │   → 이후 HWPX 읽기 단계로
-│   │   ※ HWP 직접 파싱 도구(예: kordoc)는 사용하지 않는다(같은 절 참조)
-│   └── HWPX 파일
-│       ├── 암호화 감지(META-INF/manifest.xml에 encryption-data 존재)
-│       │   → 한컴 COM으로 먼저 암호 제거 (reference/encrypted-hwpx.md 참조)
-│       ├── 표 셀 안에 긴 지문이 있는 문서(고사지·보고서)
-│       │   → hwpx_edit.py --to-md --cell-br (셀 내부 문단을 <br>로 구분)
-│       └── 그 외 → hwpx_edit.py --to-md (XML 직접 파싱, 무료, 정확)
-├── 편집 (기존 문서 수정)
-│   ├── HWP 파일 → 먼저 HWPX로 변환 → 이후 HWPX 편집
-│   └── HWPX 파일
-│       ├── 단순 텍스트 치환 → hwpx_edit.py --find/--replace
-│       ├── 표 셀 채우기 → hwpx_edit.py --set-cell 또는 python-hwpx Table API
-│       ├── 섹션/서식 삭제 → hwpx_edit.py --delete-after
-│       ├── 빈 행 삭제 → hwpx_edit.py --delete-empty-rows
-│       ├── 셀 텍스트 정리 → hwpx_edit.py --trim-cell
-│       ├── 행 삭제 → hwpx_edit.py --delete-rows
-│       ├── 텍스트 요소 제거 → hwpx_edit.py --remove-text
-│       ├── 검은 배경 수정 → hwpx_edit.py --sanitize (save_hwpx 시 자동 적용)
-│       ├── 긴 제목이 한 줄로 겹쳐 뭉개짐(양식의 "한 줄로 입력" 문단) → hwpx_edit.py --fix-squeeze
-│       ├── 빈 셀 hp:p 보정 → hwpx_edit.py --fix-empty-cells (save_hwpx 시 자동; Pandoc/hwpx_convert.py 변환물에 반드시 실행)
-│       ├── 표/문단/머리글 추가·수정 → python-hwpx API (lineseg 자동 처리)
-│       ├── 서명란에 서명/도장 이미지 삽입 → hwpx_sign.py (아래 "서명/도장 이미지 삽입")
-│       ├── 구조적 편집 (행 추가/복제) → Python + regex (아래 구조적 편집 규칙 필수)
-│       └── 복잡한 편집 → python-hwpx + lxml 직접 사용 (reference/api.md + reference/structural.md 참조)
+├── HWP 입력 → rhwp로 HWPX 변환 (hwpx_edit.py --from-hwp. 다른 명령에 .hwp를 바로 줘도
+│   입구에서 같은 변환을 거친다) → 이후 HWPX 분기로. 결과물도 HWPX
+│   ※ 실패하면 stderr의 JAR 폴백(--engine jar). HWP 직접 파싱 도구(예: kordoc)는 쓰지 않는다
+│     (아래 "HWP → HWPX 변환")
+├── 읽기 (HWPX)
+│   ├── 암호화 감지(META-INF/manifest.xml에 encryption-data 존재)
+│   │   → 한컴 COM으로 먼저 암호 제거 (reference/encrypted-hwpx.md 참조)
+│   ├── 표 셀 안에 긴 지문이 있는 문서(고사지·보고서)
+│   │   → hwpx_edit.py --to-md --cell-br (셀 내부 문단을 <br>로 구분)
+│   └── 그 외 → hwpx_edit.py --to-md (hwpx-tomd, XML 직접 파싱)
+├── 편집 (HWPX)
+│   ├── 미세 편집 (lxml 1순위, 원본 바이트 보존)
+│   │   ├── 단순 텍스트 치환 → hwpx_edit.py --find/--replace
+│   │   ├── 표 셀 채우기 → hwpx_edit.py --set-cell (물리 셀 인덱스) 또는 python-hwpx Table API
+│   │   ├── 섹션/서식 삭제 → hwpx_edit.py --delete-after
+│   │   ├── 빈 행 삭제 → hwpx_edit.py --delete-empty-rows
+│   │   ├── 셀 텍스트 정리 → hwpx_edit.py --trim-cell
+│   │   ├── 행 삭제 → hwpx_edit.py --delete-rows
+│   │   ├── 텍스트 요소 제거 → hwpx_edit.py --remove-text
+│   │   ├── 검은 배경 수정 → hwpx_edit.py --sanitize (save_hwpx 시 자동 적용)
+│   │   ├── 긴 제목이 한 줄로 겹쳐 뭉개짐(양식의 "한 줄로 입력" 문단) → hwpx_edit.py --fix-squeeze
+│   │   └── 빈 셀 hp:p 보정 → hwpx_edit.py --fix-empty-cells (save_hwpx 시 자동; Pandoc/hwpx_convert.py 변환물에 반드시 실행)
+│   ├── 누름틀 채우기 → --fields로 이름 확인 → --fill-fields (rhwp, 손실 게이트)
+│   ├── 병합을 반영한 격자 좌표로 셀 채우기(사용자가 원할 때만) → --tables로 좌표 확인 → --grid-set-cell (rhwp, 손실 게이트)
+│   │   ※ 중첩 표·python-hwpx로 만든 문서·원본 보존이 우선인 공문은 --set-cell
+│   ├── 서명란에 서명/도장 이미지 삽입 → hwpx_sign.py (rhwp, 모든 OS. 아래 "서명/도장 이미지 삽입")
+│   ├── 표/문단/머리글 추가·수정 → python-hwpx API (lineseg 자동 처리)
+│   ├── 구조적 편집 (행 추가/복제) → Python + regex (아래 구조적 편집 규칙 필수)
+│   └── 복잡한 편집 → python-hwpx + lxml 직접 사용 (reference/api.md + reference/structural.md 참조)
 │   ※ 편집 후 검증: hwpx-validate + hwpx-page-guard
-│     (hwp2hwpx 변환물은 PrvText 누락으로 hwpx-validate가 실패한다. 아래 "HWP → HWPX 변환")
+│     (PrvText 누락 실패는 --engine jar·래퍼 변환물에만 해당한다. 아래 "HWP → HWPX 변환")
 ├── PDF 만들기 → hwpx_edit.py --to-pdf
-│   (모든 OS rhwp 기본, Windows 한컴 조판은 --pdf-backend com. 아래 "macOS·Linux에서 PDF 변환 (rhwp)")
+│   (rhwp, 모든 OS. 한컴과 같은 조판은 Windows --pdf-backend com. 아래 "PDF 변환 (rhwp)")
 │   ※ Pandoc(hwpx_convert.py) 변환물의 PDF는 rhwp로 낸다(--pdf-backend com 금지, 아래 줄).
 │     한컴 PDF가 필요하면 hwpx_com.py --from-md로 COM에서 생성한다
+├── 상대가 .hwp 파일을 요구 → 마지막 단계에서 hwpx_edit.py --to-hwp (배포용 사본, 정본은 HWPX)
 └── 새로 생성 (마크다운 등에서)
     ├── 간단한 문서 (스타일 최소, 빠른 변환)
     │   → hwpx_convert.py + 스타일 후처리 (아래 "MD → HWPX 변환 (Pandoc)" 참조)
@@ -94,17 +104,25 @@ HWP/HWPX 작업 요청
 
 ## 도구별 용도 선택
 
-| 작업 | 도구 | lineseg 처리 |
-|------|------|-------------|
-| MD/HTML → HWPX 기본 변환 | `hwpx_convert.py` (`pip install pypandoc-hwpx`) | N/A |
-| 변환 후 스타일 후처리 | raw XML (header.xml + section0.xml) | **수동 제거 필수** |
-| 빠른 셀 채우기, 텍스트 치환, 행 삭제 | `hwpx_edit.py` CLI | 자동 |
-| 표 생성, 셀 병합/분할, 머리글/바닥글 | python-hwpx API | 자동 |
-| 표에 행 추가/복제, 표 복제 | raw lxml + regex | **수동 제거 필수** |
-| MD → HWPX 직접 빌드 (보고서급) | python-hwpx API + raw XML | **수동 제거 필수** |
-| 서명란에 서명/도장 이미지 삽입 | `hwpx_sign.py` (COM+XML) | **자동 제거** |
-| HWPX/HWP → PDF | `hwpx_edit.py --to-pdf` (rhwp 기본 · Windows 한컴은 `--pdf-backend com`) | N/A |
-| 무결성 검증, 쪽수 드리프트 감지 | python-hwpx CLI | N/A |
+| 작업 | 도구 | 엔진 | lineseg 처리 |
+|------|------|------|-------------|
+| HWP → HWPX 변환 | `hwpx_edit.py --from-hwp` | rhwp + JAR 교차 대조 (폴백 `--engine jar`) | N/A |
+| MD/HTML → HWPX 기본 변환 | `hwpx_convert.py` (`pip install pypandoc-hwpx`) | Pandoc | N/A |
+| 변환 후 스타일 후처리 | raw XML (header.xml + section0.xml) | lxml | **수동 제거 필수** |
+| 빠른 셀 채우기, 텍스트 치환, 행 삭제 | `hwpx_edit.py` CLI | lxml | 자동 |
+| 누름틀 채우기, 격자 좌표 셀 입력 | `hwpx_edit.py --fill-fields`·`--grid-set-cell` | rhwp + 손실 게이트 | 자동 (rhwp가 다시 씀) |
+| 표 생성, 셀 병합/분할, 머리글/바닥글 | python-hwpx API | python-hwpx | 자동 |
+| 표에 행 추가/복제, 표 복제 | raw lxml + regex | lxml | **수동 제거 필수** |
+| MD → HWPX 직접 빌드 (보고서급) | python-hwpx API + raw XML | python-hwpx | **수동 제거 필수** |
+| 서명란에 서명/도장 이미지 삽입 | `hwpx_sign.py` | rhwp + 손실 게이트 (폴백 `--backend com`) | 자동 |
+| HWPX/HWP → PDF | `hwpx_edit.py --to-pdf` | rhwp (폴백 Windows `--pdf-backend com`) | N/A |
+| 배포용 HWP 사본 | `hwpx_edit.py --to-hwp` | rhwp + JAR 왕복 대조 | N/A |
+| 무결성 검증, 쪽수 드리프트 감지 | python-hwpx CLI | python-hwpx | N/A |
+
+**완료 보고**:
+- `hwpx_edit.py`·`hwpx_sign.py`는 산출물을 내면 출력 끝줄에 `engine=<rhwp|jar|com|lxml>`(변환·rhwp 편집은 `status=<passed|unverified>`까지)을 찍는다. 완료 보고에 그대로 옮긴다. `unverified`는 "검증됨"이라고 보고하지 않는다.
+- 폴백으로 전환했으면 완료 보고에 엔진과 사유를 쓴다.
+- 산출물 보고에 "허용된 손실(rhwp 재직렬화)" 줄이 찍히면 완료 보고에 그 줄을 그대로 옮겨 적는다(실패가 아니다. 뜻은 `reference/rhwp.md` "독립 손실 게이트").
 
 `--delete-rows`·`--delete-empty-rows`는 행을 지운 뒤 표의 `rowCnt`와 `rowAddr`를 다시 맞춘다(아래 "구조적 편집"의 필수 규칙 2·3). 지울 행이 세로 병합에 걸려 있으면 지우지 않고 멈추므로, 먼저 `--split-cell`로 병합을 푼다.
 
@@ -113,7 +131,7 @@ HWP/HWPX 작업 요청
 **원칙**: 도구는 "원본을 덮어쓰지 않는다"만 책임진다. 무엇이 최종 결과물이고 무엇이 부산물인지는 도구가 알 수 없으므로(같은 `--to-md`도 워크플로우에 따라 결과물이거나 부산물이다), **호출하는 워크플로우가 판단**한다.
 
 - **도구 기본 출력**: `hwpx_edit.py`와 hwp2hwpx 래퍼(`.bat`·`.sh`)는 `-o`(래퍼는 두 번째 인자) 미지정 시 입력 폴더의 `_work-hwpx-automation/`에 저장한다(원본 비파괴). 입력이 이미 `_work-hwpx-automation/` 안에 있으면 같은 폴더의 같은 이름, 즉 그 파일 자리에 쓴다.
-- **입력 옆에 쓰는 도구**: `hwpx_com.py`는 `<입력>.pdf`·`<입력>_img.hwpx`·`<입력>_norm.hwpx`, `--from-hwp`는 `<입력>.hwpx`, `hwpx_sign.py`는 `<입력>_서명.hwpx`를 입력 파일 옆에 만든다. 부산물로 둘 것이면 `-o`로 `_work-hwpx-automation/`을 지정한다.
+- **입력 옆에 쓰는 도구**: `hwpx_com.py`는 `<입력>.pdf`·`<입력>_img.hwpx`·`<입력>_norm.hwpx`, `hwpx_com.py --from-hwp`는 `<입력>.hwpx`, `hwpx_sign.py`는 `<입력>_서명.hwpx`를 입력 파일 옆에 만든다. 부산물로 둘 것이면 `-o`로 `_work-hwpx-automation/`을 지정한다.
 - **여러 편집을 이어 할 때**: 편집 명령은 매번 입력 파일을 새로 읽는다. 원본에 `--set-cell` 등을 여러 번 부르면 마지막 호출만 남으므로, 두 번째 호출부터는 앞 호출의 결과(`_work-hwpx-automation/<이름>.hwpx`)를 입력으로 준다. 셀이 많으면 스크립트 한 번으로 처리한다.
 - **작업 마무리**: 작업 종료 시 **최종 결과물은 작업 폴더로** 옮기고(또는 처음부터 `-o`로 작업 폴더를 지정), 그 전까지의 **중간 부산물은 `_work-hwpx-automation/`에 잔류**시킨다. 작업 폴더에는 원본과 최종 결과물만 남아 깔끔하게 유지된다. 최종본 이름이 원본과 같으면 옮길 때 원본을 덮으므로 새 이름을 준다.
 - **비교 기준 남기기**: `_work-hwpx-automation/` 안 파일을 입력으로 주면 그 자리를 덮으므로, 편집 전 파일을 `hwpx-page-guard --reference`의 기준으로 쓰려면 첫 편집에 `-o`로 새 이름을 준다.
@@ -283,8 +301,8 @@ python hwpx_edit.py <입력.hwp> --to-md                         # 다른 명령
 ```
 
 - `.hwp`를 `--to-md`·`--info`·`--find/--replace`·`--set-cell` 등에 바로 주면 `_work-hwpx-automation/<이름>.hwpx`로 변환한 뒤 그 HWPX 위에서 동작한다. 편집 결과는 `-o`가 없으면 `<이름>_편집.hwpx`이고, 편집을 이어 할 때는 이 파일을 입력으로 준다(같은 `.hwp`를 다시 주면 원본에서 새로 변환한다). `--to-pdf`만 원본을 그대로 렌더링한다. `-o`에 `.hwp`는 줄 수 없다.
-- 변환물은 `hwpx-validate`와 **다른 엔진 변환물과의 교차 대조**(글자·표·셀·그림·BinData 수)를 통과해야 결과 자리에 놓인다. stdout 마지막 줄 `engine=<rhwp|jar> status=<passed|unverified>`를 완료 보고에 그대로 옮긴다. JDK가 없어 JAR 대조를 못 하면 `unverified`이며 "검증됨"이라고 보고하지 않는다.
-- rhwp가 실패하거나(자가 검증 exit 3 등) 교차 대조가 어긋나면 exit 1이다. 거부된 산출물은 `<이름>.rejected.hwpx`로 남고, stderr에 출력된 JAR 폴백 명령을 따른다. 폴백으로 전환했으면 완료 보고에 엔진과 사유를 쓴다.
+- 변환물은 `hwpx-validate`와 **다른 엔진 변환물과의 교차 대조**(글자·표·셀·그림 수, BinData 수·내용 해시)를 통과해야 결과 자리에 놓인다. JDK가 없어 JAR 대조를 못 하면 `status=unverified`다.
+- rhwp가 실패하거나(자가 검증 exit 3 등) 교차 대조가 어긋나면 exit 1이다. 거부된 산출물은 `<이름>.rejected.hwpx`로 남고, stderr에 출력된 JAR 폴백 명령을 따른다.
 
 ### JAR 폴백 (`--engine jar` 또는 래퍼 직접 호출)
 
@@ -317,13 +335,13 @@ MD 등을 `hwpx_convert.py`로 변환할 때 `reference/conversion.md`의 같은
 
 ## 핵심 워크플로우: 양식 채우기
 
-1. **원본이 HWP이면 변환**: 위 "HWP → HWPX 변환"(Windows는 PowerShell에서 bat, 또는 `java -cp` 직접)
+1. **원본이 HWP이면 변환**: `hwpx_edit.py <입력.hwp> --from-hwp`(위 "HWP → HWPX 변환". 이후 단계의 `output.hwpx`는 이 변환물)
 2. **내용 파악**: `hwpx_edit.py output.hwpx --to-md`
 3. **표 구조 확인**: `hwpx_edit.py output.hwpx --info`
 4. **(선택) 심층 분석**: `hwpx-analyze-template output.hwpx --json` (스타일 ID 맵 필요 시)
 5. **데이터 채우기**: `--set-cell`로 개별 셀(두 번째부터 앞 결과를 입력으로, 위 "여러 편집을 이어 할 때") 또는 Python 스크립트로 일괄 처리
 6. **"한 줄로 입력" 과압축 확인**: 제목·긴 문장을 채웠다면 `--list-squeeze`로 확인, 걸리면 `--fix-squeeze`로 자연 줄바꿈 전환 (양식 제목 문단의 lineWrap="SQUEEZE"가 긴 텍스트를 한 줄로 욱여넣어 글자가 겹침. `--find/--replace`·`--set-cell`이 자동 경고하지만, Python 스크립트로 일괄 채운 경우엔 수동 확인 필요. 상세: reference/warnings-editing.md 13번)
-7. **무결성 검증**: `hwpx-validate result.hwpx` (HWP 변환물이면 PrvText 누락 실패는 무해, 위 "HWP → HWPX 변환")
+7. **무결성 검증**: `hwpx-validate result.hwpx` (JAR 변환물이면 PrvText 누락 실패는 무해, 위 "JAR 폴백")
 8. **쪽수 드리프트 감지**: `hwpx-page-guard --reference output.hwpx --output result.hwpx`
 9. **내용 확인**: `--to-md`로 최종 텍스트 검증. 서식이 중요한 문서는 `--to-pdf`로 렌더링 육안 확인(과압축·겹침은 텍스트 검증으로는 안 잡힌다)
 
@@ -341,11 +359,11 @@ ZIP 내부 구조·네임스페이스가 필요할 때 `reference/format.md`를 
 
 ## 서명/도장 이미지 삽입 (hwpx_sign.py)
 
-서명란에 서명·도장 이미지를 넣을 때 `reference/signing.md`를 읽는다. 기본은 rhwp(모든 OS, "(서명)" 위에 겹쳐 찍기)이고, 표 안 앵커나 게이트 실패 때만 Windows에서 `--backend com`을 쓴다. 완료 보고에 출력 끝줄의 `engine=`을 적는다.
+서명란에 서명·도장 이미지를 넣을 때 `reference/signing.md`를 읽는다. 기본은 rhwp(모든 OS, "(서명)" 위에 겹쳐 찍기)이고, 표 안 앵커나 게이트 실패 때만 Windows에서 `--backend com`을 쓴다.
 
-## macOS·Linux에서 PDF 변환 (rhwp)
+## PDF 변환 (rhwp)
 
-`--to-pdf`는 모든 OS에서 rhwp가 기본이다. 한컴과 똑같은 조판이 필요할 때만 Windows에서 `--pdf-backend com`을 명시하고, 완료 보고에 stdout 마지막 줄 `engine=<rhwp|com>`을 옮긴다. Pandoc(`hwpx_convert.py`) 산출물의 PDF는 rhwp로 낸다(COM은 본문을 0자로 읽는다). rhwp 설치·출력 해석(`글꼴에 없는 문자가 빈 네모로 찍혔습니다`, exit 2)이 필요할 때 `reference/rhwp-pdf.md`를 읽는다. exit 2가 난 PDF는 배포하지 않는다.
+`--to-pdf`는 모든 OS에서 rhwp가 기본이다. 한컴과 똑같은 조판이 필요할 때만 Windows에서 `--pdf-backend com`을 명시한다. Pandoc(`hwpx_convert.py`) 산출물의 PDF는 rhwp로 낸다(COM은 본문을 0자로 읽는다). rhwp 설치·출력 해석(`글꼴에 없는 문자가 빈 네모로 찍혔습니다`, exit 2)이 필요할 때 `reference/rhwp.md` "PDF"를 읽는다. exit 2가 난 PDF는 배포하지 않는다.
 
 ## 한컴 COM 자동화 (Windows 전용, 한컴오피스 필수)
 
@@ -364,7 +382,7 @@ Windows + 한컴오피스에서 COM(`hwpx_com.py`·보안모듈·암호 해제·
 | HWPX 파일 구조 | `reference/format.md` | ZIP 내부 구조, section0.xml 요소, 네임스페이스 딕셔너리 |
 | HWP 변환 폴백 | `reference/hwp-conversion.md` | 번들 JAR 출처·패치, hwp2hwpx 예외별 폴백(한컴 COM·pyhwp) |
 | 서명/도장 삽입 | `reference/signing.md` | hwpx_sign.py 옵션, 앵커 대체 vs 겹쳐 찍기, 검증, 함정 |
-| rhwp PDF | `reference/rhwp-pdf.md` | macOS·Linux PDF 설치·충실도·출력 해석 |
+| rhwp 엔진 | `reference/rhwp.md` | 설치·버전, 호출 계약(봉투·exit code), 손실 게이트·허용 목록, 좌표 단위, 명령별 실측 계약, 폴백 조건, PDF 충실도·출력 해석 |
 | 한컴 COM 자동화 | `reference/com.md` | 파이프라인 분리, hwpx_com.py, 보안모듈, 원격 실행, 기본 패턴, 이미지 삽입 |
 | 스킬 업데이트·개선 반영 | `reference/update-checklist.md` | python-hwpx 업데이트, GitHub 인사이트 수집, 함정 환류 경로 |
 | 암호화 HWPX 해제 | `reference/encrypted-hwpx.md` | 암호화 감지, 한컴 COM 암호 해제 전체 스크립트, 주의사항 |

@@ -2,19 +2,22 @@
 
 ## 현재
 
-- HWP 변환 번들: edc0527+p1 / hwplib 1.1.11 / hwpxlib 1.0.9. Windows 40건 대조 통과.
-- rhwp 재설계(`docs/plans/2026-10-28-rhwp-redesign.md`): M1 어댑터·게이트 완료. 단위 75건 통과(`RHWP_INTEGRATION=1` 포함).
-- M2 HWP→HWPX rhwp 기본 완료: `--from-hwp`·`--engine`·`hwp_to_hwpx()`, JAR 교차 대조(JDK 없으면 unverified), `.hwp` 입력은 모든 편집·읽기 명령의 입구에서 변환.
-- M4 PDF 백엔드 완료: `--to-pdf`는 모든 OS rhwp 기본, `--pdf-backend com`은 Windows 명시 폴백. Pandoc 산출물 PDF도 rhwp.
-- M3 서명 삽입 rhwp 백엔드 완료: `hwpx_sign.py --backend rhwp|com`(기본 rhwp, 모든 OS), 게이트 `allow_rhwp` 허용 목록. 한컴에서 열기·위치는 위원장 실사용으로 확인 대기.
-- M5 완료: `--tables`·`--fields`·`--fill-fields`·`--grid-set-cell`·`--to-hwp`. 편집 산출물은 `hwpx_gate.gate(allow_rhwp=True)` 게이트를 거친다.
-- 위원장 결정(2026-10-28): 실기 검증은 위원장이 실사용으로 한다. 축별 옵트인 단계 없이 플랜 원안대로 rhwp를 기본값으로 두고 JAR·COM은 명시 폴백으로 남긴다.
+- rhwp 중심 재설계(`docs/plans/2026-10-28-rhwp-redesign.md`) M1~M7 완료. rhwp가 HWP→HWPX 변환·PDF·서명·누름틀·격자 좌표 셀·`--to-hwp`의 기본 엔진이고, JAR·한컴 COM은 명시 폴백, HWPX 미세 편집은 lxml, 읽기는 hwpx-tomd다. 단위·통합 시험 140건 통과(`RHWP_INTEGRATION=1` 포함).
+- rhwp v0.8.7 설치: 맥 `~/.local/bin/rhwp`, Windows hunyong-samsung `C:\Users\pc\.local\bin\rhwp.exe`.
+- HWP 변환 번들(JAR 폴백): edc0527+p1 / hwplib 1.1.11 / hwpxlib 1.0.9.
+
+## 실기 확인 대기 (위원장 실사용)
+
+한컴 2024에서 열리고 내용·위치가 맞는지 실사용 중에 확인한다. 열리지 않는 문서군이 나오면 그 축만 COM 폴백을 기본으로 되돌리고 CLAUDE.md에 사유를 적는다.
+
+- rhwp 변환 HWPX(`--from-hwp`)
+- rhwp 서명본(`hwpx_sign.py`): 서명이 "(서명)" 위에 있는지. 앵커 문단이 여러 줄인 표본을 하나 포함한다(앵커 문단의 lineseg를 그대로 두므로 한컴이 캐시를 어긋난 것으로 볼 수 있다)
+- Pandoc 산출물을 rhwp로 재저장한 HWPX
 
 ## 다음 단계
 
-- M2~M5 착수 순서와 자리는 `docs/BACKLOG.md`.
-- Windows hunyong-samsung rhwp v0.8.7 설치 완료(M6). 한컴 2024 호환은 위원장 실사용에서 확인하고 문제가 보이면 그 축을 COM 폴백 기본으로 되돌린다.
+- 열린 항목과 감시 항목은 `docs/BACKLOG.md`.
 
 ## 미결 결정
 
-- 없음. rhwp 재직렬화의 header.xml 손실(OUTLINE 7~9단계 `hp:switch`·미사용 paraPr)은 게이트 허용 목록으로 통과시키고 보고에 표기한다(2026-10-28).
+- 없음.

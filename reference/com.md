@@ -28,7 +28,7 @@ XML 직접 편집으로 불가능한 작업(이미지 삽입, PDF 변환)과 COM
 | COM 네이티브 | **hwpx_com.py** (pyhwpx) | Windows + 한컴오피스 | 신규 생성+COM 후속 작업, 이미지 삽입, PDF |
 
 - **COM 생성 HWPX → XML 파이프라인 읽기·편집**: 안전. COM으로 넣은 결과를 XML로 후처리하고 다시 COM으로 여는 흐름(아래 "이미지 위치/배치 변경", `hwpx_sign.py`)도 이 범위다. → 사례
-- **Pandoc 생성 HWPX → COM**: 금지. COM이 본문을 0자로 인식하고, 같은 파일에 저장하면 내용 전체가 사라진다(`reference/warnings-com.md` 4번). COM으로 여는 명령 전부(`--normalize`·`--insert-image`·`hwpx_edit.py --to-pdf --pdf-backend com`·`hwpx_com.py --to-pdf`·`hwpx_sign.py`)에 넣지 않는다. 본문을 0자로 본 채 처리해 삽입 위치·인쇄·서명 자리 찾기가 어긋난다(`--normalize`는 입력 0자를 감지해 멈춘다). `--get-text`로 0자인지 확인하는 호환성 점검만 예외다. 한컴 결과물이 필요하면 `--from-md`로 COM에서 생성한다.
+- **Pandoc 생성 HWPX → COM**: 금지. COM이 본문을 0자로 인식하고, 같은 파일에 저장하면 내용 전체가 사라진다(`reference/warnings-com.md` 4번). COM으로 여는 명령 전부(`--normalize`·`--insert-image`·`hwpx_edit.py --to-pdf --pdf-backend com`·`hwpx_com.py --to-pdf`·`hwpx_sign.py --backend com`)에 넣지 않는다. 본문을 0자로 본 채 처리해 삽입 위치·인쇄·서명 자리 찾기가 어긋난다(`--normalize`는 입력 0자를 감지해 멈춘다). `--get-text`로 0자인지 확인하는 호환성 점검만 예외다. 한컴 결과물이 필요하면 `--from-md`로 COM에서 생성한다.
 - hwpx_com.py는 입력 파일을 절대 in-place로 덮어쓰지 않는다 (위 사고의 구조적 방지)
 
 ## hwpx_com.py 사용법 (pyhwpx 기반)
@@ -81,7 +81,7 @@ python hwpx_edit.py <파일.hwpx> --to-pdf --pdf-backend com --password "<비밀
 
 ## 원격 실행 (SSH)
 
-⚠ **SSH 세션에서는 COM 서버가 뜨지 않는다**(`서버 실행이 실패했습니다`, 대화형 데스크톱 없음). 원격에서 돌릴 때는 `schtasks /Create /TN <이름> /SC ONCE /ST 00:00 /IT /RL HIGHEST /TR "cmd /c cd /d <작업폴더> && python hwpx_com.py ... > com.log 2>&1" /F` 후 `schtasks /Run`으로 로그인 세션에서 실행하고 결과 파일을 폴링한다. `hwpx_sign.py`·`hwpx_edit.py --to-pdf --pdf-backend com`도 같다. → 사례
+⚠ **SSH 세션에서는 COM 서버가 뜨지 않는다**(`서버 실행이 실패했습니다`, 대화형 데스크톱 없음). 원격에서 돌릴 때는 `schtasks /Create /TN <이름> /SC ONCE /ST 00:00 /IT /RL HIGHEST /TR "cmd /c cd /d <작업폴더> && python hwpx_com.py ... > com.log 2>&1" /F` 후 `schtasks /Run`으로 로그인 세션에서 실행하고 결과 파일을 폴링한다. `hwpx_sign.py --backend com`·`hwpx_edit.py --to-pdf --pdf-backend com`도 같다(기본 rhwp 경로는 SSH에서도 그대로 돈다). → 사례
 
 ## 보안모듈 (팝업 제거)
 
