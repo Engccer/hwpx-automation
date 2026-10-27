@@ -4,7 +4,7 @@
 
 | 묶음 | 항목 | 자리 | 순서 |
 |---|---|---|---|
-| 변환 | **M2 HWP→HWPX rhwp 기본과 JAR 교차 대조** | 로컬 | 선행 |
+| 변환 | **M2 HWP→HWPX rhwp 기본과 JAR 교차 대조** | 로컬 | 완료 |
 | 서명 | **M3 서명 삽입 rhwp 백엔드** | 로컬 | 병행 |
 | PDF | **M4 PDF 백엔드 플래그** | 로컬 | 변환 뒤 |
 | 신규 | **M5 누름틀·격자 좌표·역변환** | 로컬 | PDF 뒤 |
@@ -14,7 +14,7 @@ M2·M4·M5는 모두 `hwpx_edit.py`를 고치므로 차례로 둔다. M3은 `hwp
 
 ## 열린 항목
 
-- [ ] **M2 HWP→HWPX rhwp 기본과 JAR 교차 대조**: `--engine rhwp|jar`(기본 rhwp), `cross_check`, `--check-env` Tier 재정의, SKILL.md 259행 예외. 플랜 M2.
+- [x] **M2 HWP→HWPX rhwp 기본과 JAR 교차 대조**: `--from-hwp`·`--engine rhwp|jar`(기본 rhwp)·`hwp_to_hwpx()`, `cross_check`, `--check-env` Tier 재정의, SKILL.md 예외 문장. 2026-10-28 완료.
 - [ ] **M3 서명 삽입 rhwp 백엔드**: `--backend rhwp|com`(기본 rhwp), search→render-tree→measure-width→insert-image, 결과는 항상 `.hwpx`. 플랜 M3. header.xml 허용 손실은 게이트 허용 목록 + 보고 표기로 확정(2026-10-28).
 - [ ] **M4 PDF 백엔드 플래그**: `--pdf-backend rhwp|com`, Pandoc 산출물 PDF 라우팅 명시. 플랜 M4.
 - [ ] **M5 누름틀·격자 좌표·역변환**: `--tables`·`--fields`·`--fill-fields`·`--grid-set-cell`·`--to-hwp`(배포용, JAR 왕복 대조). 플랜 M5.

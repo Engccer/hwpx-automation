@@ -4,6 +4,7 @@ hwpx_edit.py - HWPX 파일 편집 유틸리티
 
 사용법:
   python hwpx_edit.py --check-env                            # 기능 계층별 의존성·런타임 점검 (첫 실행 시)
+  python hwpx_edit.py <파일.hwp> --from-hwp                   # HWP → HWPX (rhwp, JAR 교차 대조. --engine jar 폴백)
   python hwpx_edit.py <파일.hwpx> --info                       # 표 구조 출력
   python hwpx_edit.py <파일.hwpx> --to-md                      # HWPX → Markdown 변환 (hwpx-tomd 엔진, API 불필요)
   python hwpx_edit.py --diagnose-com                         # 한컴 COM 자동화 진단
@@ -17,6 +18,7 @@ hwpx_edit.py - HWPX 파일 편집 유틸리티
   - 변환(--to-md): hwpx-tomd 패키지 (pip install hwpx-tomd). 변환 엔진은 이 패키지가
     단일 소스로 관리하며, 본 파일은 출력 경로·콘솔 메시지 등 CLI 래퍼만 담당한다.
   - PDF 변환(--to-pdf): Windows는 한컴오피스 + pywin32, 그 밖의 OS는 rhwp CLI(rhwp_pdf.py)
+  - HWP 변환(--from-hwp, .hwp 입력): rhwp CLI. JDK 21 + 번들 JAR은 --engine jar 폴백과 교차 대조
 """
 
 import argparse
@@ -25,11 +27,14 @@ import copy
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import zipfile
-from collections import Counter
+from collections import Counter, namedtuple
 from io import BytesIO
+
+import rhwp_cli
 
 # lxml 미설치 기기에서도 --check-env(환경 진단)가 동작해야 하므로 여기서 죽지 않는다.
 # 파일 명령의 실제 가드는 main()에서 설치 안내와 함께 수행한다.
@@ -1415,6 +1420,151 @@ def find_windows_java(environ, adoptium_glob=ADOPTIUM_JDK21_GLOB, which=None):
     return (which or shutil.which)("java")
 
 
+def find_java():
+    """hwp2hwpx 래퍼가 실제로 쓸 java. sh는 JAVA_HOME → PATH, bat은 find_windows_java 순서."""
+    if sys.platform == "win32":
+        return find_windows_java(os.environ)
+    home = os.environ.get("JAVA_HOME")
+    exe = os.path.join(home, "bin", "java") if home else None
+    return exe if exe and os.access(exe, os.X_OK) else shutil.which("java")
+
+
+# ---------- HWP → HWPX 변환 (rhwp 기본, JAR 폴백) ----------
+
+ConvertResult = namedtuple("ConvertResult", "path engine status messages")
+HWP_ENGINES = ("rhwp", "jar")
+CONVERT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "convert")
+
+
+def _jar_script():
+    return os.path.join(CONVERT_DIR, "hwp2hwpx.bat" if sys.platform == "win32" else "hwp2hwpx.sh")
+
+
+def _run_jar(src, out):
+    """번들 hwp2hwpx JAR로 변환한다(PrvText 보정 전 원시 산출물)."""
+    script = _jar_script()
+    cmd = [script, src, out] if sys.platform == "win32" else ["sh", script, src, out]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    if r.returncode != 0 or not os.path.exists(out) or os.path.getsize(out) == 0:
+        tail = (r.stderr or r.stdout).strip()[-300:]
+        raise RuntimeError(f"JAR 변환 실패(exit {r.returncode}): {tail}")
+
+
+def _rhwp_export_hwpx(src, out, verify=None):
+    return rhwp_cli.run(["export-hwpx", os.path.abspath(src), rhwp_cli.OUTPUT, "--verify"],
+                        output=out, required_fields=("output", "format", "verify"), verify=verify)
+
+
+def convert_fallback_hint(src, dest, failed_engine):
+    """변환 실패 시 사람이 그대로 따라 칠 폴백 명령."""
+    if failed_engine == "jar":
+        lines = [f'  rhwp: python hwpx_edit.py "{src}" --from-hwp']
+        if sys.platform == "win32":
+            lines.append(f'  한컴 COM: python hwpx_com.py "{src}" --from-hwp')
+        return "폴백:\n" + "\n".join(lines)
+    script = "convert\\hwp2hwpx.bat" if sys.platform == "win32" else "bash convert/hwp2hwpx.sh"
+    return ("폴백(JAR, JDK 21 필요):\n"
+            f'  python hwpx_edit.py "{src}" --from-hwp --engine jar\n'
+            "  또는 손으로 두 단계:\n"
+            f'    {script} "{src}" "{dest}"\n'
+            f'    python hwpx_edit.py "{dest}" --add-preview -o "{dest}"')
+
+
+def _independent_check(staged, src, engine, messages):
+    """다른 엔진 변환물과 교차 대조하고 hwpx-validate를 돌린다.
+    불일치·검증 실패는 RuntimeError, 대조 불가는 "unverified"를 돌려준다."""
+    import hwpx_gate
+
+    status = "passed"
+    ok, out = hwpx_gate.validate(staged)
+    if ok is None:
+        status = "unverified"
+        messages.append(out)
+    elif not ok:
+        raise RuntimeError("hwpx-validate 실패: " + out.splitlines()[-1][:160])
+
+    other = "jar" if engine == "rhwp" else "rhwp"
+    with tempfile.TemporaryDirectory(prefix="hwp-ref-") as td:
+        ref = os.path.join(td, "ref.hwpx")
+        if other == "jar" and not find_java():
+            messages.append("JDK 없음: JAR 교차 대조 생략(unverified)")
+            return "unverified"
+        try:
+            _run_jar(src, ref) if other == "jar" else _rhwp_export_hwpx(src, ref)
+        except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+            messages.append(f"{other} 교차 대조용 변환 실패, 대조 생략(unverified): {exc}")
+            return "unverified"
+        rep = hwpx_gate.cross_check(staged, ref)
+    if rep.status == "failed":
+        raise RuntimeError(f"{engine}·{other} 교차 대조 실패: {rep.summary()}")
+    messages.append(f"교차 대조({other}): {rep.summary()}")
+    return status if rep.status == "passed" else "unverified"
+
+
+def hwp_to_hwpx(src, dest=None, *, engine="rhwp"):
+    """HWP를 HWPX로 변환한다. 정본 형식은 HWPX이고 `.hwp`는 이 입구에서만 만난다.
+
+    dest가 None이면 입력 옆 `_work-hwpx-automation/<stem>.hwpx`.
+    산출물은 hwpx-validate와 다른 엔진 변환물과의 교차 대조(hwpx_gate.cross_check)를
+    통과해야 dest에 놓인다. 대조 불가(JDK·hwpx-tomd 없음)면 status="unverified".
+    실패하면 RuntimeError(rhwp_cli.RhwpError 포함)이고 메시지에 폴백 명령이 들어 있다.
+    거부된 산출물은 `<dest stem>.rejected.hwpx`로 남는다.
+    stdout 마지막에 `engine=<rhwp|jar> status=<passed|unverified>`를 찍는다.
+    """
+    if engine not in HWP_ENGINES:
+        raise ValueError(f"engine은 {HWP_ENGINES} 중 하나: {engine!r}")
+    src = os.path.abspath(src)
+    dest = os.path.abspath(dest or get_output_path(src, ".hwpx"))
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    messages = []
+    state = {}
+
+    def check(staged):
+        try:
+            state["status"] = _independent_check(staged, src, engine, messages)
+        except RuntimeError:
+            root, ext = os.path.splitext(dest)
+            shutil.copyfile(staged, f"{root}.rejected{ext}")
+            messages.append(f"거부된 산출물 보존: {root}.rejected{ext}")
+            raise
+
+    try:
+        if engine == "rhwp":
+            _rhwp_export_hwpx(src, dest, verify=check)
+        else:
+            with tempfile.TemporaryDirectory(prefix="jar-", dir=os.path.dirname(dest)) as td:
+                raw, staged = os.path.join(td, "raw.hwpx"), os.path.join(td, "staged.hwpx")
+                _run_jar(src, raw)
+                with open(os.devnull, "w") as quiet, contextlib.redirect_stdout(quiet):
+                    cmd_add_preview(raw, staged)  # JAR 산출물의 PrvText 누락 보정
+                messages.append("JAR 산출물에 Preview/PrvText.txt 보정(--add-preview)")
+                if not os.path.exists(staged):
+                    shutil.copyfile(raw, staged)
+                check(staged)
+                os.replace(staged, dest)
+    except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        detail = [str(exc)] + [m for m in messages if m.startswith("거부된")]
+        rejected = getattr(exc, "rejected_path", None)
+        if rejected:
+            detail.append(f"거부된 산출물 보존: {rejected}")
+        raise RuntimeError("\n".join(detail) + "\n" + convert_fallback_hint(src, dest, engine)) from exc
+
+    status = state.get("status", "unverified")
+    for m in messages:
+        print(m)
+    print(f"변환: {src} → {dest}")
+    print(f"engine={engine} status={status}")
+    return ConvertResult(dest, engine, status, messages)
+
+
+def convert_hwp_or_exit(src, dest=None, engine="rhwp"):
+    try:
+        return hwp_to_hwpx(src, dest, engine=engine)
+    except RuntimeError as exc:
+        print(f"오류: HWP→HWPX 변환 실패 (engine={engine})\n{exc}", file=sys.stderr)
+        sys.exit(1)
+
+
 def cmd_check_env():
     """기능 계층(tier)별 의존성·런타임 준비 상태를 한 번에 리포트.
 
@@ -1426,8 +1576,6 @@ def cmd_check_env():
     """
     import glob as _glob
     import importlib.util
-    import shutil
-    import subprocess
 
     try:
         sys.stdout.reconfigure(encoding="utf-8")  # Windows cp949 안전
@@ -1464,48 +1612,21 @@ def cmd_check_env():
     if t1_ok:
         ready.append("읽기·편집")
 
-    # Tier 2: HWP → HWPX 변환 (JDK 21 + 번들 JAR)
-    print("\n[Tier 2] HWP→HWPX 변환 (JDK 21 + 번들 JAR)")
-    t2_ok = True
-
-    def java_version(exe):
+    # Tier 2: HWP→HWPX 변환·PDF·이미지 (rhwp, 모든 OS 기본 엔진)
+    print("\n[Tier 2] HWP→HWPX 변환·PDF·이미지 (rhwp · 모든 OS 기본 엔진)")
+    rhwp = rhwp_cli.find_rhwp()
+    if rhwp:
         try:
-            out = subprocess.run([exe, "-version"], capture_output=True, text=True, timeout=10)
-            lines = (out.stderr or out.stdout or "").splitlines()
-            return lines[0].strip() if lines else ""
-        except Exception:
-            return ""
-
-    if sys.platform != "win32":
-        # hwp2hwpx.sh는 환경변수 JAVA_HOME → PATH 순으로 java를 찾는다.
-        java_home_env = os.environ.get("JAVA_HOME")
-        env_java = os.path.join(java_home_env, "bin", "java") if java_home_env else None
-        found_java = env_java if env_java and os.access(env_java, os.X_OK) else shutil.which("java")
+            notes = rhwp_cli.check_version(rhwp)
+            print(f"  [O] rhwp           {rhwp_cli.fmt(rhwp_cli.version(rhwp))}  {rhwp}")
+            for note in notes:
+                print(f"  [경고] {note}")
+            ready.append("HWP→HWPX 변환·PDF(rhwp)")
+        except rhwp_cli.RhwpError as exc:
+            print(f"  [경고] rhwp         {exc}")
     else:
-        # hwp2hwpx.bat과 같은 탐색 순서를 쓴다(점검과 실제 실행이 어긋나지 않게).
-        found_java = find_windows_java(os.environ)
-    if found_java:
-        ver = java_version(found_java)
-        print(f"  [O] JDK          {found_java}{('  ·  ' + ver) if ver else ''}")
-    else:
-        print(f"  [설치] JDK        JDK 21 설치(또는 JAVA_HOME 지정): https://adoptium.net/ (Temurin 21)")
-        t2_ok = False
-    for name, pattern in [
-        ("hwp2hwpx", os.path.join(convert_dir, "hwp2hwpx*.jar")),
-        ("hwplib", os.path.join(convert_dir, "lib", "hwplib*.jar")),
-        ("hwpxlib", os.path.join(convert_dir, "lib", "hwpxlib*.jar")),
-    ]:
-        if _glob.glob(pattern):
-            print(f"  [O] {name:<14} JAR 번들됨")
-        else:
-            print(f"  [경고] {name:<12} JAR 없음: {pattern}")
-            t2_ok = False
-    if t2_ok:
-        ready.append("HWP→HWPX 변환")
-    elif sys.platform == "win32":
-        # JDK가 없어도 한컴오피스가 있으면 COM 폴백으로 변환 가능 (이슈 #3)
-        print("  [폴백] 한컴오피스가 있으면 JDK 없이 COM으로 변환 가능:")
-        print("          python hwpx_com.py 파일.hwp --from-hwp  (사전 확인: python hwpx_com.py --diagnose)")
+        print("  [설치] rhwp         https://github.com/edwardkim/rhwp/releases 바이너리를 PATH에 "
+              f"(또는 {rhwp_cli.ENV_BIN}), v{'.'.join(map(str, rhwp_cli.MIN_VERSION))} 이상")
 
     # Tier 3: MD/DOCX/HTML → HWPX 변환 (pip + Pandoc)
     print("\n[Tier 3] MD/DOCX/HTML→HWPX 변환 (pip + Pandoc)")
@@ -1524,19 +1645,44 @@ def cmd_check_env():
     if t3_ok:
         ready.append("MD→HWPX 변환")
 
-    # Tier 4: PDF·이미지·서명 (Windows + 한컴오피스 COM, 그 밖의 OS는 PDF만 rhwp)
-    print("\n[Tier 4] PDF·이미지·서명 (Windows 한컴 COM · 그 밖의 OS는 PDF만 rhwp)")
-    if sys.platform != "win32":
-        rhwp = shutil.which("rhwp")
-        if rhwp:
-            print(f"  [O] rhwp           --to-pdf 오픈소스 렌더러(한컴 아님) {rhwp}")
-            ready.append("PDF 변환(rhwp)")
+    # Tier 4: 폴백 (JDK 21 + 번들 JAR, Windows 한컴 COM). 사용자가 고를 때만 쓴다.
+    print("\n[Tier 4] 폴백 (JDK 21 + 번들 JAR · Windows 한컴 COM, 명시할 때만)")
+    jar_ok = True
+
+    def java_version(exe):
+        try:
+            out = subprocess.run([exe, "-version"], capture_output=True, text=True, timeout=10)
+            lines = (out.stderr or out.stdout or "").splitlines()
+            return lines[0].strip() if lines else ""
+        except Exception:
+            return ""
+
+    found_java = find_java()  # 점검과 실제 실행(hwp2hwpx.sh/.bat)이 어긋나지 않게 같은 탐색
+    if found_java:
+        ver = java_version(found_java)
+        print(f"  [O] JDK          {found_java}{('  ·  ' + ver) if ver else ''}")
+    else:
+        print(f"  [설치] JDK        JDK 21 설치(또는 JAVA_HOME 지정): https://adoptium.net/ (Temurin 21)")
+        jar_ok = False
+    for name, pattern in [
+        ("hwp2hwpx", os.path.join(convert_dir, "hwp2hwpx*.jar")),
+        ("hwplib", os.path.join(convert_dir, "lib", "hwplib*.jar")),
+        ("hwpxlib", os.path.join(convert_dir, "lib", "hwpxlib*.jar")),
+    ]:
+        if _glob.glob(pattern):
+            print(f"  [O] {name:<14} JAR 번들됨")
         else:
-            print("  [설치] rhwp         --to-pdf용: https://github.com/edwardkim/rhwp/releases 바이너리를 PATH에")
-        print("  [-] 이미지 삽입·서명·한컴 정규화는 Windows + 한컴오피스 전용")
+            print(f"  [경고] {name:<12} JAR 없음: {pattern}")
+            jar_ok = False
+    if jar_ok:
+        print("      --engine jar 변환과 rhwp 변환의 교차 대조에 쓰인다")
+        ready.append("JAR 폴백")
+    if sys.platform != "win32":
+        print("  [-] 한컴 COM 폴백(PDF·서명·한컴 정규화)은 Windows + 한컴오피스 전용")
     else:
         if installed("win32com"):
-            print(f"  [O] pywin32        COM 기본 의존성(--to-pdf, hwpx_sign.py 등)")
+            print(f"  [O] pywin32        COM 폴백 의존성(PDF·hwpx_sign.py 등)")
+            ready.append("한컴 COM 폴백")
         else:
             print(f"  [설치] pywin32      pip install pywin32")
         if installed("pyhwpx"):
@@ -1658,6 +1804,8 @@ def main():
         epilog="""
 예시:
   %(prog)s --check-env                    # 기능 계층별 의존성·런타임 점검
+  %(prog)s doc.hwp --from-hwp            # HWP → HWPX (rhwp, JAR 교차 대조)
+  %(prog)s doc.hwp --from-hwp --engine jar
   %(prog)s doc.hwpx --info
   %(prog)s doc.hwpx --to-md
   %(prog)s doc.hwpx --to-md -o output.md
@@ -1678,7 +1826,13 @@ def main():
   %(prog)s doc.hwpx --set-cell 0,1,0 "텍스트" -o output.hwpx
         """)
 
-    parser.add_argument('file', nargs='?', help='HWPX 파일 경로')
+    parser.add_argument('file', nargs='?',
+                        help='HWPX 파일 경로 (.hwp를 주면 먼저 HWPX로 변환해 그 위에서 동작)')
+    parser.add_argument('--from-hwp', action='store_true',
+                        help='HWP → HWPX 변환만 수행 (기본 rhwp + JAR 교차 대조, -o로 출력 경로)')
+    parser.add_argument('--engine', choices=HWP_ENGINES, default='rhwp',
+                        help='HWP → HWPX 변환 엔진 (기본 rhwp, jar는 명시 폴백). '
+                             '--from-hwp와 .hwp 입력의 자동 변환에 적용')
     parser.add_argument('--info', action='store_true', help='표 구조 정보 출력')
     parser.add_argument('--to-md', action='store_true',
                         help='HWPX → Markdown 변환 (XML 직접 파싱, API 불필요)')
@@ -1758,6 +1912,18 @@ def main():
     if args.output:
         os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
 
+    if args.from_hwp:
+        if not args.file.lower().endswith('.hwp'):
+            print("오류: --from-hwp는 .hwp 입력만 받습니다.", file=sys.stderr)
+            sys.exit(1)
+        convert_hwp_or_exit(args.file, args.output, args.engine)
+        return
+
+    # 정본 형식은 HWPX다. .hwp는 입구에서 변환하고 그 HWPX 위에서 동작한다.
+    # PDF는 렌더링만 하므로 원본을 그대로 넘긴다.
+    if args.file.lower().endswith('.hwp') and not args.to_pdf:
+        args.file = convert_hwp_or_exit(args.file, engine=args.engine).path
+
     if args.info:
         cmd_info(args.file)
     elif args.to_md:
@@ -1798,6 +1964,9 @@ def main():
     else:
         parser.print_help()
         sys.exit(1)
+
+    if not (args.info or args.to_md or args.to_pdf or args.list_squeeze):
+        print("engine=lxml")
 
 
 if __name__ == '__main__':

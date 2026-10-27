@@ -174,20 +174,21 @@ class NonWindowsTests(unittest.TestCase):
         r = subprocess.run([sys.executable, str(HERE / "hwpx_edit.py"), "--check-env"],
                            capture_output=True, text=True, env=env)
         ready = r.stdout.split("바로 사용 가능:", 1)[1].splitlines()[0]
-        self.assertIn("HWP→HWPX 변환", ready)
+        self.assertIn("JAR 폴백", ready)
 
-    def test_check_env_reports_rhwp_for_pdf(self):
+    def test_check_env_reports_rhwp_as_tier2_with_version(self):
         r = subprocess.run([sys.executable, str(HERE / "hwpx_edit.py"), "--check-env"],
                            capture_output=True, text=True, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
-        tier4 = r.stdout.split("[Tier 4]", 1)[1]
-        self.assertIn("[O] rhwp", tier4)
+        tier2 = r.stdout.split("[Tier 2]", 1)[1].split("[Tier 3]", 1)[0]
+        self.assertIn("[O] rhwp           v0.8.7", tier2)
+        self.assertIn("HWP→HWPX 변환·PDF(rhwp)", r.stdout.split("바로 사용 가능:", 1)[1])
 
     def test_check_env_without_rhwp_shows_install_hint(self):
         env = dict(os.environ, PYTHONIOENCODING="utf-8", PATH="/usr/bin:/bin")
         r = subprocess.run([sys.executable, str(HERE / "hwpx_edit.py"), "--check-env"],
                            capture_output=True, text=True, env=env)
         self.assertIn("[설치] rhwp", r.stdout)
-        self.assertNotIn("PDF 변환(rhwp)", r.stdout.split("바로 사용 가능:", 1)[1].splitlines()[0])
+        self.assertNotIn("PDF(rhwp)", r.stdout.split("바로 사용 가능:", 1)[1].splitlines()[0])
 
     def test_check_env_ignores_cwd_bin_java_when_java_home_unset(self):
         cwd = Path(self.tmp.name) / "cwd"

@@ -6,6 +6,7 @@
 - rhwp 중심 재설계 M1: `rhwp_cli.py`(어댑터)와 `hwpx_gate.py`(독립 손실 게이트)를 추가하고 `rhwp_pdf.py`를 어댑터 위로 옮겼다. 봉투·exit code 계약 검사, 0.8.7 하한, 임시 폴더→검증→교체를 한곳에 모았다. 플랜 `docs/plans/2026-10-28-rhwp-redesign.md`, codex 적대적 리뷰 반영.
 - 실측: rhwp HWPX 왕복은 자가 검증 PASS지만 게이트가 header.xml `hp:switch`·paraPr 손실을 잡는다. HWP 3건의 rhwp·JAR 변환물 교차 대조는 글자·표·셀·그림·BinData 수 일치.
 - 버전 1.4.0 → 1.5.0.
+- M2: HWP→HWPX 기본 엔진을 rhwp로 바꿨다. `hwpx_edit.py --from-hwp`(`--engine jar` 폴백)와 `hwp_to_hwpx()`를 추가하고, 변환물은 `hwpx-validate`와 다른 엔진 변환물 교차 대조를 통과해야 놓인다. 실패하면 `.rejected.hwpx`를 남기고 JAR 폴백 명령을 안내한다. `.hwp` 입력은 `--to-pdf`를 뺀 모든 명령의 입구에서 변환한다. `--check-env` Tier를 rhwp 기본·JAR·COM 폴백 구조로 재정의했다. 익명 표본 `tests/fixtures/sample-form.hwp`와 통합 시험 `test_rhwp_integration.py`를 추가했다.
 
 ## 2026-10-26
 

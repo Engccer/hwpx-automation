@@ -2,6 +2,18 @@
 
 기본 변환 명령과 셸 규칙은 SKILL.md "HWP → HWPX 변환" 절에 있다. 이 문서는 번들 JAR을 다시 빌드하거나 hwp2hwpx가 예외로 죽을 때 읽는다.
 
+## 기본 엔진 rhwp와 교차 대조
+
+`hwpx_edit.py --from-hwp`(그리고 `.hwp`를 받은 모든 명령의 입구 변환)는 `rhwp export-hwpx <입력> <출력> --verify`로 변환한 뒤, 산출물을 결과 자리에 놓기 전에 두 가지를 본다. `hwpx-validate`, 그리고 같은 HWP를 번들 JAR로도 변환해 `hwpx_gate.cross_check`로 글자 멀티셋·표·셀·그림·BinData 수를 대조하는 것이다. rhwp 자가 검증은 자기 IR 밖의 손실을 못 보므로 JAR 변환물이 독립 기준이 된다. `--engine jar`면 방향이 바뀌어 rhwp 변환물이 기준이다.
+
+| 상황 | 결과 |
+|---|---|
+| 검증·대조 통과 | `engine=rhwp status=passed` |
+| JDK 없음, JAR 변환 실패, hwpx-tomd·hwpx-validate 없음 | 산출물은 놓이고 `status=unverified` |
+| rhwp exit 1·3·4, `hwpx-validate` 실패, 대조 불일치 | exit 1. 산출물은 `<이름>.rejected.hwpx`로 남고 stderr에 JAR 폴백 명령 |
+
+다른 모듈(예: `hwpx_sign.py`)은 `from hwpx_edit import hwp_to_hwpx`로 같은 입구를 쓴다. 돌려주는 값은 `ConvertResult(path, engine, status, messages)`이고 실패는 `RuntimeError`다.
+
 ## 번들 JAR의 출처·패치
 
 `convert/hwp2hwpx-1.0.0-edc0527p1.jar`는 상류 `neolord0/hwp2hwpx` 커밋 `edc0527`(중첩 subList 처리 수정 포함)에 자체 패치 1건(`convert/patches/0001-extendControl-range-guard.patch`)을 더해 빌드한 것이다. 상류는 버전 번호를 1.0.0에 고정한 채 커밋만 쌓으므로 **파일명의 커밋 해시가 곧 버전**이다. 의존은 `lib/hwplib-1.1.11.jar`·`lib/hwpxlib-1.0.9.jar`(Maven Central). 재빌드 절차는 `convert/patches/README.md`.

@@ -31,9 +31,9 @@ python <스킬디렉토리>/hwpx_edit.py --check-env
 기능 계층(tier)별로 무엇이 바로 되는지 한 번에 출력한다(읽기 전용, 아무것도 설치하지 않음). 이 스킬은 API 키를 쓰지 않으므로(전부 로컬 도구) 점검 대상은 pip 패키지와 시스템 런타임이다:
 
 - **Tier 1 (읽기·편집, 필수)**: `python-hwpx`·`lxml`·`hwpx-tomd`. `pip install -r requirements.txt` 한 줄이면 충족하며, 대부분의 작업(`--to-md`·텍스트 치환·셀 편집)은 여기까지면 된다.
-- **Tier 2 (HWP→HWPX)**: JDK 21 + 번들 JAR. 래퍼는 Windows `convert/hwp2hwpx.bat`, macOS/Linux `convert/hwp2hwpx.sh`이며 `JAVA_HOME` → (Windows는 Adoptium 표준 설치 →) PATH 순으로 java를 자동 탐색한다. `--check-env`도 같은 순서로 찾는다.
+- **Tier 2 (HWP→HWPX·PDF·이미지, 기본 엔진)**: `rhwp` CLI v0.8.7 이상(모든 OS). GitHub Releases 바이너리를 PATH에 두거나 `HWPX_RHWP_BIN`으로 경로를 준다. 버전도 함께 표시한다.
 - **Tier 3 (MD/DOCX/HTML→HWPX)**: `pypandoc-hwpx`(+ Pandoc). Pandoc은 `pypandoc-hwpx`가 번들 제공할 수 있어 경고만 떠도 변환이 동작할 수 있다.
-- **Tier 4 (PDF·이미지·서명)**: Windows + 한컴오피스 COM(`pywin32`, 선택적 `pyhwpx`). 보안모듈 DLL·레지스트리·한컴 기동까지의 상세 진단은 `--diagnose-com`으로 위임한다. macOS·Linux는 PDF만 `rhwp` CLI로 되고 이미지 삽입·서명·한컴 정규화는 안 된다.
+- **Tier 4 (폴백, 명시할 때만)**: JDK 21 + 번들 JAR(`--engine jar`, rhwp 변환물의 교차 대조), Windows + 한컴오피스 COM(`pywin32`, 선택적 `pyhwpx`). java는 `JAVA_HOME` → (Windows는 Adoptium 표준 설치 →) PATH 순으로 래퍼와 같게 찾는다. COM 상세 진단(보안모듈 DLL·레지스트리·한컴 기동)은 `--diagnose-com`으로 위임한다.
 
 처음 클론한 환경이거나 특정 워크플로우가 의존성·런타임 누락으로 실패하면 먼저 실행해 무엇을 설치할지 확인한다. 환경이 준비된 뒤에는 매 작업마다 실행할 필요가 없다.
 
@@ -213,6 +213,9 @@ python hwpx_edit.py <파일.hwpx> --fix-squeeze [-o output.hwpx]  # 자연 줄�
 # 보존하며 PrvText만 추가한다. -o 미지정 시 _work-hwpx-automation/에 출력)
 python hwpx_edit.py <파일.hwpx> --add-preview [-o output.hwpx]
 
+# HWP → HWPX 변환 (rhwp 기본, JAR 교차 대조. 상세: 아래 "HWP → HWPX 변환")
+python hwpx_edit.py <파일.hwp> --from-hwp [--engine jar] [-o output.hwpx]
+
 # 별도 파일로 저장
 python hwpx_edit.py <파일.hwpx> --set-cell 0,1,0 "텍스트" -o output.hwpx
 ```
@@ -258,7 +261,21 @@ hwpx-pack <디렉토리> <출력.hwpx>
 
 ## HWP → HWPX 변환
 
-HWP는 먼저 HWPX로 변환한 뒤 `hwpx_edit.py --to-md`로 읽거나 편집한다. HWP 바이너리 직접 파싱(예: kordoc)은 사용하지 않는다: 중첩 표·텍스트 박스가 있는 문서(출판사 워크시트·고사지)에서 바이너리 잔여 문자가 새고(수십~수백 자), 매칭 표·다열 표의 행이 통째 누락되며, 변경 추적이 원본·수정본 텍스트를 이어 붙인다. → 사례
+정본 형식은 HWPX다. HWP는 먼저 HWPX로 변환한 뒤 그 HWPX로 읽고 편집하며, 결과물도 HWPX로 저장한다. HWP 바이너리 직접 파싱(예: kordoc)은 사용하지 않는다: 중첩 표·텍스트 박스가 있는 문서(출판사 워크시트·고사지)에서 바이너리 잔여 문자가 새고(수십~수백 자), 매칭 표·다열 표의 행이 통째 누락되며, 변경 추적이 원본·수정본 텍스트를 이어 붙인다. → 사례. **rhwp는 예외로 허용한다**: 실측 표본 3건에서 hwpx-tomd 본문 단어 집합이 JAR 변환물과 완전히 일치했고, 산출물에 `Preview/PrvText.txt`가 들어 있어 `hwpx-validate`를 통과했다.
+
+```bash
+python hwpx_edit.py <입력.hwp> --from-hwp [-o 출력.hwpx]      # 기본: rhwp + JAR 교차 대조
+python hwpx_edit.py <입력.hwp> --from-hwp --engine jar         # JAR 폴백 (PrvText 보정 포함)
+python hwpx_edit.py <입력.hwp> --to-md                         # 다른 명령에 .hwp를 주면 같은 변환을 먼저 거친다
+```
+
+- `.hwp`를 `--to-md`·`--info`·`--find/--replace`·`--set-cell` 등에 바로 주면 `_work-hwpx-automation/<이름>.hwpx`로 변환한 뒤 그 HWPX 위에서 동작한다. `--to-pdf`만 원본을 그대로 렌더링한다.
+- 변환물은 `hwpx-validate`와 **다른 엔진 변환물과의 교차 대조**(글자·표·셀·그림·BinData 수)를 통과해야 결과 자리에 놓인다. stdout 마지막 줄 `engine=<rhwp|jar> status=<passed|unverified>`를 완료 보고에 그대로 옮긴다. JDK가 없어 JAR 대조를 못 하면 `unverified`이며 "검증됨"이라고 보고하지 않는다.
+- rhwp가 실패하거나(자가 검증 exit 3 등) 교차 대조가 어긋나면 exit 1이다. 거부된 산출물은 `<이름>.rejected.hwpx`로 남고, stderr에 출력된 JAR 폴백 명령을 따른다. 폴백으로 전환했으면 완료 보고에 엔진과 사유를 쓴다.
+
+### JAR 폴백 (`--engine jar` 또는 래퍼 직접 호출)
+
+`--engine jar`는 아래 래퍼를 부르고 `--add-preview` 보정까지 한 번에 한다. 래퍼를 직접 부를 때는 아래 규칙을 지킨다.
 
 ```bash
 convert/hwp2hwpx.bat <입력.hwp> [출력.hwpx]        # Windows (PowerShell에서 호출)

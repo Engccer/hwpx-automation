@@ -423,5 +423,127 @@ class SignPdfImageGate(unittest.TestCase):
         com.assert_not_called()
 
 
+FAKE_RHWP = """#!{python}
+import json, os, shutil, sys
+if sys.argv[1:] == ["--version"]:
+    print("rhwp v0.8.7"); sys.exit(0)
+args = sys.argv[1:]
+with open(os.environ["FAKE_RHWP_LOG"], "a", encoding="utf-8") as fh:
+    fh.write(json.dumps(args, ensure_ascii=False) + "\\n")
+mode = os.environ.get("FAKE_RHWP_MODE", "ok")
+if args[0] == "export-hwpx":
+    out = args[2]
+    shutil.copyfile(os.environ["FAKE_RHWP_SRC"], out)
+    if mode == "verify":
+        sys.stderr.write("검증 실패(--verify): IR 차이 2건\\n")
+        print(json.dumps({{"schemaVersion": "1.0", "verify": {{"identical": False}}}}))
+        sys.exit(3)
+    print(json.dumps({{"schemaVersion": "1.0", "output": out, "format": "hwpx",
+                      "verify": {{"identical": True, "diffCount": 0}}}}))
+    sys.exit(0)
+sys.exit(1)
+"""
+
+
+@unittest.skipIf(sys.platform == "win32", "가짜 rhwp 실행 파일이 shebang에 의존")
+class FromHwpRoutesToRhwpThenJar(unittest.TestCase):
+    """HWP 입력은 rhwp export-hwpx가 기본이고, 산출물은 JAR 변환물과 교차 대조를
+    통과해야 놓인다. rhwp가 실패하면 JAR 폴백 명령을 그대로 안내한다."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+        self.good = self.dir / "good.hwpx"
+        make_table_hwpx(self.good)
+        self.other = self.dir / "other.hwpx"
+        make_table_hwpx(self.other, rows=2)
+        self.hwp = self.dir / "doc.hwp"
+        self.hwp.write_bytes(b"HWP Document File")
+        fake = self.dir / "rhwp"
+        fake.write_text(FAKE_RHWP.format(python=sys.executable), encoding="utf-8")
+        fake.chmod(0o755)
+        self.log = self.dir / "rhwp.log"
+        env = {"HWPX_RHWP_BIN": str(fake), "FAKE_RHWP_SRC": str(self.good),
+               "FAKE_RHWP_LOG": str(self.log), "FAKE_RHWP_MODE": "ok"}
+        patcher = mock.patch.dict(os.environ, env)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.dest = self.dir / "_work-hwpx-automation" / "doc.hwpx"
+
+    def jar_copies(self, path):
+        return mock.patch.object(hwpx_edit, "_run_jar",
+                                 side_effect=lambda src, out: Path(out).write_bytes(path.read_bytes()))
+
+    def convert(self, **kwargs):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            res = hwpx_edit.hwp_to_hwpx(str(self.hwp), **kwargs)
+        return res, out.getvalue()
+
+    def calls(self):
+        import json
+        return [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+
+    def test_rhwp_success_cross_checked_with_jar(self):
+        with self.jar_copies(self.good), mock.patch.object(hwpx_edit, "find_java", return_value="java"):
+            res, out = self.convert()
+        self.assertEqual((res.path, res.engine, res.status), (str(self.dest), "rhwp", "passed"))
+        self.assertTrue(self.dest.exists())
+        self.assertEqual(out.strip().splitlines()[-1], "engine=rhwp status=passed")
+        self.assertEqual(self.calls()[0][:2], ["export-hwpx", str(self.hwp)])
+        self.assertIn("--verify", self.calls()[0])
+
+    def test_without_jdk_result_is_unverified(self):
+        with mock.patch.object(hwpx_edit, "find_java", return_value=None):
+            res, out = self.convert()
+        self.assertEqual(res.status, "unverified")
+        self.assertIn("JDK 없음", out)
+        self.assertTrue(self.dest.exists())
+
+    def test_rhwp_verify_failure_points_to_jar_fallback(self):
+        os.environ["FAKE_RHWP_MODE"] = "verify"
+        with self.assertRaises(RuntimeError) as cm:
+            hwpx_edit.hwp_to_hwpx(str(self.hwp))
+        msg = str(cm.exception)
+        for needle in ("hwp2hwpx", "--add-preview", "--engine jar", "rejected"):
+            self.assertIn(needle, msg)
+        self.assertFalse(self.dest.exists())
+
+    def test_cross_check_mismatch_is_rejected_not_published(self):
+        with self.jar_copies(self.other), mock.patch.object(hwpx_edit, "find_java", return_value="java"):
+            with self.assertRaisesRegex(RuntimeError, "교차 대조 실패"):
+                hwpx_edit.hwp_to_hwpx(str(self.hwp))
+        self.assertFalse(self.dest.exists())
+        self.assertTrue((self.dest.parent / "doc.rejected.hwpx").exists())
+
+    def test_engine_jar_is_cross_checked_with_rhwp(self):
+        with self.jar_copies(self.good):
+            res, out = self.convert(engine="jar")
+        self.assertEqual((res.engine, res.status), ("jar", "passed"))
+        self.assertEqual(out.strip().splitlines()[-1], "engine=jar status=passed")
+
+    def test_hwp_input_is_converted_before_to_md(self):
+        with mock.patch.object(hwpx_edit, "find_java", return_value=None), \
+                mock.patch.object(sys, "argv", ["hwpx_edit.py", str(self.hwp), "--to-md"]):
+            code, out, err = quiet(hwpx_edit.main)
+        self.assertEqual(code, 0, err)
+        self.assertIn("engine=rhwp status=unverified", out)
+        self.assertTrue((self.dest.parent / "doc.md").exists())
+
+    def test_cli_failure_exits_1_with_fallback(self):
+        os.environ["FAKE_RHWP_MODE"] = "verify"
+        with mock.patch.object(sys, "argv", ["hwpx_edit.py", str(self.hwp), "--from-hwp"]):
+            code, _, err = quiet(hwpx_edit.main)
+        self.assertEqual(code, 1)
+        self.assertIn("convert/hwp2hwpx.sh", err)
+
+    def test_from_hwp_rejects_hwpx_input(self):
+        with mock.patch.object(sys, "argv", ["hwpx_edit.py", str(self.good), "--from-hwp"]):
+            code, _, err = quiet(hwpx_edit.main)
+        self.assertEqual(code, 1)
+        self.assertIn(".hwp 입력만", err)
+
+
 if __name__ == "__main__":
     unittest.main()
