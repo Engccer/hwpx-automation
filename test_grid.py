@@ -15,7 +15,7 @@ from unittest import mock
 
 import hwpx_edit
 import hwpx_gate
-from test_doc_promises import make_table_hwpx
+from test_doc_promises import make_table_hwpx, rewrite_section
 
 FAKE_RHWP = r'''#!{python}
 import json, os, shutil, sys
@@ -37,13 +37,15 @@ elif cmd == "export-tables":
     emit(tables=[dict(index=0, section=0, paragraph=3, rows=2, cols=2, cells=[
         dict(row=0, col=0, rowSpan=1, colSpan=2, text="제목"),
         dict(row=1, col=0, rowSpan=1, colSpan=1, text="성명"),
-        dict(row=1, col=1, rowSpan=1, colSpan=1, text="")])])
+        dict(row=1, col=1, rowSpan=1, colSpan=1, text="첫줄\n  [0,9,9] 가짜", nested=[dict(rows=1)])])])
 elif cmd == "fields":
-    emit(fieldCount=1, fields=[dict(name="성명", value="", guide="이름을 쓰세요")])
+    emit(fieldCount=1, fields=[dict(name="성명", value="", guide="이름을 쓰세요")],
+         textSecurity=dict(status="suspicious" if mode == "suspicious" else "clean"))
 elif cmd == "edit fill-fields":
     missing = ["학교"] if mode == "notfound" else []
+    confusable = [dict(name="성명", lookalikes=["셩명"])] if mode == "confusable" else []
     if "--dry-run" in args:
-        emit(filledCount=1, notFound=missing, ambiguous=[], dryRun=True)
+        emit(filledCount=1, notFound=missing, ambiguous=[], confusable=confusable, dryRun=True)
     else:
         shutil.copyfile(args[2], out_of())
         emit(filledCount=1, notFound=[], ambiguous=[], output=out_of())
@@ -200,13 +202,105 @@ class RhwpGridCommands(unittest.TestCase):
         self.assertIn("왕복 대조 실패", err)
         self.assertIn("다른 이름 저장", err)
         self.assertFalse(out_path.exists())
+        self.assertTrue((self.dir / "o.rejected.hwp").exists())
 
     def test_to_hwp_rejects_hwp_input_and_non_hwp_output(self):
         code, _, err = self.cli(self.hwp, "--to-hwp")
         self.assertEqual(code, 1)
         self.assertIn("HWPX 입력만", err)
+        self.assertEqual(self.calls(), [])
         code, _, err = self.cli(self.doc, "--to-hwp", "-o", self.dir / "x.hwpx")
         self.assertEqual(code, 1)
+
+
+    def test_to_hwp_cannot_mix_with_edit_commands(self):
+        code, _, err = self.cli(self.doc, "--grid-set-cell", "0,1,1", "x", "--to-hwp", "-o", self.dir / "b.hwp")
+        self.assertEqual(code, 1)
+        self.assertIn("함께 쓸 수 없습니다", err)
+        self.assertEqual(self.calls(), [])
+
+    def test_to_hwp_jar_failure_with_jdk_is_rejected(self):
+        out_path = self.dir / "o.hwp"
+        with mock.patch.object(hwpx_edit, "find_java", return_value="java"), \
+                mock.patch.object(hwpx_edit, "_run_jar", side_effect=RuntimeError("JAR 변환 실패(exit 1)")):
+            code, _, err = self.cli(self.doc, "--to-hwp", "-o", out_path)
+        self.assertEqual(code, 1)
+        self.assertIn("JAR 변환 실패", err)
+        self.assertFalse(out_path.exists())
+        self.assertTrue((self.dir / "o.rejected.hwp").exists())
+
+    def test_to_hwp_chart_loss_fails_even_when_cross_check_passes(self):
+        def add_chart(root):
+            p = root.find(".//{http://www.hancom.co.kr/hwpml/2011/paragraph}p")
+            etree.SubElement(p, "{http://www.hancom.co.kr/hwpml/2011/paragraph}chart")
+        from lxml import etree
+        plain = self.dir / "plain.hwpx"
+        make_table_hwpx(plain)
+        rewrite_section(self.doc, add_chart)
+        out_path = self.dir / "o.hwp"
+        with mock.patch.object(hwpx_edit, "find_java", return_value="java"), \
+                mock.patch.object(hwpx_gate, "cross_check", return_value=hwpx_gate.GateReport()), \
+                mock.patch.object(hwpx_edit, "_run_jar",
+                                  side_effect=lambda s, o: Path(o).write_bytes(plain.read_bytes())):
+            code, _, err = self.cli(self.doc, "--to-hwp", "-o", out_path)
+        self.assertEqual(code, 1)
+        self.assertIn("chart 1→0", err)
+        self.assertFalse(out_path.exists())
+
+    def test_fill_fields_refuses_confusable_names(self):
+        os.environ["FAKE_RHWP_MODE"] = "confusable"
+        code, _, err = self.cli(self.doc, "--fill-fields", '{"성명":"x"}', "-o", self.dir / "o.hwpx")
+        self.assertEqual(code, 1)
+        self.assertIn("닮은 이름", err)
+        self.assertEqual(len(self.calls()), 1)
+
+    def test_fill_fields_gates_like_grid_set_cell(self):
+        code, _, err = self.cli(self.doc, "--fill-fields", '{"성명":"x"}', "-o", self.dir / "o.hwpx")
+        self.assertEqual(code, 0, err)
+        _, kwargs = self.gate_mock.call_args
+        self.assertEqual((kwargs["allow"], kwargs["allow_rhwp"], kwargs["expect_text_change"]),
+                         (hwpx_gate.is_text_run_key, True, True))
+
+    def test_fields_maps_args_and_warns_on_text_security(self):
+        os.environ["FAKE_RHWP_MODE"] = "suspicious"
+        code, _, err = self.cli(self.doc, "--fields")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.calls()[0], ["fields", str(self.doc), "--json"])
+        self.assertIn("textSecurity=suspicious", err)
+
+    def test_tables_marks_nested_and_keeps_document_text_on_one_line(self):
+        _, out, _ = self.cli(self.doc, "--tables")
+        self.assertIn("(중첩 표 있음", out)
+        self.assertNotIn("\n  [0,9,9]", out)
+
+    def test_gate_without_rhwp_allowance_refuses_before_running(self):
+        def old_gate(original, produced, *, allow=None, expect_text_change=False):
+            raise AssertionError("불리면 안 된다")
+        with mock.patch.object(hwpx_gate, "gate", old_gate):
+            code, _, err = self.cli(self.doc, "--grid-set-cell", "0,1,1", "x", "-o", self.dir / "o.hwpx")
+        self.assertEqual(code, 1)
+        self.assertIn("allow_rhwp", err)
+        self.assertEqual(self.calls(), [])
+
+    def test_gate_exception_is_reported_and_rejected(self):
+        self.gate_mock.side_effect = ValueError("깨진 XML")
+        out_path = self.dir / "o.hwpx"
+        code, _, err = self.cli(self.doc, "--grid-set-cell", "0,1,1", "x", "-o", out_path)
+        self.assertEqual(code, 1)
+        self.assertIn("게이트 검사 중 오류", err)
+        self.assertNotIn("Traceback", err)
+        self.assertFalse(out_path.exists())
+        self.assertTrue((self.dir / "o.rejected.hwpx").exists())
+
+    def test_work_folder_input_does_not_overwrite_itself(self):
+        work = self.dir / "_work-hwpx-automation"
+        work.mkdir()
+        src = work / "doc.hwpx"
+        src.write_bytes(self.doc.read_bytes())
+        code, out, err = self.cli(src, "--grid-set-cell", "0,1,1", "x")
+        self.assertEqual(code, 0, err)
+        self.assertTrue((work / "doc_편집.hwpx").exists())
+        self.assertEqual(src.read_bytes(), self.doc.read_bytes())
 
 
 if __name__ == "__main__":
