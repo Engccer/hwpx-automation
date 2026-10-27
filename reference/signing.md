@@ -30,7 +30,7 @@ python hwpx_sign.py 동의서.hwpx --image 서명.png --gap-mm 7 --pdf
 
 **게이트 보고 읽기**: 성공 출력에 "허용된 손실(rhwp 재직렬화): p id 재부여×N, switch×3 …" 줄이 붙는다. rhwp가 문서를 통째로 다시 쓰며 생기는 알려진 차이(본문이 쓰지 않는 paraPr의 개요 8~10단계 블록, 문단 id 재번호, 그림자 없음 표시)이며 화면에는 영향이 없다. 표·글상자가 많은 학교 양식처럼 그 밖의 손실(표 셀 속성·대각선 테두리·줄 배치 캐시 등)이 나오면 게이트가 막는다. 그런 문서는 `--backend com`으로 넣는다.
 
-**검증은 PDF를 눈으로**: `--pdf`는 `hwpx_edit.py --to-pdf`로 검증 PDF를 만들고 그림 수를 센다(PyMuPDF. 없으면 `rhwp export-svg`로 그 쪽의 그림이 원본보다 늘었는지). 그림 수만으로 위치는 모른다. **서명 구역을 확대해 렌더 이미지를 육안 확인**한다(PDF 텍스트 추출은 그림이 글자를 덮어도 글자를 그대로 읽어 겹침을 못 잡는다). 맥의 PDF는 rhwp가 그린 것이라 한컴 화면과 조판이 다를 수 있다. 제출 전 한컴에서 한 번 열어 보는 것이 가장 확실하다.
+**검증은 PDF를 눈으로**: `--pdf`는 `hwpx_edit.py --to-pdf`(rhwp)로 검증 PDF를 만들고 그림 수를 센다(PyMuPDF. 없거나 PDF 변환이 실패하면 `rhwp export-svg`로 그 쪽의 그림이 원본보다 늘었는지). 그림 수만으로 위치는 모른다. **서명 구역을 확대해 렌더 이미지를 육안 확인**한다(PDF 텍스트 추출은 그림이 글자를 덮어도 글자를 그대로 읽어 겹침을 못 잡는다). 맥의 PDF는 rhwp가 그린 것이라 한컴 화면과 조판이 다를 수 있다. 제출 전 한컴에서 한 번 열어 보는 것이 가장 확실하다.
 
 ## 실전 팁·함정
 
@@ -50,7 +50,7 @@ python hwpx_sign.py 동의서.hwpx --image 서명.png --backend com --keep-ancho
 python hwpx_sign.py 동의서.hwpx --image 서명.png --backend com --inline
 ```
 
-COM 경로의 기본값은 rhwp와 다르다: 앵커 텍스트를 **지우고** 그 자리에 넣고(`--keep-anchor`로 겹쳐 찍기), 가로는 본문 우측 끝에서 `--gap-mm`(기본 7) 안쪽으로 우측 정렬한다. 표시 위에 정확히 얹으려면 출력된 계산값에서 시작해 `--horz-offset`으로 맞춘다(글자 단위 x는 lineseg에 없어 자동 계산할 수 없다).
+COM 경로의 `--pdf`는 `--pdf-backend com`으로 한컴이 직접 PDF를 만든다(한컴이 문서를 실제로 여는지까지 확인된다). 기본값도 rhwp와 다르다: 앵커 텍스트를 **지우고** 그 자리에 넣고(`--keep-anchor`로 겹쳐 찍기), 가로는 본문 우측 끝에서 `--gap-mm`(기본 7) 안쪽으로 우측 정렬한다. 표시 위에 정확히 얹으려면 출력된 계산값에서 시작해 `--horz-offset`으로 맞춘다(글자 단위 x는 lineseg에 없어 자동 계산할 수 없다).
 
 **단순 COM `InsertPicture`로는 안 된다** (도구가 자동 회피하는 함정):
 1. COM `InsertPicture`는 그림을 floating(`textWrap="TOP_AND_BOTTOM"`) + `curSz=0,0`으로 넣는다. **서명란이 페이지 하단에 있으면 큰 그림이 인라인으로 그 줄에 못 들어가 다음 페이지로 밀린다.**

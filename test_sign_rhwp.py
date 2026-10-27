@@ -164,8 +164,12 @@ class RhwpSignTests(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("--occurrence", err)
         self.assertFalse(self.calls("edit"))
+        rc, _, err = self.sign("--occurrence", "3")
+        self.assertEqual(rc, 1)
+        self.assertIn("2곳뿐", err)
         rc, _, err = self.sign("--occurrence", "2")
-        self.assertEqual(rc, 0, err)
+        self.assertEqual(rc, 0, err)   # 1번째(문단 5)는 render-tree에 run이 없어 2번째가 쓰였다
+        self.assertEqual(self.calls("export-render-tree")[-1][-3:-2], ["0"])
 
     def test_table_anchor_points_to_com(self):
         self.plan(search=[match(cell={"cell": 0, "control": 0, "paragraph": 0})], runs=[])
@@ -202,6 +206,44 @@ class RhwpSignTests(unittest.TestCase):
         conv.assert_called_once_with(str(hwp))
         self.assertEqual(self.calls("search")[0][1], str(self.doc))
         self.assertTrue((self.dir / "동의서_서명.hwpx").exists())
+
+    def test_gate_failure_keeps_rejected_output(self):
+        failed = hwpx_gate.GateReport()
+        failed.fail("사라진 요소 lineseg×1")
+        with mock.patch.object(hwpx_sign.hwpx_gate, "gate", return_value=failed):
+            rc, out, err = self.sign()
+        self.assertEqual(rc, 1)
+        self.assertIn("--backend com", err)
+        self.assertTrue((self.dir / "_work-hwpx-automation" / "동의서_서명.hwpx").exists())
+        self.assertFalse((self.dir / "동의서_서명.hwpx").exists())
+        self.assertNotIn("engine=", out)
+
+    def test_hwp_input_without_converter_exits_1(self):
+        hwp = self.dir / "동의서.hwp"
+        hwp.write_bytes(b"HWP")
+        with mock.patch.dict(sys.modules, {"hwpx_edit": None}):
+            out, err = io.StringIO(), io.StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                rc = hwpx_sign.main([str(hwp), "--image", str(self.img), "--height-mm", "10"])
+        self.assertEqual(rc, 1)
+        self.assertIn("--from-hwp", err.getvalue())
+
+    def test_pdf_without_pymupdf_counts_svg_images(self):
+        def pdf(svg_counts):
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.object(hwpx_sign.subprocess, "run", return_value=mock.Mock(returncode=0)) as run, \
+                    mock.patch.object(hwpx_sign, "count_pdf_images", return_value=None), \
+                    mock.patch.object(hwpx_sign, "svg_image_count", side_effect=svg_counts), \
+                    redirect_stdout(out), redirect_stderr(err):
+                rc = hwpx_sign.make_pdf(str(self.dir / "동의서_서명.hwpx"), svg_check=(str(self.doc), 0))
+            self.assertEqual(run.call_args[0][0][-2:], ["--pdf-backend", "rhwp"])
+            return rc, out.getvalue(), err.getvalue()
+        rc, out, _ = pdf([0, 1])
+        self.assertEqual(rc, 0)
+        self.assertIn("그림 0→1개", out)
+        rc, _, err = pdf([1, 1])
+        self.assertEqual(rc, 1)
+        self.assertIn("늘지 않았습니다", err)
 
     def test_convert_without_edit_m2_explains(self):
         with mock.patch.dict(sys.modules, {"hwpx_edit": None}):

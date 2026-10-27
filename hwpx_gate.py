@@ -169,13 +169,19 @@ def split_rhwp_known(name, before, after, used_parapr):
             return el.tag.split("}")[-1] == "paraPr" and el.get("id") not in used_parapr
         a_rest, a_zone = zoned_census(before, unused_parapr)
         b_rest, b_zone = zoned_census(after, unused_parapr)
-        known = {k: v for k, v in compare_census(a_zone, b_zone).items() if v[1] < v[0]}
-        return compare_census(a_rest, b_rest), known
+        zone = compare_census(a_zone, b_zone)
+        known = {k: v for k, v in zone.items() if v[1] < v[0]}
+        diff = compare_census(a_rest, b_rest)
+        diff.update({k: v for k, v in zone.items() if v[1] > v[0]})  # 증가는 gained로 보고만
+        return diff, known
 
     no_pid = {("p", "id")}
     diff = compare_census(element_census(before, no_pid), element_census(after, no_pid))
-    known = {k: diff.pop(k) for k, (a, b) in list(diff.items())
-             if k[0] == "shadow" and ("type", "NONE") in k[1] and b < a}
+    # 그림자 변화가 전부 "그림자 없음" 표시의 소실일 때만 허용한다(NONE→DROP 같은 변경은 실패)
+    shadows = {k: v for k, v in diff.items() if k[0] == "shadow"}
+    known = {}
+    if shadows and all(("type", "NONE") in k[1] and b < a for k, (a, b) in shadows.items()):
+        known = {k: diff.pop(k) for k in shadows}
     # id를 빼고 센 문단이 완전히 같을 때(수·나머지 속성)만 재부여로 본다
     if not any(k[0] == "p" for k in diff):
         full = compare_census(element_census(before), element_census(after))

@@ -155,14 +155,10 @@ class GateTests(unittest.TestCase):
     def test_rhwp_losses_outside_allowlist_still_fail(self):
         def drop_lineseg(data):
             return re.sub(rb"<hp:linesegarray>.*?</hp:linesegarray>", b"", data, count=1, flags=re.S)
-        rewrite(self.prod, transform={
-            "Contents/header.xml": lambda d: self.collapse_outline_switch(d, used=True),
-            self.section_name(): drop_lineseg})
+        rewrite(self.prod, transform={self.section_name(): drop_lineseg})
         rep = hwpx_gate.gate(self.orig, self.prod, allow_rhwp=True)
         self.assertEqual(rep.status, "failed")
-        lost_tags = {(k[0], k[1]) for k in rep.lost}
-        self.assertIn(("Contents/header.xml", "switch"), lost_tags)
-        self.assertTrue(any(t in ("lineseg", "linesegarray") for _, t in lost_tags), lost_tags)
+        self.assertTrue(any(k[1] in ("lineseg", "linesegarray") for k in rep.lost), rep.lost)
         self.assertFalse(rep.allowed)
 
     def test_cross_check_reports_table_and_text_difference(self):
@@ -183,6 +179,55 @@ class GateTests(unittest.TestCase):
         rep = hwpx_gate.cross_check(self.orig, other)
         self.assertEqual(rep.status, "failed")
         self.assertTrue(any("해시 불일치 1건" in m for m in rep.messages), rep.messages)
+
+
+NS = 'xmlns:hh="h" xmlns:hp="p"'
+
+
+def header(*para_prs):
+    return f'<hh:head {NS}><hh:paraProperties>{"".join(para_prs)}</hh:paraProperties></hh:head>'.encode()
+
+
+def outline_para_pr(pid, collapsed=False):
+    body = ('<hh:heading type="NONE" level="0"/>' if collapsed else
+            '<hp:switch><hp:case hp:required-namespace="n"><hh:heading type="OUTLINE" level="8"/></hp:case>'
+            '<hp:default><hh:heading type="NONE" level="0"/></hp:default></hp:switch>')
+    return f'<hh:paraPr id="{pid}">{body}</hh:paraPr>'
+
+
+class SplitRhwpKnownTests(unittest.TestCase):
+    """allow_rhwp 허용 목록의 경계. 실측한 rhwp 왕복 모양을 작은 XML로 재현한다."""
+
+    def test_header_collapse_allowed_only_in_unused_parapr(self):
+        before = header(outline_para_pr(0), outline_para_pr(16))
+        unused = header(outline_para_pr(0), outline_para_pr(16, collapsed=True))
+        diff, known = hwpx_gate.split_rhwp_known("Contents/header.xml", before, unused, {"0"})
+        self.assertFalse([k for k, (a, b) in diff.items() if b < a])
+        self.assertEqual({k[0] for k in known}, {"switch", "case", "default", "heading"})
+        used = header(outline_para_pr(0, collapsed=True), outline_para_pr(16))
+        diff, known = hwpx_gate.split_rhwp_known("Contents/header.xml", before, used, {"0"})
+        self.assertIn("switch", {k[0] for k, (a, b) in diff.items() if b < a})
+        self.assertFalse(known)
+
+    def test_section_renumber_and_shadow_none(self):
+        sec = lambda ids, shadow: (f'<hs:sec xmlns:hs="s" {NS}>' + "".join(
+            f'<hp:p id="{i}" paraPrIDRef="{r}"/>' for i, r in ids) + shadow + "</hs:sec>").encode()
+        none = '<hp:shadow type="NONE" alpha="0"/>'
+        before = sec([("77", 0), ("91", 1)], none)
+        diff, known = hwpx_gate.split_rhwp_known("Contents/section0.xml", before,
+                                                 sec([("0", 0), ("1", 1)], ""), set())
+        self.assertFalse(diff)
+        self.assertEqual(sorted(k[0] for k in known), ["p", "p", "shadow"])
+        # 재부여와 함께 다른 속성이 바뀌면 허용하지 않는다
+        diff, known = hwpx_gate.split_rhwp_known("Contents/section0.xml", before,
+                                                 sec([("0", 0), ("1", 2)], none), set())
+        self.assertIn("p", {k[0] for k, (a, b) in diff.items() if b < a})
+        self.assertFalse(known)
+        # 그림자가 생기는 변경(NONE→DROP)은 허용하지 않는다
+        diff, known = hwpx_gate.split_rhwp_known("Contents/section0.xml", before,
+                                                 sec([("77", 0), ("91", 1)], '<hp:shadow type="DROP" alpha="0"/>'), set())
+        self.assertIn("shadow", {k[0] for k, (a, b) in diff.items() if b < a})
+        self.assertFalse(known)
 
 
 class CensusTests(unittest.TestCase):

@@ -328,14 +328,25 @@ def rhwp_sign(doc: str, img: str, out: str, *, anchor: str, occurrence: int | No
 
     gated = {}
 
+    class Rejected(SignError):
+        pass
+
     def reject(staged, why):
         keep = os.path.join(os.path.dirname(os.path.abspath(out)), BYPRODUCT_DIR,
                             os.path.basename(out))
         os.makedirs(os.path.dirname(keep), exist_ok=True)
         shutil.copyfile(staged, keep)
-        raise SignError(f"{why}\n  통과하지 못한 산출물: {keep}\n" + COM_HINT)
+        raise Rejected(f"{why}\n  통과하지 못한 산출물: {keep}\n" + COM_HINT)
 
     def verify(staged):
+        try:
+            check(staged)
+        except Rejected:
+            raise
+        except (SignError, rhwp_cli.RhwpError) as e:
+            reject(staged, str(e))
+
+    def check(staged):
         float_over_anchor(staged, m["section"], m["paragraph"], x, y)
         rep = hwpx_gate.gate(doc, staged, allow_rhwp=True, allow_bindata_added=1)
         gated["report"] = rep
@@ -833,7 +844,7 @@ def main(argv=None) -> int:
         return rc
 
     if args.pdf:
-        rc = make_pdf(out, svg_check)
+        rc = make_pdf(out, svg_check, pdf_backend=args.backend)
     if args.backend == "com":
         print("engine=com (사용자 지정 --backend com)")
     else:
@@ -926,7 +937,7 @@ def com_sign(doc: str, out: str, args, h_mm: float) -> int:
     return 0
 
 
-def make_pdf(out: str, svg_check=None) -> int:
+def make_pdf(out: str, svg_check=None, pdf_backend: str = "rhwp") -> int:
     """검증 PDF를 만들고 그림이 실제로 그려졌는지 센다.
 
     svg_check=(원본, 쪽): PyMuPDF가 없을 때 rhwp export-svg로 그 쪽의 <image>가
@@ -934,25 +945,31 @@ def make_pdf(out: str, svg_check=None) -> int:
     """
     pdf = os.path.splitext(out)[0] + ".pdf"
     here = os.path.dirname(os.path.abspath(__file__))
-    rc = subprocess.run(
-        [sys.executable, os.path.join(here, "hwpx_edit.py"), out, "--to-pdf", "-o", pdf]
-    ).returncode
-    if rc != 0:
-        print("[WARN] PDF 변환 실패(COM이면 한컴 잔류 의심: 사용자가 연 한글 문서가 없는지 확인한 뒤 "
+    pdf_ok = subprocess.run(
+        [sys.executable, os.path.join(here, "hwpx_edit.py"), out, "--to-pdf", "-o", pdf,
+         "--pdf-backend", pdf_backend]
+    ).returncode == 0
+    n_img = None
+    if not pdf_ok and pdf_backend == "com":
+        print("[WARN] PDF 변환 실패(한컴 COM 잔류 의심: 사용자가 연 한글 문서가 없는지 확인한 뒤 "
               "taskkill /F /IM Hwp.exe 후 재시도. reference/warnings-com.md 9번)",
               file=sys.stderr)
         return 0
-    try:
-        n_img = count_pdf_images(pdf)
-    except Exception as e:  # 변환은 0으로 끝났는데 PDF를 열지 못함
-        print(f"[WARN] 검증 PDF를 열지 못해 이미지 객체 수 검증을 생략: {e}", file=sys.stderr)
-        n_img = None
+    if not pdf_ok:
+        print("[WARN] PDF 변환 실패(위 hwpx_edit.py 출력 참조). 서명 그림은 rhwp 렌더로만 확인합니다.",
+              file=sys.stderr)
+    else:
+        try:
+            n_img = count_pdf_images(pdf)
+        except Exception as e:  # 변환은 0으로 끝났는데 PDF를 열지 못함
+            print(f"[WARN] 검증 PDF를 열지 못해 이미지 객체 수 검증을 생략: {e}", file=sys.stderr)
     if n_img == 0:
         print(f"[ERROR] 검증 PDF에 이미지 객체가 없습니다: {pdf}\n"
               "  서명이 그려지지 않은 문서입니다(hp:pic이 hp:run 밖에 놓였거나 "
               "BinData 누락). 이 파일을 제출하지 마세요. reference/signing.md 참조.",
               file=sys.stderr)
         return 1
+    where = f"검증 PDF: {pdf}" if pdf_ok else "검증 PDF 없음"
     if n_img is None and svg_check:
         src, page = svg_check
         before, after = svg_image_count(src, page), svg_image_count(out, page)
@@ -960,16 +977,15 @@ def make_pdf(out: str, svg_check=None) -> int:
             print(f"[ERROR] {page + 1}쪽 렌더에 서명 그림이 늘지 않았습니다(<image> {before}→{after}). "
                   "이 파일을 제출하지 마세요.", file=sys.stderr)
             return 1
-        print(f"[OK] 검증 PDF: {pdf} ({page + 1}쪽 렌더의 그림 {before}→{after}개. 서명 구역을 육안 확인)")
+        print(f"[OK] {where} ({page + 1}쪽 렌더의 그림 {before}→{after}개. 서명 구역을 육안 확인)")
     elif n_img is None:
-        print(f"[OK] 검증 PDF: {pdf} (이미지 객체 수 검증 생략. PyMuPDF를 설치하거나 "
+        print(f"[OK] {where} (이미지 객체 수 검증 생략. PyMuPDF를 설치하거나 "
               "pdfimages -list로 직접 확인)")
     else:
-        print(f"[OK] 검증 PDF: {pdf} (이미지 객체 {n_img}개. 로고·직인 등 다른 "
+        print(f"[OK] {where} (이미지 객체 {n_img}개. 로고·직인 등 다른 "
               "이미지가 있는 문서는 이 수만으로 서명 유무를 단정할 수 없으니 "
               "서명 구역을 육안 확인)")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())
