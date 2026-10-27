@@ -1786,6 +1786,171 @@ def cmd_to_pdf_rhwp(filepath, output, password=None):
         sys.exit(2)
 
 
+# ---------- rhwp 축: 격자 좌표·누름틀·역변환 (HWPX 위에서만) ----------
+
+GRID_HINT = ("격자 좌표는 --tables로 먼저 본다. 원본 보존이 중요한 공문은 기존 "
+             "--set-cell T,R,C(lxml, 물리 셀 인덱스)가 1순위다.")
+
+
+def _rhwp_or_exit(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except rhwp_cli.RhwpError as exc:
+        print(f"오류: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _keep_rejected(staged, output):
+    root, ext = os.path.splitext(output)
+    rejected = f"{root}.rejected{ext}"
+    shutil.copyfile(staged, rejected)
+    return rejected
+
+
+def _gated(src, output, report):
+    """rhwp 편집 산출물의 게시 전 검증. 게이트 실패면 .rejected로 남기고 예외."""
+    import hwpx_gate
+
+    def verify(staged):
+        rep = hwpx_gate.gate(src, staged, allow=hwpx_gate.is_text_run_key, allow_rhwp=True,
+                             expect_text_change=True)
+        report["gate"] = rep
+        if rep.status == "failed":
+            rejected = _keep_rejected(staged, output)
+            detail = hwpx_gate.describe_lost(rep)
+            raise rhwp_cli.RhwpError(f"{rep.summary()}\n{detail}\n거부된 산출물 보존: {rejected}".rstrip())
+    return verify
+
+
+def _print_gate(report, engine_line="engine=rhwp"):
+    rep = report["gate"]
+    print(rep.summary())
+    print(f"{engine_line} status={'passed' if rep.passed else 'unverified'}")
+
+
+def cmd_tables(filepath):
+    """rhwp export-tables 격자를 사람이 읽는 형태로 출력(변경 없음)."""
+    r = _rhwp_or_exit(rhwp_cli.run, ["export-tables", os.path.abspath(filepath)],
+                      required_fields=("tables",))
+    tables = r.envelope["tables"]
+    if not tables:
+        print("표가 없습니다.")
+    for t in tables:
+        print(f"표 {t.get('index')} (구역 {t.get('section')}, 문단 {t.get('paragraph')}): "
+              f"{t.get('rows')}행 × {t.get('cols')}열")
+        for c in t.get("cells", []):
+            span = ""
+            if c.get("rowSpan", 1) > 1 or c.get("colSpan", 1) > 1:
+                span = f" (병합 {c.get('rowSpan', 1)}×{c.get('colSpan', 1)})"
+            print(f"  [{t.get('index')},{c.get('row')},{c.get('col')}]{span} {c.get('text', '')}")
+    print(f"--grid-set-cell T,R,C 좌표는 위 [표,행,열]이다. {GRID_HINT}")
+
+
+def cmd_fields(filepath):
+    """rhwp fields: 누름틀 이름·현재값·안내문(변경 없음)."""
+    r = _rhwp_or_exit(rhwp_cli.run, ["fields", os.path.abspath(filepath)], required_fields=("fields",))
+    fields = r.envelope["fields"]
+    if not fields:
+        print("누름틀이 없습니다.")
+    for f in fields:
+        line = f"  {f.get('name', '')} = {f.get('value', '')!r}"
+        if f.get("guide"):
+            line += f"  (안내: {f['guide']})"
+        print(line)
+    print(f"누름틀 {len(fields)}개")
+
+
+def cmd_fill_fields(filepath, data, output=None):
+    """rhwp edit fill-fields. 이름을 못 찾거나 모호하면 쓰지 않는다(exit 0이어도 거짓 성공 금지)."""
+    src = os.path.abspath(filepath)
+    output = output or get_output_path(filepath)
+    args = ["edit", "fill-fields", src, "--data", data]
+    plan = _rhwp_or_exit(rhwp_cli.run, args + ["--dry-run"],
+                         required_fields=("filledCount", "notFound", "ambiguous"))
+    env = plan.envelope
+    if env["notFound"] or env["ambiguous"] or not env["filledCount"]:
+        print(f"오류: 누름틀을 채우지 않았습니다. 없는 이름 {env['notFound']}, 모호한 이름 {env['ambiguous']}. "
+              "이름은 --fields로 확인하고, 같은 이름은 \"이름[k]\"로 지목한다.", file=sys.stderr)
+        sys.exit(1)
+    report = {}
+    _rhwp_or_exit(rhwp_cli.run, args + ["-o", rhwp_cli.OUTPUT], output=output,
+                  required_fields=("filledCount", "output"), verify=_gated(src, output, report))
+    print(f"누름틀 {env['filledCount']}개 채움 → {output}")
+    _print_gate(report)
+
+
+def cmd_grid_set_cell(filepath, table_idx, row_idx, col_idx, text, output=None):
+    """rhwp edit set-cell(격자 좌표). 중첩 표·병합 칸 오류는 rhwp 메시지를 그대로 전한다."""
+    src = os.path.abspath(filepath)
+    output = output or get_output_path(filepath)
+    report = {}
+    try:
+        r = rhwp_cli.run(["edit", "set-cell", src, "--table", str(table_idx), "--row", str(row_idx),
+                          "--col", str(col_idx), "--text", text, "-o", rhwp_cli.OUTPUT],
+                         output=output, required_fields=("oldText", "newText", "output"),
+                         verify=_gated(src, output, report))
+    except rhwp_cli.RhwpError as exc:
+        print(f"오류: {exc}\n  {GRID_HINT}", file=sys.stderr)
+        sys.exit(1)
+    old = rhwp_cli.untrusted(r.envelope, "oldText")
+    print(f"[{table_idx},{row_idx},{col_idx}] {old!r} → {r.envelope['newText']!r} 저장: {output}")
+    if r.envelope.get("overflow"):
+        print("경고: 값이 칸 폭을 넘칩니다. --to-pdf로 렌더를 확인하세요.", file=sys.stderr)
+    _print_gate(report)
+
+
+def cmd_to_hwp(filepath, output=None):
+    """배포용 HWPX → HWP 내보내기. 정본은 HWPX이며 이 경로로 편집하지 않는다.
+    산출 .hwp를 JAR로 다시 HWPX로 바꿔 원본과 cross_check한다(JDK 없으면 unverified)."""
+    import hwpx_gate
+
+    src = os.path.abspath(filepath)
+    output = os.path.abspath(output or get_output_path(filepath, ".hwp"))
+    if not output.lower().endswith(".hwp"):
+        print(f"오류: --to-hwp 출력은 .hwp여야 합니다: {output}", file=sys.stderr)
+        sys.exit(1)
+    state = {"status": "unverified", "messages": []}
+    com_hint = "그림·차트가 빠졌으면 Windows 한컴오피스에서 HWPX를 열어 HWP로 다른 이름 저장한다."
+
+    def verify(staged):
+        if not find_java():
+            state["messages"].append("JDK 없음: JAR 왕복 대조 생략(unverified)")
+            return
+        with tempfile.TemporaryDirectory(prefix="hwp-back-") as td:
+            back = os.path.join(td, "back.hwpx")
+            try:
+                _run_jar(staged, back)
+            except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+                state["messages"].append(f"JAR 왕복 변환 실패, 대조 생략(unverified): {exc}")
+                return
+            try:
+                rep = hwpx_gate.cross_check(src, back)
+            except Exception as exc:
+                rep = None
+                failure = f"왕복 대조 중 오류: {type(exc).__name__}: {exc}"
+        if rep is not None and rep.status == "unverified":
+            state["messages"].append(rep.summary())
+            return
+        if rep is None or rep.status == "failed":
+            rejected = _keep_rejected(staged, output)
+            reason = failure if rep is None else rep.summary()
+            raise rhwp_cli.RhwpError(f"JAR 왕복 대조 실패: {reason}\n거부된 산출물 보존: {rejected}\n  {com_hint}")
+        state["status"] = "passed"
+        state["messages"].append(f"JAR 왕복 대조: {rep.summary()}")
+
+    try:
+        rhwp_cli.run(["convert", src, rhwp_cli.OUTPUT, "--verify", "--verify-pages"], output=output,
+                     required_fields=("output", "format", "verify"), verify=verify)
+    except rhwp_cli.RhwpError as exc:
+        print(f"오류: HWP 내보내기 실패: {exc}\n  {com_hint}", file=sys.stderr)
+        sys.exit(1)
+    for m in state["messages"]:
+        print(m)
+    print(f"HWP 내보내기: {output}")
+    print("  배포용 사본이다. 정본은 HWPX이며 이후 편집은 원본 HWPX에서 한다.")
+    print(f"engine=rhwp status={state['status']}")
+
+
 def cmd_remove_text(filepath, search_text, output=None):
     """특정 텍스트를 포함하는 <hp:t> 요소를 완전히 제거"""
     root, all_files, section_path = open_hwpx(filepath)
@@ -1840,6 +2005,11 @@ def main():
   %(prog)s doc.hwpx --find "이전" --replace "이후"
   %(prog)s doc.hwpx --set-cell 0,1,0 "새 텍스트"
   %(prog)s doc.hwpx --split-cell 0,1,0
+  %(prog)s doc.hwpx --tables              # rhwp 격자 좌표 확인
+  %(prog)s doc.hwpx --grid-set-cell 0,4,3 "홍길동"
+  %(prog)s doc.hwpx --fields
+  %(prog)s doc.hwpx --fill-fields '{"성명":"홍길동"}'
+  %(prog)s doc.hwpx --to-hwp              # 배포용 HWP 사본
   %(prog)s doc.hwpx --delete-after "<서식 2>"
   %(prog)s doc.hwpx --delete-empty-rows 1
   %(prog)s doc.hwpx --trim-cell 0,1,0
@@ -1880,6 +2050,15 @@ def main():
     parser.add_argument('--replace', help='바꿀 텍스트')
     parser.add_argument('--set-cell', nargs=2, metavar=('TABLE,ROW,COL', 'TEXT'),
                         help='표 셀에 텍스트 입력 (예: --set-cell 0,1,0 "텍스트")')
+    parser.add_argument('--tables', action='store_true',
+                        help='rhwp 격자 좌표로 표 보기 (--grid-set-cell 좌표 확인용, 변경 없음)')
+    parser.add_argument('--fields', action='store_true', help='누름틀 이름·현재값 보기 (rhwp, 변경 없음)')
+    parser.add_argument('--fill-fields', metavar='JSON|@파일',
+                        help='누름틀 채우기 (rhwp, 예: \'{"성명":"홍길동"}\'). 없는·모호한 이름이 있으면 쓰지 않음')
+    parser.add_argument('--grid-set-cell', nargs=2, metavar=('TABLE,ROW,COL', 'TEXT'),
+                        help='rhwp 격자 좌표(--tables)로 셀 입력. 원본 보존이 중요한 공문은 --set-cell이 1순위')
+    parser.add_argument('--to-hwp', action='store_true',
+                        help='배포용 HWPX → HWP 내보내기 (rhwp, JAR 왕복 대조). 정본은 HWPX')
     parser.add_argument('--split-cell', metavar='TABLE,ROW,COL',
                         help='병합 셀 분할 (예: --split-cell 0,1,0)')
     parser.add_argument('--delete-after', metavar='TEXT',
@@ -1939,7 +2118,7 @@ def main():
         print(f"오류: 파일을 찾을 수 없습니다: {args.file}", file=sys.stderr)
         sys.exit(1)
 
-    if args.output and args.output.lower().endswith('.hwp'):
+    if args.output and args.output.lower().endswith('.hwp') and not args.to_hwp:
         print("오류: 결과물은 HWPX로 저장합니다. -o에 .hwp를 줄 수 없습니다.", file=sys.stderr)
         sys.exit(1)
 
@@ -1960,7 +2139,10 @@ def main():
     # .hwp로 다시 부를 때 입구 변환이 편집 결과를 원본 변환물로 덮는다.
     if args.file.lower().endswith('.hwp') and not args.to_pdf:
         args.file = convert_hwp_or_exit(args.file, engine=args.engine).path
-        writes_hwpx = not (args.info or args.to_md or args.list_squeeze)
+        if args.to_hwp:
+            print("오류: --to-hwp는 HWPX 입력만 받습니다(이미 .hwp입니다).", file=sys.stderr)
+            sys.exit(1)
+        writes_hwpx = not (args.info or args.to_md or args.list_squeeze or args.tables or args.fields)
         if writes_hwpx and not args.output:
             args.output = os.path.splitext(args.file)[0] + "_편집.hwpx"
 
@@ -1970,6 +2152,22 @@ def main():
         cmd_to_md(args.file, args.output, cell_br=args.cell_br, merge_fill=args.merge_fill)
     elif args.to_pdf:
         cmd_to_pdf(args.file, args.output, password=args.password, backend=args.pdf_backend)
+    elif args.tables:
+        cmd_tables(args.file)
+        return
+    elif args.fields:
+        cmd_fields(args.file)
+        return
+    elif args.fill_fields is not None:
+        cmd_fill_fields(args.file, args.fill_fields, args.output)
+        return
+    elif args.grid_set_cell:
+        t, r, c = parse_cell_ref(args.grid_set_cell[0])
+        cmd_grid_set_cell(args.file, t, r, c, args.grid_set_cell[1], args.output)
+        return
+    elif args.to_hwp:
+        cmd_to_hwp(args.file, args.output)
+        return
     elif args.find is not None and args.replace is not None:
         cmd_find_replace(args.file, args.find, args.replace, args.output)
     elif args.set_cell:

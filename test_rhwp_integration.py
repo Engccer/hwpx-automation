@@ -3,8 +3,11 @@
 표본은 tests/fixtures/의 익명 양식이다(python-hwpx로 만든 가상 문서를 rhwp로 HWP 왕복).
 """
 import contextlib
+import inspect
 import io
 import os
+import subprocess
+import sys
 from pathlib import Path
 import shutil
 import tempfile
@@ -79,6 +82,44 @@ class PdfIntegration(unittest.TestCase):
         subprocess.run([sys.executable, str(script), str(md), "-o", str(hwpx)],
                        check=True, capture_output=True)
         self.assert_clean_pdf(hwpx)
+
+
+HAS_ALLOW_RHWP = "allow_rhwp" in inspect.signature(hwpx_gate.gate).parameters
+EDIT = Path(__file__).resolve().parent / "hwpx_edit.py"
+
+
+@unittest.skipUnless(os.environ.get("RHWP_INTEGRATION"), "RHWP_INTEGRATION=1일 때 실제 rhwp로 실행")
+class GridIntegration(unittest.TestCase):
+    """표본 HWP → 변환 → --grid-set-cell → --tables → 게이트, 그리고 --to-hwp 왕복."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+        hwp = self.dir / "sample-form.hwp"
+        shutil.copyfile(FIXTURES / "sample-form.hwp", hwp)
+        self.hwpx = Path(quiet_call(hwpx_edit.hwp_to_hwpx, str(hwp))[0].path)
+
+    def cli(self, *argv):
+        return subprocess.run([sys.executable, str(EDIT), *map(str, argv)], capture_output=True,
+                              text=True, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+
+    @unittest.skipUnless(HAS_ALLOW_RHWP, "hwpx_gate.gate(allow_rhwp=)는 세션 sign의 M3 통합 뒤")
+    def test_grid_set_cell_then_tables_shows_value_and_gate_passes(self):
+        out = self.dir / "filled.hwpx"
+        r = self.cli(self.hwpx, "--grid-set-cell", "0,1,1", "김철수", "-o", out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip().splitlines()[-1], "engine=rhwp status=passed")
+        r = self.cli(out, "--tables")
+        self.assertIn("[0,1,1] 김철수", r.stdout)
+
+    def test_to_hwp_round_trips_through_jar(self):
+        out = self.dir / "dist.hwp"
+        r = self.cli(self.hwpx, "--to-hwp", "-o", out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        expected = "passed" if hwpx_edit.find_java() else "unverified"
+        self.assertEqual(r.stdout.strip().splitlines()[-1], f"engine=rhwp status={expected}")
+        self.assertTrue(out.read_bytes().startswith(b"\xd0\xcf\x11\xe0"))  # CFB(HWP5)
 
 
 if __name__ == "__main__":

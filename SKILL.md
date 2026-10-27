@@ -216,6 +216,19 @@ python hwpx_edit.py <파일.hwpx> --add-preview [-o output.hwpx]
 # HWP → HWPX 변환 (rhwp 기본, JAR 교차 대조. 상세: 아래 "HWP → HWPX 변환")
 python hwpx_edit.py <파일.hwp> --from-hwp [--engine jar] [-o output.hwpx]
 
+# rhwp 격자 좌표·누름틀 (산출물은 독립 손실 게이트 통과 뒤에만 놓인다. 마지막 줄 engine=rhwp status=...)
+#  - 격자 좌표(병합 반영)는 기존 --set-cell의 물리 셀 인덱스와 다르다. --tables로 먼저 본다
+#  - 원본 보존이 중요한 공문은 기존 --set-cell(lxml)이 1순위. 중첩 표는 rhwp가 거부하므로 --set-cell
+python hwpx_edit.py <파일.hwpx> --tables
+python hwpx_edit.py <파일.hwpx> --grid-set-cell 0,4,3 "홍길동"
+python hwpx_edit.py <파일.hwpx> --fields
+python hwpx_edit.py <파일.hwpx> --fill-fields '{"성명":"홍길동"}'   # 또는 @data.json. 없는·모호한 이름이 있으면 쓰지 않고 exit 1
+
+# 상대가 .hwp를 요구할 때만: 배포용 HWP 사본 (JAR 왕복 대조, JDK 없으면 unverified)
+# 정본은 HWPX이고 이후 편집은 HWPX에서 한다. 왕복 대조가 실패하면(그림·표·글자 감소)
+# 결과를 쓰지 않고 Windows 한컴 다른 이름 저장을 안내한다
+python hwpx_edit.py <파일.hwpx> --to-hwp [-o 배포본.hwp]
+
 # 별도 파일로 저장
 python hwpx_edit.py <파일.hwpx> --set-cell 0,1,0 "텍스트" -o output.hwpx
 ```

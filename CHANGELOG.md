@@ -11,6 +11,7 @@
 - M3: `hwpx_sign.py`에 `--backend rhwp|com`(기본 rhwp, 모든 OS)을 두었다. rhwp 경로는 search→render-tree 글자 상자(run 중간은 measure-width)→앵커 중심 겹쳐 찍기→insert-image→그림을 앵커 문단 맨 앞·글 앞으로 옮김→게이트·앵커 재측정. 결과는 늘 `<입력>_서명.hwpx`, `.hwp`는 `hwp_to_hwpx`로 입구 변환, 출력 끝줄 `engine=`. 표 안 앵커·게이트 실패는 `--backend com` 안내.
 - `hwpx_gate.gate(allow_rhwp=True)`: 본문이 쓰지 않는 paraPr 안 손실(OUTLINE 8~10단계 switch), 문단 id 재부여, `shadow type="NONE"`을 `GateReport.allowed`로 보내고 "허용된 손실(rhwp 재직렬화)" 줄로 보고한다. `cross_check`는 BinData 내용 해시도 대조한다.
 - 실측: rhwp insert-image는 그림을 쪽 첫 문단에 어울림으로 붙여, 첫 문단이 빈 문서는 rhwp 조판이 한 줄 올라간다(앵커 문단으로 옮겨 해결). 한컴 저장 공문 2건은 게이트 통과, 표·글상자 많은 학교 양식 3건은 표 셀 속성·대각선 테두리 손실로 게이트가 막는다. HWP 3건의 rhwp·JAR 변환물 BinData 170개는 바이트가 같다.
+- M5: rhwp 축 신규 명령 `--tables`(격자 좌표 보기)·`--grid-set-cell`(격자 좌표 셀 입력)·`--fields`·`--fill-fields`(없는·모호한 이름은 dry-run에서 거부)·`--to-hwp`(배포용 HWP, JAR 왕복 cross_check, 실패 시 한컴 다른 이름 저장 안내)를 추가했다. 편집 산출물은 `hwpx_gate.gate(allow=is_text_run_key, allow_rhwp=True, expect_text_change=True)`를 통과해야 놓이고, 실패하면 `.rejected.hwpx`로 남는다. `.hwp` 입력은 변환을 먼저 거친다. 단위 시험 `test_grid.py`.
 
 ## 2026-10-26
 

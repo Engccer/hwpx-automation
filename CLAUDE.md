@@ -51,6 +51,10 @@ python hwpx_edit.py <파일.hwp> --from-hwp             # HWP → HWPX (rhwp, JA
 python hwpx_edit.py <파일.hwpx> --find "A" --replace "B"  # 텍스트 치환
 python hwpx_edit.py <파일.hwpx> --set-cell 0,1,0 "텍스트"  # 표 셀 입력
 python hwpx_edit.py <파일.hwpx> --split-cell 0,1,0         # 병합 셀 분할
+python hwpx_edit.py <파일.hwpx> --tables                   # rhwp 격자 좌표 보기
+python hwpx_edit.py <파일.hwpx> --grid-set-cell 0,4,3 "값"  # rhwp 격자 좌표 셀 입력 (게이트 필수)
+python hwpx_edit.py <파일.hwpx> --fields                   # 누름틀 보기 / --fill-fields '{"이름":"값"}'
+python hwpx_edit.py <파일.hwpx> --to-hwp                   # 배포용 HWP 사본 (정본은 HWPX)
 python hwpx_edit.py <파일.hwpx> --delete-after "텍스트"     # 특정 위치 이후 삭제
 python hwpx_edit.py <파일.hwpx> --delete-empty-rows 0      # 빈 행 삭제
 python hwpx_edit.py <파일.hwpx> --delete-rows 0,3,5        # 특정 행 삭제
