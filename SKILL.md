@@ -269,7 +269,7 @@ python hwpx_edit.py <입력.hwp> --from-hwp --engine jar         # JAR 폴백 (P
 python hwpx_edit.py <입력.hwp> --to-md                         # 다른 명령에 .hwp를 주면 같은 변환을 먼저 거친다
 ```
 
-- `.hwp`를 `--to-md`·`--info`·`--find/--replace`·`--set-cell` 등에 바로 주면 `_work-hwpx-automation/<이름>.hwpx`로 변환한 뒤 그 HWPX 위에서 동작한다. `--to-pdf`만 원본을 그대로 렌더링한다.
+- `.hwp`를 `--to-md`·`--info`·`--find/--replace`·`--set-cell` 등에 바로 주면 `_work-hwpx-automation/<이름>.hwpx`로 변환한 뒤 그 HWPX 위에서 동작한다. 편집 결과는 `-o`가 없으면 `<이름>_편집.hwpx`이고, 편집을 이어 할 때는 이 파일을 입력으로 준다(같은 `.hwp`를 다시 주면 원본에서 새로 변환한다). `--to-pdf`만 원본을 그대로 렌더링한다. `-o`에 `.hwp`는 줄 수 없다.
 - 변환물은 `hwpx-validate`와 **다른 엔진 변환물과의 교차 대조**(글자·표·셀·그림·BinData 수)를 통과해야 결과 자리에 놓인다. stdout 마지막 줄 `engine=<rhwp|jar> status=<passed|unverified>`를 완료 보고에 그대로 옮긴다. JDK가 없어 JAR 대조를 못 하면 `unverified`이며 "검증됨"이라고 보고하지 않는다.
 - rhwp가 실패하거나(자가 검증 exit 3 등) 교차 대조가 어긋나면 exit 1이다. 거부된 산출물은 `<이름>.rejected.hwpx`로 남고, stderr에 출력된 JAR 폴백 명령을 따른다. 폴백으로 전환했으면 완료 보고에 엔진과 사유를 쓴다.
 

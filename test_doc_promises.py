@@ -469,6 +469,10 @@ class FromHwpRoutesToRhwpThenJar(unittest.TestCase):
         patcher = mock.patch.dict(os.environ, env)
         patcher.start()
         self.addCleanup(patcher.stop)
+        import hwpx_gate
+        self.validate = mock.patch.object(hwpx_gate, "validate", return_value=(True, "ok"))
+        self.validate.start()
+        self.addCleanup(self.validate.stop)
         self.dest = self.dir / "_work-hwpx-automation" / "doc.hwpx"
 
     def jar_copies(self, path):
@@ -537,6 +541,70 @@ class FromHwpRoutesToRhwpThenJar(unittest.TestCase):
             code, _, err = quiet(hwpx_edit.main)
         self.assertEqual(code, 1)
         self.assertIn("convert/hwp2hwpx.sh", err)
+
+    def test_validate_failure_is_rejected(self):
+        import hwpx_gate
+        with mock.patch.object(hwpx_gate, "validate", return_value=(False, "Error: bad")), \
+                mock.patch.object(hwpx_edit, "find_java", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "hwpx-validate 실패"):
+                hwpx_edit.hwp_to_hwpx(str(self.hwp))
+        self.assertFalse(self.dest.exists())
+        self.assertTrue((self.dest.parent / "doc.rejected.hwpx").exists())
+
+    def test_jar_reference_failure_is_unverified(self):
+        with mock.patch.object(hwpx_edit, "_run_jar", side_effect=RuntimeError("JAR 변환 실패(exit 1)")), \
+                mock.patch.object(hwpx_edit, "find_java", return_value="java"):
+            res, out = self.convert()
+        self.assertEqual(res.status, "unverified")
+        self.assertIn("대조 생략", out)
+
+    def test_broken_produced_file_is_rejected_with_fallback(self):
+        self.good.write_bytes(b"not a zip")
+        with self.jar_copies(self.other), mock.patch.object(hwpx_edit, "find_java", return_value="java"):
+            with mock.patch.object(sys, "argv", ["hwpx_edit.py", str(self.hwp), "--from-hwp"]):
+                code, _, err = quiet(hwpx_edit.main)
+        self.assertEqual(code, 1)
+        self.assertIn("--engine jar", err)
+        self.assertFalse(self.dest.exists())
+
+    def test_missing_rhwp_points_to_jar_fallback(self):
+        os.environ["HWPX_RHWP_BIN"] = str(self.dir / "nope")
+        with self.assertRaises(RuntimeError) as cm:
+            hwpx_edit.hwp_to_hwpx(str(self.hwp))
+        self.assertIn("rhwp", str(cm.exception))
+        self.assertIn("--engine jar", str(cm.exception))
+
+    def test_fallback_hint_uses_absolute_paths_and_com_on_windows(self):
+        with mock.patch.object(hwpx_edit.sys, "platform", "win32"):
+            hint = hwpx_edit.convert_fallback_hint("C:/d/a.hwp", "C:/d/a.hwpx", "rhwp")
+        self.assertIn(os.path.abspath(hwpx_edit.__file__), hint)
+        self.assertIn("hwpx_com.py", hint)
+        self.assertIn("--from-hwp", hint)
+
+    def test_output_cannot_overwrite_source_or_be_hwp(self):
+        for dest in (self.hwp, self.dir / "x.hwp"):
+            with self.subTest(dest=dest):
+                with self.assertRaises(ValueError):
+                    hwpx_edit.hwp_to_hwpx(str(self.hwp), str(dest))
+        self.assertEqual(self.hwp.read_bytes(), b"HWP Document File")
+        with mock.patch.object(sys, "argv", ["hwpx_edit.py", str(self.hwp), "--find", "R0C0",
+                                             "--replace", "x", "-o", str(self.dir / "y.hwp")]):
+            code, _, err = quiet(hwpx_edit.main)
+        self.assertEqual(code, 1)
+        self.assertIn("HWPX로 저장", err)
+
+    def test_edit_result_survives_rerun_on_same_hwp(self):
+        with mock.patch.object(hwpx_edit, "find_java", return_value=None):
+            with mock.patch.object(sys, "argv", ["hwpx_edit.py", str(self.hwp), "--find", "R1C1",
+                                                 "--replace", "홍길동"]):
+                code, out, err = quiet(hwpx_edit.main)
+            self.assertEqual(code, 0, err)
+            edited = self.dest.parent / "doc_편집.hwpx"
+            self.assertIn(str(edited), out)
+            with mock.patch.object(sys, "argv", ["hwpx_edit.py", str(self.hwp), "--info"]):
+                quiet(hwpx_edit.main)
+        texts = [t.text or "" for t in read_table(edited).iter("{%s}t" % HP)]
+        self.assertIn("홍길동", texts)
 
     def test_from_hwp_rejects_hwpx_input(self):
         with mock.patch.object(sys, "argv", ["hwpx_edit.py", str(self.good), "--from-hwp"]):
