@@ -1839,7 +1839,8 @@ def _gated(src, output, report):
         if rep.status == "failed":
             rejected = _keep_rejected(staged, output)
             detail = hwpx_gate.describe_lost(rep)
-            raise rhwp_cli.RhwpError(f"{rep.summary()}\n{detail}\n거부된 산출물 보존: {rejected}".rstrip())
+            head = rep.summary().splitlines()[0]  # 허용된 손실 줄은 describe_lost 끝에 이미 있다
+            raise rhwp_cli.RhwpError(f"{head}\n{detail}\n거부된 산출물 보존: {rejected}")
     return verify
 
 

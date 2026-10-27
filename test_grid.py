@@ -292,6 +292,15 @@ class RhwpGridCommands(unittest.TestCase):
         self.assertFalse(out_path.exists())
         self.assertTrue((self.dir / "o.rejected.hwpx").exists())
 
+    def test_allowed_rhwp_loss_is_shown_to_user(self):
+        rep = hwpx_gate.GateReport()
+        rep.allowed[("Contents/header.xml", "switch", ())] = (3, 0)
+        self.gate_mock.return_value = rep
+        code, out, err = self.cli(self.doc, "--grid-set-cell", "0,1,1", "x", "-o", self.dir / "o.hwpx")
+        self.assertEqual(code, 0, err)
+        self.assertIn("허용된 손실(rhwp 재직렬화)", out)
+        self.assertEqual(out.strip().splitlines()[-1], "engine=rhwp status=passed")
+
     def test_work_folder_input_does_not_overwrite_itself(self):
         work = self.dir / "_work-hwpx-automation"
         work.mkdir()
