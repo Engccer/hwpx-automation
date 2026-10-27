@@ -43,6 +43,7 @@ class GateReport:
     text_extra: Counter = field(default_factory=Counter)
     validate_ok: bool | None = None
     messages: list = field(default_factory=list)
+    allowed: dict = field(default_factory=dict)   # lost와 같은 키. allow_rhwp가 통과시킨 rhwp 재직렬화 손실
 
     @property
     def passed(self):
@@ -59,7 +60,14 @@ class GateReport:
 
     def summary(self):
         head = {"passed": "게이트 통과", "failed": "게이트 실패", "unverified": "게이트 미검증"}[self.status]
-        return head + ("" if not self.messages else ": " + " / ".join(self.messages))
+        line = head + ("" if not self.messages else ": " + " / ".join(self.messages))
+        return line + ("\n" + self.allowed_line() if self.allowed else "")
+
+    def allowed_line(self):
+        tags = Counter()
+        for (_, tag, _), (a, b) in self.allowed.items():
+            tags["p id 재부여" if tag == "p" else tag] += a - b
+        return "허용된 손실(rhwp 재직렬화): " + ", ".join(f"{t}×{n}" for t, n in tags.most_common())
 
 
 # ---------- 패키지 읽기 ----------
@@ -84,16 +92,38 @@ def bindata_parts(parts):
 
 # ---------- census ----------
 
-def element_census(xml_bytes):
+def census_key(el, ignore=()):
+    """(태그 로컬명, 정렬된 (속성, 값) 튜플). ignore의 (태그, 속성) 쌍은 뺀다."""
+    tag = el.tag.split("}")[-1]
+    attrs = tuple(sorted((k.split("}")[-1], v) for k, v in el.attrib.items()
+                         if k.split("}")[-1] not in VOLATILE_ATTRS
+                         and (tag, k.split("}")[-1]) not in ignore))
+    return tag, attrs
+
+
+def element_census(xml_bytes, ignore=()):
     """(태그 로컬명, 정렬된 (속성, 값) 튜플) -> 개수."""
     census = Counter()
     for _, el in ET.iterparse(_bytes_io(xml_bytes)):
-        tag = el.tag.split("}")[-1]
-        attrs = tuple(sorted((k.split("}")[-1], v) for k, v in el.attrib.items()
-                             if k.split("}")[-1] not in VOLATILE_ATTRS))
-        census[(tag, attrs)] += 1
+        census[census_key(el, ignore)] += 1
         el.clear()
     return census
+
+
+def zoned_census(xml_bytes, in_zone):
+    """census를 둘로 나눈다: in_zone(el)이 참인 요소와 그 하위(zone), 나머지(rest)."""
+    rest, zone = Counter(), Counter()
+    depth = 0
+    for event, el in ET.iterparse(_bytes_io(xml_bytes), events=("start", "end")):
+        if event == "start":
+            if depth or in_zone(el):
+                depth += 1
+            continue
+        (zone if depth else rest)[census_key(el)] += 1
+        if depth:
+            depth -= 1
+        el.clear()
+    return rest, zone
 
 
 def _bytes_io(b):
@@ -113,6 +143,44 @@ def compare_census(before, after):
     """바뀐 키만 {key: (before, after)}로 돌려준다."""
     return {k: (before.get(k, 0), after.get(k, 0))
             for k in set(before) | set(after) if before.get(k, 0) != after.get(k, 0)}
+
+
+# ---------- rhwp 재직렬화 허용 목록 ----------
+# 실측(2026-10-28, rhwp v0.8.7 insert-image, 한컴 저장 공문 2건·python-hwpx 표본):
+#  - header.xml: 본문이 쓰지 않는 paraPr 안의 OUTLINE 8~10단계(level 7~9)
+#    hp:switch를 default 갈래(heading type=NONE)로 접는다. 문단이 그 paraPr를
+#    쓰지 않으므로 화면에 영향이 없다. 본문이 쓰는 paraPr의 손실은 실패로 둔다.
+#  - 본문 파트: 모든 hp:p의 id를 0부터 다시 매긴다(문단 수·내용은 그대로).
+#  - 본문 파트: 그림의 hp:shadow type="NONE"(그림자 없음 표시)을 지운다.
+
+def used_parapr_ids(parts):
+    """본문 파트(header.xml 밖)의 문단이 참조하는 paraPr id 집합."""
+    used = set()
+    for name, data in xml_parts(parts).items():
+        if name != "Contents/header.xml":
+            used.update(m.decode() for m in re.findall(rb'paraPrIDRef="(\d+)"', data))
+    return used
+
+
+def split_rhwp_known(name, before, after, used_parapr):
+    """(실패로 볼 census 차이, 허용할 손실)로 나눈다. 허용 손실은 lost와 같은 형식."""
+    if name == "Contents/header.xml":
+        def unused_parapr(el):
+            return el.tag.split("}")[-1] == "paraPr" and el.get("id") not in used_parapr
+        a_rest, a_zone = zoned_census(before, unused_parapr)
+        b_rest, b_zone = zoned_census(after, unused_parapr)
+        known = {k: v for k, v in compare_census(a_zone, b_zone).items() if v[1] < v[0]}
+        return compare_census(a_rest, b_rest), known
+
+    no_pid = {("p", "id")}
+    diff = compare_census(element_census(before, no_pid), element_census(after, no_pid))
+    known = {k: diff.pop(k) for k, (a, b) in list(diff.items())
+             if k[0] == "shadow" and ("type", "NONE") in k[1] and b < a}
+    # id를 빼고 센 문단이 완전히 같을 때(수·나머지 속성)만 재부여로 본다
+    if not any(k[0] == "p" for k in diff):
+        full = compare_census(element_census(before), element_census(after))
+        known.update({k: v for k, v in full.items() if k[0] == "p" and v[1] < v[0]})
+    return diff, known
 
 
 # ---------- BinData ----------
@@ -151,18 +219,21 @@ def validate(path):
 # ---------- 게이트 ----------
 
 def gate(original, produced, *, allow=None, allow_bindata_added=0,
-         expect_text_change=False, require_census=True, require_bindata=True):
+         expect_text_change=False, require_census=True, require_bindata=True,
+         allow_rhwp=False):
     """원본 HWPX 대비 산출 HWPX의 손실을 검사한다.
 
     allow: callable((tag, attrs)) -> bool. True면 그 census 변화는 의도된 것으로 본다.
     allow_bindata_added: 새로 들어와도 되는 BinData 파일 수(그림 삽입은 1).
     expect_text_change: 치환·채우기처럼 글자가 달라지는 편집이면 True(텍스트 대조 생략).
+    allow_rhwp: rhwp 재직렬화로 알려진 손실(split_rhwp_known)을 실패 대신 allowed에 담는다.
     """
     rep = GateReport()
     src = read_parts(original)
     dst = read_parts(produced)
 
     if require_census:
+        used = used_parapr_ids(src) if allow_rhwp else None
         for name in sorted(set(xml_parts(src)) | set(xml_parts(dst))):
             if name not in dst:
                 rep.fail(f"{name}이 산출물에 없음")
@@ -170,7 +241,11 @@ def gate(original, produced, *, allow=None, allow_bindata_added=0,
             if name not in src:
                 rep.gained[(name, ())] = (0, 1)
                 continue
-            diff = compare_census(element_census(src[name]), element_census(dst[name]))
+            if allow_rhwp:
+                diff, known = split_rhwp_known(name, src[name], dst[name], used)
+                rep.allowed.update({(name,) + k: v for k, v in known.items()})
+            else:
+                diff = compare_census(element_census(src[name]), element_census(dst[name]))
             for key, (a, b) in diff.items():
                 if allow and allow(key):
                     continue
@@ -218,7 +293,7 @@ def gate(original, produced, *, allow=None, allow_bindata_added=0,
 def cross_check(a_path, b_path):
     """같은 원본에서 다른 엔진이 만든 두 HWPX를 대조한다(HWP 변환의 독립 기준).
 
-    글자 멀티셋, 표(tbl) 수, 셀(tc) 수, BinData 수를 본다. 어느 쪽이 맞는지는
+    글자 멀티셋, 표(tbl) 수, 셀(tc) 수, BinData 수와 내용 해시를 본다. 어느 쪽이 맞는지는
     말하지 않고 다른 점만 보고한다.
     """
     rep = GateReport()
@@ -234,6 +309,11 @@ def cross_check(a_path, b_path):
     na, nb = len(bindata_parts(pa)), len(bindata_parts(pb))
     if na != nb:
         rep.fail(f"BinData 수 불일치 {na} vs {nb}")
+    # 파일 이름은 엔진마다 달리 매길 수 있어 내용 해시의 멀티셋으로 본다.
+    # 실측(2026-10-28, HWP 3건·BinData 170개): rhwp·JAR 변환물의 바이트가 모두 같다.
+    ha, hb = Counter(bindata_digest(pa).values()), Counter(bindata_digest(pb).values())
+    if ha != hb:
+        rep.fail(f"BinData 해시 불일치 {max(sum((ha - hb).values()), sum((hb - ha).values()))}건")
     ta, tb = markdown_chars(a_path), markdown_chars(b_path)
     if ta is None or tb is None:
         rep.unverified("hwpx-tomd 없음, 텍스트 대조 생략")
@@ -243,7 +323,7 @@ def cross_check(a_path, b_path):
             rep.fail(f"글자 불일치: 한쪽에만 {sum(rep.text_missing.values())}·"
                      f"{sum(rep.text_extra.values())}개")
     if rep.status == "passed":
-        rep.messages.append("두 엔진의 글자·표·셀·그림·BinData 수 일치")
+        rep.messages.append("두 엔진의 글자·표·셀·그림 수와 BinData 내용 일치")
     return rep
 
 
@@ -255,6 +335,8 @@ def describe_lost(rep, limit=10):
         lines.append(f"  {name}: <{tag} {attr_txt}> {a}→{b}")
     if len(rep.lost) > limit:
         lines.append(f"  … 외 {len(rep.lost) - limit}건")
+    if rep.allowed:
+        lines.append("  " + rep.allowed_line())
     return "\n".join(lines)
 
 

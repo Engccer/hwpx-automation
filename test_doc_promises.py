@@ -376,7 +376,7 @@ class SignPdfImageGate(unittest.TestCase):
         doc.write_bytes(b"PK")
         img = Path(tmp.name) / "s.png"
         img.write_bytes(b"png")
-        argv = ["hwpx_sign.py", str(doc), "--image", str(img), "--pdf"]
+        argv = ["hwpx_sign.py", str(doc), "--image", str(img), "--pdf", "--backend", "com"]
         with mock.patch.object(sys, "argv", argv), \
                 mock.patch.object(hwpx_sign, "com_insert"), \
                 mock.patch.object(hwpx_sign, "to_floating", return_value=(0, 0)), \
@@ -411,7 +411,7 @@ class SignPdfImageGate(unittest.TestCase):
         doc.write_bytes(b"PK")
         img = Path(tmp.name) / "s.png"
         img.write_bytes(b"png")
-        argv = ["hwpx_sign.py", str(doc), "--image", str(img)]
+        argv = ["hwpx_sign.py", str(doc), "--image", str(img), "--backend", "com"]
         with mock.patch.object(sys, "argv", argv), \
                 mock.patch("shutil.copyfile", side_effect=PermissionError(13, "locked")), \
                 mock.patch.object(hwpx_sign, "com_insert") as com:

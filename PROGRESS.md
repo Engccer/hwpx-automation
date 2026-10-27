@@ -6,6 +6,7 @@
 - rhwp 재설계(`docs/plans/2026-10-28-rhwp-redesign.md`): M1 어댑터·게이트 완료. 단위 75건 통과(`RHWP_INTEGRATION=1` 포함).
 - M2 HWP→HWPX rhwp 기본 완료: `--from-hwp`·`--engine`·`hwp_to_hwpx()`, JAR 교차 대조(JDK 없으면 unverified), `.hwp` 입력은 모든 편집·읽기 명령의 입구에서 변환.
 - M4 PDF 백엔드 완료: `--to-pdf`는 모든 OS rhwp 기본, `--pdf-backend com`은 Windows 명시 폴백. Pandoc 산출물 PDF도 rhwp.
+- M3 서명 삽입 rhwp 백엔드 완료: `hwpx_sign.py --backend rhwp|com`(기본 rhwp, 모든 OS), 게이트 `allow_rhwp` 허용 목록. 한컴에서 열기·위치는 위원장 실사용으로 확인 대기.
 - 위원장 결정(2026-10-28): 실기 검증은 위원장이 실사용으로 한다. 축별 옵트인 단계 없이 플랜 원안대로 rhwp를 기본값으로 두고 JAR·COM은 명시 폴백으로 남긴다.
 
 ## 다음 단계

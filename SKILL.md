@@ -328,7 +328,7 @@ ZIP 내부 구조·네임스페이스가 필요할 때 `reference/format.md`를 
 
 ## 서명/도장 이미지 삽입 (hwpx_sign.py)
 
-서명란에 서명·도장 이미지를 넣을 때 `reference/signing.md`를 읽는다.
+서명란에 서명·도장 이미지를 넣을 때 `reference/signing.md`를 읽는다. 기본은 rhwp(모든 OS, "(서명)" 위에 겹쳐 찍기)이고, 표 안 앵커나 게이트 실패 때만 Windows에서 `--backend com`을 쓴다. 완료 보고에 출력 끝줄의 `engine=`을 적는다.
 
 ## macOS·Linux에서 PDF 변환 (rhwp)
 

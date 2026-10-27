@@ -8,6 +8,9 @@
 - 버전 1.4.0 → 1.5.0.
 - M2: HWP→HWPX 기본 엔진을 rhwp로 바꿨다. `hwpx_edit.py --from-hwp`(`--engine jar` 폴백)와 `hwp_to_hwpx()`를 추가하고, 변환물은 `hwpx-validate`와 다른 엔진 변환물 교차 대조를 통과해야 놓인다. 실패하면 `.rejected.hwpx`를 남기고 JAR 폴백 명령을 안내한다. `.hwp` 입력은 `--to-pdf`를 뺀 모든 명령의 입구에서 변환한다. `--check-env` Tier를 rhwp 기본·JAR·COM 폴백 구조로 재정의했다. 익명 표본 `tests/fixtures/sample-form.hwp`와 통합 시험 `test_rhwp_integration.py`를 추가했다.
 - M4: `--to-pdf`를 모든 OS에서 rhwp 기본으로 바꾸고 `--pdf-backend rhwp|com`을 추가했다. `com`은 Windows가 아니면 exit 1로 거부한다. 산출 뒤 stdout 마지막 줄에 `engine=rhwp|com`을 찍는다. Pandoc 산출물 PDF는 rhwp로 낸다고 SKILL.md에 적었다. 표본 HWPX와 Pandoc 산출물 rhwp PDF 빈 네모 0을 통합 시험으로 고정했다.
+- M3: `hwpx_sign.py`에 `--backend rhwp|com`(기본 rhwp, 모든 OS)을 두었다. rhwp 경로는 search→render-tree 글자 상자(run 중간은 measure-width)→앵커 중심 겹쳐 찍기→insert-image→그림을 앵커 문단 맨 앞·글 앞으로 옮김→게이트·앵커 재측정. 결과는 늘 `<입력>_서명.hwpx`, `.hwp`는 `hwp_to_hwpx`로 입구 변환, 출력 끝줄 `engine=`. 표 안 앵커·게이트 실패는 `--backend com` 안내.
+- `hwpx_gate.gate(allow_rhwp=True)`: 본문이 쓰지 않는 paraPr 안 손실(OUTLINE 8~10단계 switch), 문단 id 재부여, `shadow type="NONE"`을 `GateReport.allowed`로 보내고 "허용된 손실(rhwp 재직렬화)" 줄로 보고한다. `cross_check`는 BinData 내용 해시도 대조한다.
+- 실측: rhwp insert-image는 그림을 쪽 첫 문단에 어울림으로 붙여, 첫 문단이 빈 문서는 rhwp 조판이 한 줄 올라간다(앵커 문단으로 옮겨 해결). 한컴 저장 공문 2건은 게이트 통과, 표·글상자 많은 학교 양식 3건은 표 셀 속성·대각선 테두리 손실로 게이트가 막는다. HWP 3건의 rhwp·JAR 변환물 BinData 170개는 바이트가 같다.
 
 ## 2026-10-26
 

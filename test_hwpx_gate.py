@@ -126,6 +126,45 @@ class GateTests(unittest.TestCase):
         self.assertEqual(rep.status, "unverified")
         self.assertIsNone(rep.validate_ok)
 
+    def collapse_outline_switch(self, data, used):
+        """rhwp가 하는 대로 paraPr 하나의 OUTLINE switch를 default 갈래로 접는다.
+        used=True면 본문이 쓰는 paraPr(id 0), False면 안 쓰는 OUTLINE 8~10단계 paraPr."""
+        text = data.decode("utf-8")
+        for m in re.finditer(r'<hh:paraPr id="(\d+)".*?</hh:paraPr>', text, re.S):
+            sw = re.search(r'<hp:switch><hp:case [^>]*><hh:heading [^>]*/></hp:case>'
+                           r'<hp:default>(<hh:heading [^>]*/>)</hp:default></hp:switch>', m.group(0))
+            if (m.group(1) == "0") == used and sw:
+                block = m.group(0).replace(sw.group(0), sw.group(1))
+                return (text[:m.start()] + block + text[m.end():]).encode("utf-8")
+        self.skipTest("Skeleton header에 OUTLINE switch를 가진 paraPr가 없음")
+
+    def test_rhwp_known_losses_are_allowed(self):
+        header = "Contents/header.xml"
+        renumber = iter(range(1, 1000))
+        rewrite(self.prod, transform={
+            header: lambda d: self.collapse_outline_switch(d, used=False),
+            self.section_name(): lambda d: re.sub(rb'<hp:p id="\d+"', lambda m: b'<hp:p id="%d"' % next(renumber), d)})
+        self.assertEqual(hwpx_gate.gate(self.orig, self.prod).status, "failed")
+        rep = hwpx_gate.gate(self.orig, self.prod, allow_rhwp=True)
+        self.assertEqual(rep.status, "passed", rep.summary())
+        self.assertFalse(rep.lost)
+        self.assertEqual({k[1] for k in rep.allowed}, {"switch", "case", "default", "heading", "p"})
+        self.assertIn("허용된 손실(rhwp 재직렬화): ", rep.summary())
+        self.assertIn("p id 재부여×", hwpx_gate.describe_lost(rep))
+
+    def test_rhwp_losses_outside_allowlist_still_fail(self):
+        def drop_lineseg(data):
+            return re.sub(rb"<hp:linesegarray>.*?</hp:linesegarray>", b"", data, count=1, flags=re.S)
+        rewrite(self.prod, transform={
+            "Contents/header.xml": lambda d: self.collapse_outline_switch(d, used=True),
+            self.section_name(): drop_lineseg})
+        rep = hwpx_gate.gate(self.orig, self.prod, allow_rhwp=True)
+        self.assertEqual(rep.status, "failed")
+        lost_tags = {(k[0], k[1]) for k in rep.lost}
+        self.assertIn(("Contents/header.xml", "switch"), lost_tags)
+        self.assertTrue(any(t in ("lineseg", "linesegarray") for _, t in lost_tags), lost_tags)
+        self.assertFalse(rep.allowed)
+
     def test_cross_check_reports_table_and_text_difference(self):
         other = self.dir / "other.hwpx"
         make_hwpx(other, text="첫 문단 내용입니다 2026", pic=True)
@@ -135,6 +174,15 @@ class GateTests(unittest.TestCase):
         self.assertEqual(rep.status, "failed")
         self.assertTrue(any("BinData" in m for m in rep.messages))
         self.assertTrue(any("글자" in m for m in rep.messages))
+
+
+    def test_cross_check_compares_bindata_content(self):
+        other = self.dir / "other.hwpx"
+        other.write_bytes(self.orig.read_bytes())
+        rewrite(other, transform={"BinData/image1.png": lambda d: d + b"x"})
+        rep = hwpx_gate.cross_check(self.orig, other)
+        self.assertEqual(rep.status, "failed")
+        self.assertTrue(any("해시 불일치 1건" in m for m in rep.messages), rep.messages)
 
 
 class CensusTests(unittest.TestCase):

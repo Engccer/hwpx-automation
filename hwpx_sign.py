@@ -1,7 +1,19 @@
 # -*- coding: utf-8 -*-
 """hwpx_sign.py: HWPX 문서 서명란에 서명/도장 이미지를 삽입한다.
 
-왜 이 도구가 필요한가 (단순 InsertPicture로 안 되는 이유):
+백엔드 두 개. 기본은 모든 OS에서 rhwp, 한컴 COM은 ``--backend com``으로 고를 때만.
+결과물은 항상 ``<입력>_서명.hwpx``이고 ``.hwp`` 입력은 입구에서 HWPX로 변환한다.
+
+rhwp 경로 (``rhwp_sign``):
+  1) ``rhwp search``로 앵커의 쪽·문단·글자 위치를 찾는다(0건·2건 이상은 중단,
+     ``--occurrence``로 지정). 표 안 앵커는 COM 경로로 안내한다.
+  2) ``rhwp export-render-tree``에서 같은 문단의 본문 TextRun 상자(px)를 읽는다.
+     앵커가 run 중간이면 ``rhwp measure-width``로 앞부분 폭을 재고, 못 재면 글자 수
+     비례 추정(``--allow-estimated`` 없으면 중단).
+  3) 앵커 상자 중심에 겹쳐 찍는 좌표를 HWPUNIT으로 계산해 ``rhwp edit insert-image``.
+  4) 산출물은 ``hwpx_gate``(rhwp 허용 목록 포함)를 통과해야 결과물이 된다.
+
+COM 경로 (단순 InsertPicture로 안 되는 이유):
   1) 한컴 COM ``InsertPicture``는 그림을 floating(textWrap=TOP_AND_BOTTOM) +
      ``curSz=0,0`` 으로 넣는다. 서명란이 페이지 하단에 있으면 큰 그림이 인라인
      으로 그 줄에 안 들어가 **다음 페이지로 밀린다**.
@@ -12,31 +24,41 @@
      한컴 COM이 **문서 열기를 거부**한다. 치명적으로 ``hwpx-validate``(XSD)와
      ``--to-md``(recall)는 모두 통과해 자동 검증으로 못 잡는다 → PDF 변환에서만 드러남.
 
-해결: COM으로 anchor 텍스트 자리에 이미지를 넣어 BinData만 확보한 뒤, XML 후처리로
+  해결: COM으로 anchor 텍스트 자리에 이미지를 넣어 BinData만 확보한 뒤, XML 후처리로
   (a) 그림을 floating PAPER 절대좌표로 전환(크기/curSz 보정),
   (b) 앵커를 anchor 문단의 직전(위쪽) 문단으로 이동,
   (c) 세로 좌표를 anchor 문단의 lineseg vertpos + 페이지 여백으로 자동 계산,
   (d) 변경된 문단들의 linesegarray 제거.
 
 사용 예:
-  python hwpx_sign.py 동의서.hwpx --image 서명.png --anchor "(서명)"
-  python hwpx_sign.py 동의서.hwpx --image 서명.png --anchor "(서명)" \
-         --width-mm 22 --horz-offset 44000 --vert-adjust -800 --pdf
+  python hwpx_sign.py 동의서.hwpx --image 서명.png --anchor "(서명)" --pdf
+  python hwpx_sign.py 동의서.hwpx --image 서명.png --backend com --keep-anchor --pdf
 
-좌표 단위는 HWPUNIT(7200/inch). --horz-offset/--vert-adjust는 미세조정용이며,
-미지정 시 우측 정렬 + 서명줄 세로 중앙으로 자동 배치한다. 한 번 --pdf로 위치를
-확인하고 어긋나면 두 옵션만 바꿔 재실행하는 것이 최단 경로.
+좌표 단위는 HWPUNIT(7200/inch). --horz-offset/--vert-adjust는 미세조정용이다.
+한 번 --pdf로 위치를 확인하고 어긋나면 두 옵션만 바꿔 재실행하는 것이 최단 경로.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import zipfile
+from dataclasses import dataclass
 
-MM = 7200 / 25.4  # 1mm in HWPUNIT
+import hwpx_gate
+import rhwp_cli
+
+# 단위: HWPUNIT = 1/7200인치
+MM = 7200 / 25.4  # 1mm = 283.46 HWPUNIT
+PX = 7200 // 96   # render-tree px(96dpi) × 75 = HWPUNIT
+BYPRODUCT_DIR = "_work-hwpx-automation"
+COM_HINT = ("  Windows + 한컴오피스가 있으면 같은 명령에 --backend com을 붙여 COM 경로로 넣을 수 "
+            "있습니다(reference/signing.md).")
 
 
 def count_pdf_images(pdf: str) -> int | None:
@@ -66,6 +88,286 @@ def _locked_output_hint(e: Exception) -> None:
 
 def mm2hu(mm: float) -> int:
     return round(mm * MM)
+
+
+# ---------------------------------------------------------------- rhwp 단계
+class SignError(RuntimeError):
+    """사용자에게 그대로 보여 주고 exit 1로 끝내는 실패."""
+
+
+@dataclass
+class AnchorBox:
+    """앵커 글자의 화면 상자(render-tree px, 쪽 왼쪽 위 기준)."""
+    page: int
+    x: float
+    y: float
+    w: float
+    h: float
+    body_right: float     # 본문 영역 오른쪽 끝(px). --gap-mm 우측 정렬의 기준
+    method: str           # run(run 경계와 일치) | measured(measure-width) | estimated(글자 수 비례)
+
+
+def _convert_hwp(src: str):
+    """`.hwp` 입구 변환. hwpx_edit.hwp_to_hwpx(세션 edit의 M2)가 없으면 안내 후 중단."""
+    try:
+        from hwpx_edit import hwp_to_hwpx
+    except ImportError:
+        raise SignError("`.hwp`는 `python hwpx_edit.py --from-hwp <파일.hwp>`로 먼저 HWPX로 "
+                        "변환한 뒤 그 HWPX를 넣으세요.")
+    try:
+        return hwp_to_hwpx(src)
+    except (rhwp_cli.RhwpError, RuntimeError) as e:
+        raise SignError(f"HWP→HWPX 변환 실패: {e}")
+
+
+def find_anchor(doc: str, anchor: str, occurrence: int | None) -> tuple:
+    """rhwp search로 앵커 매치 하나를 고른다. (매치, 같은 문단 안 순번, 같은 문단 매치 수)."""
+    env = rhwp_cli.run(["search", doc, anchor],
+                       required_fields=("matches", "totalMatchCount")).envelope
+    matches = env["matches"]
+    if not matches:
+        raise SignError(f"앵커 {anchor!r}를 문서에서 찾지 못했습니다.")
+    if occurrence is None:
+        if len(matches) > 1:
+            where = ", ".join(f"{i}번째 {m['page'] + 1}쪽" for i, m in enumerate(matches[:10], 1))
+            where += " …" if len(matches) > 10 else ""
+            raise SignError(f"앵커 {anchor!r}가 {len(matches)}곳에 있습니다({where}). "
+                            "--occurrence N으로 하나를 고르세요.")
+        occurrence = 1
+    if not 1 <= occurrence <= len(matches):
+        raise SignError(f"--occurrence {occurrence}: 앵커는 {len(matches)}곳뿐입니다.")
+    m = matches[occurrence - 1]
+    if "cell" in m:
+        raise SignError("표 안의 앵커는 rhwp 경로가 아직 지원하지 않습니다.\n" + COM_HINT)
+    same = [x for x in matches if "cell" not in x
+            and (x["section"], x["paragraph"]) == (m["section"], m["paragraph"])]
+    return m, same.index(m), len(same)
+
+
+def render_runs(doc: str, page: int, paragraph: int) -> tuple:
+    """render-tree에서 본문 문단의 TextRun 목록과 본문 상자.
+
+    표 셀·글상자 안 run의 pi는 그 컨테이너 기준이라 본문 문단 번호와 겹친다.
+    그래서 Page>Body>Column>TextLine 바로 아래 run만 본다.
+    """
+    with tempfile.TemporaryDirectory(prefix="rhwp-tree-") as td:
+        rhwp_cli.run(["export-render-tree", doc, "-p", str(page), "-o", td], expect_json=False)
+        files = sorted(os.listdir(td))
+        want = f"render_tree_{page + 1:03d}.json"  # -p는 0부터, 파일 이름은 1부터
+        if files != [want]:
+            raise SignError(f"render-tree 쪽 번호가 search와 어긋납니다(기대 {want}, 실제 {files}).")
+        with open(os.path.join(td, want), encoding="utf-8") as f:
+            tree = json.load(f)
+
+    runs, body = [], None
+
+    def walk(node, path):
+        nonlocal body
+        if node.get("type") == "Body" and path == ["Page"]:
+            body = node["bbox"]
+        if (node.get("type") == "TextRun" and node.get("pi") == paragraph
+                and path == ["Page", "Body", "Column", "TextLine"]):
+            runs.append(node)
+        for child in node.get("children", []):
+            walk(child, path + [node.get("type")])
+
+    walk(tree, [])
+    if body is None:
+        raise SignError(f"render-tree {page + 1}쪽에 본문 영역이 없습니다.")
+    return runs, body
+
+
+def measure_widths(texts: list) -> list | None:
+    """rhwp measure-width의 width_px 열. 명령이 없거나 출력이 어긋나면 None."""
+    try:
+        r = rhwp_cli.run(["measure-width", "--size", "10", "--", *texts], expect_json=False)
+    except rhwp_cli.RhwpError:
+        return None
+    rows = [line.split("\t") for line in r.stdout.splitlines() if line.count("\t") >= 3]
+    if rows and rows[0][-2] == "width_px":
+        rows = rows[1:]
+    if len(rows) != len(texts):
+        return None
+    try:
+        return [float(row[-2]) for row in rows]
+    except ValueError:
+        return None
+
+
+def anchor_box(runs: list, body: dict, page: int, anchor: str, char_offset: int,
+               rank: int, n_same: int) -> AnchorBox:
+    text = "".join(r.get("text", "") for r in runs)
+    if text[char_offset:char_offset + len(anchor)] == anchor:
+        start = char_offset
+    else:
+        # charOffset이 화면 글자열과 어긋나는 문서(조판 부호 등)는 같은 문단 안 순번으로 찾는다.
+        found = [m.start() for m in re.finditer(re.escape(anchor), text)]
+        if len(found) != n_same:
+            raise SignError(f"앵커 {anchor!r}를 {page + 1}쪽 화면 배치에서 확정하지 못했습니다"
+                            "(앵커가 쪽을 넘는 문단에 있을 수 있음).\n" + COM_HINT)
+        start = found[rank]
+    end = start + len(anchor)
+
+    spans, pos = [], 0
+    for r in runs:
+        n = len(r.get("text", ""))
+        if pos < end and start < pos + n:
+            spans.append((r, max(start - pos, 0), min(end - pos, n)))
+        pos += n
+    if len({round(r["bbox"]["y"], 1) for r, _, _ in spans}) != 1:
+        raise SignError(f"앵커 {anchor!r}가 줄바꿈에 걸쳐 있어 자리를 하나로 정할 수 없습니다.\n" + COM_HINT)
+
+    # 앵커 왼쪽 끝은 첫 run의 a번째 글자, 오른쪽 끝은 마지막 run의 b번째 글자.
+    (first, a, _), (last, _, b) = spans[0], spans[-1]
+    cuts = [(first, a), (last, b)]
+    inner = [(r, k) for r, k in cuts if 0 < k < len(r["text"])]
+    method = "measured" if inner else "run"
+    widths = {}
+    if inner:
+        texts = []
+        for r, k in inner:
+            texts += [r["text"][:k], r["text"]]
+        got = measure_widths(texts)
+        if got is None or any(w <= 0 for w in got[1::2]):
+            method = "estimated"
+        else:
+            for i, (r, k) in enumerate(inner):
+                widths[(id(r), k)] = got[2 * i] / got[2 * i + 1]
+
+    def x_at(r, k):
+        box = r["bbox"]
+        if k == 0:
+            return box["x"]
+        if k == len(r["text"]):
+            return box["x"] + box["w"]
+        frac = widths.get((id(r), k), k / len(r["text"]))  # 측정이 없으면 글자 수 비례
+        return box["x"] + box["w"] * frac
+
+    x0, x1 = x_at(first, a), x_at(last, b)
+    line = first["bbox"]
+    return AnchorBox(page, x0, line["y"], x1 - x0, line["h"],
+                     body["x"] + body["w"], method)
+
+
+def place(box: AnchorBox, w_hu: int, h_hu: int, horz_offset: int | None,
+          vert_adjust: int, gap_hu: int | None) -> tuple:
+    """그림 왼쪽 위 (x, y) HWPUNIT. 기본은 앵커 상자 중심에 겹쳐 찍기."""
+    if horz_offset is not None:
+        x = horz_offset
+    elif gap_hu is not None:
+        x = round(box.body_right * PX) - w_hu - gap_hu   # 본문 우측 끝에서 gap만큼 안쪽
+    else:
+        x = round((box.x + box.w / 2) * PX - w_hu / 2)
+    y = round((box.y + box.h / 2) * PX - h_hu / 2) + vert_adjust
+    return x, y
+
+
+def locate(doc: str, anchor: str, occurrence: int | None) -> tuple:
+    """(search 매치, 앵커 상자)."""
+    m, rank, n_same = find_anchor(doc, anchor, occurrence)
+    runs, body = render_runs(doc, m["page"], m["paragraph"])
+    return m, anchor_box(runs, body, m["page"], anchor, m["charOffset"], rank, n_same)
+
+
+HP = "{http://www.hancom.co.kr/hwpml/2011/paragraph}"
+
+
+def float_over_anchor(path: str, section: int, paragraph: int, x: int, y: int) -> None:
+    """rhwp가 넣은 그림을 앵커 문단 맨 앞으로 옮기고 글 앞으로(겹침 허용)놓는다.
+
+    rhwp insert-image는 그림을 그 쪽 첫 문단에 어울림(SQUARE)으로 붙인다. 첫 문단이
+    빈 문단이면 rhwp 조판이 그 줄을 접어 아래 줄이 모두 한 줄씩 올라가 서명이 앵커에서
+    벗어나고(실측), 어울림은 한컴에서 앵커 줄 글자를 그림 밖으로 밀어낸다. 앵커 문단은
+    앵커 글자를 품어 비지 않고, 맨 앞에 두면 쪽을 넘는 문단에서도 시작 쪽에 그려진다.
+    """
+    from lxml import etree
+    from hwpx_edit import sanitize_xml_parts, serialize_xml, write_hwpx_zip, zip_layout
+
+    name = f"Contents/section{section}.xml"
+    with zipfile.ZipFile(path) as z:
+        parts = {n: z.read(n) for n in z.namelist()}
+    sanitize_xml_parts(parts)
+    root = etree.fromstring(parts[name])
+    pics = [p for p in root.iter(HP + "pic")
+            if (p.find(HP + "pos") is not None
+                and p.find(HP + "pos").get("horzOffset") == str(x)
+                and p.find(HP + "pos").get("vertOffset") == str(y))]
+    top = root.findall(HP + "p")
+    if len(pics) != 1 or paragraph >= len(top):
+        raise SignError(f"rhwp가 넣은 그림을 찾지 못했습니다(좌표 일치 {len(pics)}개).")
+    pic = pics[0]
+    pic.set("textWrap", "IN_FRONT_OF_TEXT")
+    pic.find(HP + "pos").set("allowOverlap", "1")
+    pic.getparent().remove(pic)
+    run = top[paragraph].find(HP + "run")
+    if run is None:
+        raise SignError("앵커 문단에 글자 묶음(run)이 없습니다.")
+    lead = sum(1 for c in run if c.tag in (HP + "secPr", HP + "ctrl"))
+    run.insert(lead, pic)
+    parts[name] = serialize_xml(root)
+    tmp = path + ".tmp"
+    write_hwpx_zip(tmp, parts, zip_layout(path))
+    os.replace(tmp, path)
+
+
+def rhwp_sign(doc: str, img: str, out: str, *, anchor: str, occurrence: int | None,
+              w_hu: int, h_hu: int, horz_offset: int | None, vert_adjust: int,
+              gap_hu: int | None, allow_estimated: bool) -> dict:
+    """rhwp로 앵커 위에 서명을 넣고 게이트를 통과한 산출물만 out에 둔다."""
+    m, box = locate(doc, anchor, occurrence)
+    if box.method == "measured":
+        print("[WARN] 앵커가 글자 묶음(run) 중간에 있어 rhwp measure-width로 앞부분 폭을 재서 "
+              "가로 위치를 구했습니다. --pdf로 확인하세요.", file=sys.stderr)
+    if box.method == "estimated":
+        msg = ("앵커가 글자 묶음(run) 중간인데 rhwp measure-width로 폭을 재지 못해 글자 수 "
+               "비례로 추정했습니다(estimated).")
+        if not allow_estimated:
+            raise SignError(msg + " 추정 좌표로 넣으려면 --allow-estimated를 붙이고 --pdf로 확인하세요.")
+        print("[WARN] " + msg, file=sys.stderr)
+    x, y = place(box, w_hu, h_hu, horz_offset, vert_adjust, gap_hu)
+
+    gated = {}
+
+    def reject(staged, why):
+        keep = os.path.join(os.path.dirname(os.path.abspath(out)), BYPRODUCT_DIR,
+                            os.path.basename(out))
+        os.makedirs(os.path.dirname(keep), exist_ok=True)
+        shutil.copyfile(staged, keep)
+        raise SignError(f"{why}\n  통과하지 못한 산출물: {keep}\n" + COM_HINT)
+
+    def verify(staged):
+        float_over_anchor(staged, m["section"], m["paragraph"], x, y)
+        rep = hwpx_gate.gate(doc, staged, allow_rhwp=True, allow_bindata_added=1)
+        gated["report"] = rep
+        if rep.status == "failed":
+            reject(staged, f"{rep.summary()}\n{hwpx_gate.describe_lost(rep)}")
+        # 서명을 넣은 뒤에도 앵커가 같은 자리에 그려지는지(조판이 밀리지 않았는지) 다시 잰다.
+        _, after = locate(staged, anchor, occurrence)
+        moved = max(abs(a - b) for a, b in ((box.x, after.x), (box.y, after.y),
+                                            (box.w, after.w), (box.h, after.h)))
+        if after.page != box.page or moved > 0.5:
+            reject(staged, f"서명을 넣은 뒤 앵커 자리가 바뀌었습니다({box.page + 1}쪽 → "
+                           f"{after.page + 1}쪽, 최대 {moved:.1f}px). 조판이 밀린 문서입니다.")
+
+    r = rhwp_cli.run(["edit", "insert-image", doc, "--image", img, "--page", str(m["page"]),
+                      "--x", str(x), "--y", str(y), "--width", str(w_hu), "--height", str(h_hu),
+                      "-o", rhwp_cli.OUTPUT],
+                     output=out, required_fields=("output", "page", "overflow"), verify=verify)
+    return dict(page=m["page"], x=x, y=y, box=box, gate=gated["report"],
+                overflow=r.envelope["overflow"], warnings=r.warnings)
+
+
+def svg_image_count(doc: str, page: int) -> int:
+    """rhwp export-svg로 그 쪽을 그려 <image> 수를 센다(PyMuPDF 없는 환경의 그림 확인)."""
+    with tempfile.TemporaryDirectory(prefix="rhwp-svg-") as td:
+        env = rhwp_cli.run(["export-svg", doc, "-p", str(page), "-o", td],
+                           required_fields=("pages",)).envelope
+        total = 0
+        for p in env["pages"]:
+            path = p["path"] if os.path.isabs(p["path"]) else os.path.join(td, os.path.basename(p["path"]))
+            with open(path, encoding="utf-8") as f:
+                total += f.read().count("<image")
+        return total
 
 
 # ---------------------------------------------------------------- COM 단계
@@ -457,35 +759,44 @@ def to_floating(doc: str, out: str, w_hu: int, h_hu: int,
 
 
 # ---------------------------------------------------------------- 진입점
-def main() -> int:
+def parse_args(argv=None):
     ap = argparse.ArgumentParser(description="HWPX 서명란에 서명/도장 이미지 삽입")
-    ap.add_argument("doc", help="대상 HWPX")
+    ap.add_argument("doc", help="대상 HWPX(.hwp는 입구에서 HWPX로 변환)")
     ap.add_argument("--image", required=True, help="서명/도장 이미지(투명/흰 배경 PNG 권장)")
     ap.add_argument("--anchor", default="(서명)", help='서명을 놓을 기준 텍스트(기본 "(서명)")')
+    ap.add_argument("--backend", choices=("rhwp", "com"), default="rhwp",
+                    help="rhwp(기본, 모든 OS) | com(Windows + 한컴오피스, 명시 폴백)")
+    ap.add_argument("--occurrence", type=int, default=None,
+                    help="앵커가 여러 곳이면 N번째(1부터)를 쓴다(rhwp)")
+    ap.add_argument("--allow-estimated", action="store_true",
+                    help="run 중간 앵커의 폭을 재지 못했을 때 글자 수 비례 추정 좌표로 진행(rhwp)")
     ap.add_argument("--width-mm", type=float, default=20.0, help="서명 가로 크기 mm(기본 20)")
     ap.add_argument("--height-mm", type=float, default=None,
                     help="서명 세로 크기 mm(미지정 시 이미지 종횡비로 자동)")
     ap.add_argument("--horz-offset", type=int, default=None,
-                    help="종이 좌측 기준 가로 위치 HWPUNIT(미지정 시 우측 정렬)")
+                    help="종이 좌측 기준 가로 위치 HWPUNIT(미지정 시 rhwp는 앵커 중심, com은 우측 정렬)")
     ap.add_argument("--vert-adjust", type=int, default=0,
                     help="세로 미세조정 HWPUNIT(+아래 / -위)")
-    ap.add_argument("--gap-mm", type=float, default=7.0,
-                    help="우측 정렬 시 본문 우측 끝과의 여백 mm(기본 7)")
+    ap.add_argument("--gap-mm", type=float, default=None,
+                    help="본문 우측 끝과의 여백 mm로 우측 정렬(com 기본 7, rhwp는 줄 때만 우측 정렬)")
     ap.add_argument("--keep-anchor", action="store_true",
-                    help='anchor 텍스트를 지우지 않고 그 위에 겹쳐 찍는다'
-                         '(한국 결재 문서 관행: "(서명)"·"(인)" 표시를 남긴 채 날인). '
-                         '가로 위치는 기본 우측 정렬이므로 표시 위에 정확히 얹으려면 '
-                         '--horz-offset으로 맞추고 --pdf로 확인한다.')
+                    help='anchor 텍스트를 지우지 않고 그 위에 겹쳐 찍는다(com. rhwp는 늘 겹쳐 찍는다)'
+                         '(한국 결재 문서 관행: "(서명)"·"(인)" 표시를 남긴 채 날인).')
     ap.add_argument("--inline", action="store_true",
-                    help="floating 전환 없이 COM 인라인 삽입만(서명란에 세로 여유가 충분할 때)")
-    ap.add_argument("-o", "--output", default=None, help="출력 경로(기본 입력 옆 _서명.hwpx)")
+                    help="floating 전환 없이 COM 인라인 삽입만(com 전용)")
+    ap.add_argument("-o", "--output", default=None, help="출력 경로(기본 입력 옆 <입력>_서명.hwpx)")
     ap.add_argument("--pdf", action="store_true", help="삽입 후 검증용 PDF도 생성")
-    args = ap.parse_args()
+    return ap.parse_args(argv)
 
+
+def main(argv=None) -> int:
+    args = parse_args(argv)
     if not os.path.isfile(args.doc):
         print(f"[ERROR] 문서 없음: {args.doc}", file=sys.stderr); return 1
     if not os.path.isfile(args.image):
         print(f"[ERROR] 이미지 없음: {args.image}", file=sys.stderr); return 1
+    if args.backend == "rhwp" and args.inline:
+        print("[ERROR] --inline은 --backend com 전용입니다.", file=sys.stderr); return 1
 
     # 세로 크기 자동(종횡비)
     h_mm = args.height_mm
@@ -497,14 +808,67 @@ def main() -> int:
         except Exception:
             h_mm = round(args.width_mm * 0.65, 2)  # 폴백 비율
 
-    out = args.output
-    if out is None:
-        base, ext = os.path.splitext(args.doc)
-        out = base + "_서명" + ext
+    out = args.output or os.path.splitext(args.doc)[0] + "_서명.hwpx"
+    if not out.lower().endswith(".hwpx"):
+        print(f"[ERROR] 결과물은 HWPX로만 저장합니다: {out}", file=sys.stderr); return 1
+
+    doc = args.doc
+    try:
+        if doc.lower().endswith(".hwp"):
+            conv = _convert_hwp(doc)
+            for line in conv.messages:
+                print(f"     {line}")
+            doc = conv.path
+        if args.backend == "com":
+            rc, svg_check = com_sign(doc, out, args, h_mm), None
+        else:
+            rc, svg_check = 0, (doc, rhwp_main(doc, out, args, h_mm))
+    except SignError as e:
+        print(f"[ERROR] {e}", file=sys.stderr)
+        return 1
+    except rhwp_cli.RhwpError as e:
+        print(f"[ERROR] {e}\n{COM_HINT}", file=sys.stderr)
+        return 1
+    if rc != 0:
+        return rc
+
+    if args.pdf:
+        rc = make_pdf(out, svg_check)
+    if args.backend == "com":
+        print("engine=com (사용자 지정 --backend com)")
+    else:
+        print("engine=rhwp")
+    return rc
+
+
+def rhwp_main(doc: str, out: str, args, h_mm: float) -> int:
+    """rhwp 경로를 돌리고 결과를 출력한다. 서명이 들어간 쪽(0부터)을 돌려준다."""
+    w_hu, h_hu = mm2hu(args.width_mm), mm2hu(h_mm)
+    res = rhwp_sign(doc, args.image, out, anchor=args.anchor, occurrence=args.occurrence,
+                    w_hu=w_hu, h_hu=h_hu, horz_offset=args.horz_offset,
+                    vert_adjust=args.vert_adjust,
+                    gap_hu=None if args.gap_mm is None else mm2hu(args.gap_mm),
+                    allow_estimated=args.allow_estimated)
+    box = res["box"]
+    for w in res["warnings"]:
+        print(f"[WARN] {w}", file=sys.stderr)
+    if res["overflow"]:
+        print(f"[WARN] 서명이 쪽 밖으로 나갑니다: {res['overflow']}", file=sys.stderr)
+    print(f"[OK] 서명 삽입(rhwp, 겹쳐 찍기): {out}")
+    print(f"     {res['page'] + 1}쪽 · 크기 {args.width_mm}x{h_mm}mm · x={res['x']} y={res['y']} "
+          f"(HWPUNIT) · 앵커 상자 x={box.x * PX:.0f} y={box.y * PX:.0f} "
+          f"w={box.w * PX:.0f} h={box.h * PX:.0f} ({box.method})")
+    print("     " + res["gate"].summary().replace("\n", "\n     "))
+    print("     위치가 어긋나면 --horz-offset / --vert-adjust 로 재실행하세요.")
+    return res["page"]
+
+
+def com_sign(doc: str, out: str, args, h_mm: float) -> int:
+    gap_mm = 7.0 if args.gap_mm is None else args.gap_mm
 
     # 서명줄 좌표 산출용 원본 XML(COM이 앵커 문단의 lineseg를 지우기 전에 확보)
     try:
-        with zipfile.ZipFile(args.doc, "r") as zsrc:
+        with zipfile.ZipFile(doc, "r") as zsrc:
             src_xml = zsrc.read("Contents/section0.xml").decode("utf-8")
     except Exception:
         src_xml = None
@@ -512,9 +876,8 @@ def main() -> int:
     # 입력을 출력으로 복사 후 그 위에서 작업(원본 비파괴). 출력 경로에 처음 쓰는
     # 곳이라 직전 실행의 Hwp.exe가 잠근 파일이면 여기서 PermissionError가 난다.
     try:
-        if os.path.abspath(out) != os.path.abspath(args.doc):
-            import shutil
-            shutil.copyfile(args.doc, out)
+        if os.path.abspath(out) != os.path.abspath(doc):
+            shutil.copyfile(doc, out)
         com_insert(out, args.image, args.anchor, args.width_mm, h_mm,
                    keep_anchor=args.keep_anchor)
     except PermissionError as e:
@@ -535,63 +898,76 @@ def main() -> int:
         except Exception:
             pass
 
-    if not args.inline:
-        try:
-            vert, horz = to_floating(
-                out, out, mm2hu(args.width_mm), mm2hu(h_mm),
-                args.horz_offset, args.vert_adjust, mm2hu(args.gap_mm),
-                src_xml=src_xml, anchor=args.anchor,
-                img_name=os.path.basename(args.image))
-        except PermissionError as e:
-            _locked_output_hint(e)
-            return 1
-        except RuntimeError as e:
-            # 좌표를 신뢰할 수 없을 때의 안내는 트레이스백 없이 그대로 보여준다.
-            # COM 삽입까지는 끝난 상태이므로 중간 산출물 경로도 알려준다.
-            print(f"[ERROR] {e}\n  (COM 삽입까지 진행된 중간 파일: {out})",
-                  file=sys.stderr)
-            return 1
-        mode = "겹쳐 찍기" if args.keep_anchor else "앵커 대체"
-        print(f"[OK] 서명 삽입(floating, {mode}): {out}")
-        print(f"     크기 {args.width_mm}x{h_mm}mm · vertOffset={vert} horzOffset={horz}")
-        print("     위치가 어긋나면 --horz-offset / --vert-adjust 로 재실행하세요.")
-        if args.keep_anchor and args.horz_offset is None:
-            print(f"     겹쳐 찍기 기본 가로 위치는 우측 정렬입니다. "
-                  f'"{args.anchor}" 표시 위에 정확히 얹으려면 '
-                  f"--horz-offset {horz} 부터 조정하세요.")
-    else:
+    if args.inline:
         print(f"[OK] 서명 삽입(inline): {out}")
+        return 0
+    try:
+        vert, horz = to_floating(
+            out, out, mm2hu(args.width_mm), mm2hu(h_mm),
+            args.horz_offset, args.vert_adjust, mm2hu(gap_mm),
+            src_xml=src_xml, anchor=args.anchor,
+            img_name=os.path.basename(args.image))
+    except PermissionError as e:
+        _locked_output_hint(e)
+        return 1
+    except RuntimeError as e:
+        # 좌표를 신뢰할 수 없을 때의 안내는 트레이스백 없이 그대로 보여준다.
+        # COM 삽입까지는 끝난 상태이므로 중간 산출물 경로도 알려준다.
+        print(f"[ERROR] {e}\n  (COM 삽입까지 진행된 중간 파일: {out})", file=sys.stderr)
+        return 1
+    mode = "겹쳐 찍기" if args.keep_anchor else "앵커 대체"
+    print(f"[OK] 서명 삽입(floating, {mode}): {out}")
+    print(f"     크기 {args.width_mm}x{h_mm}mm · vertOffset={vert} horzOffset={horz}")
+    print("     위치가 어긋나면 --horz-offset / --vert-adjust 로 재실행하세요.")
+    if args.keep_anchor and args.horz_offset is None:
+        print(f"     겹쳐 찍기 기본 가로 위치는 우측 정렬입니다. "
+              f'"{args.anchor}" 표시 위에 정확히 얹으려면 '
+              f"--horz-offset {horz} 부터 조정하세요.")
+    return 0
 
-    if args.pdf:
-        pdf = os.path.splitext(out)[0] + ".pdf"
-        here = os.path.dirname(os.path.abspath(__file__))
-        rc = subprocess.run(
-            [sys.executable, os.path.join(here, "hwpx_edit.py"), out, "--to-pdf", "-o", pdf]
-        ).returncode
-        if rc == 0:
-            try:
-                n_img = count_pdf_images(pdf)
-            except Exception as e:  # 변환은 0으로 끝났는데 PDF를 열지 못함
-                print(f"[WARN] 검증 PDF를 열지 못해 이미지 객체 수 검증을 생략: {e}",
-                      file=sys.stderr)
-                n_img = None
-            if n_img == 0:
-                print(f"[ERROR] 검증 PDF에 이미지 객체가 없습니다: {pdf}\n"
-                      "  서명이 그려지지 않은 문서입니다(hp:pic이 hp:run 밖에 놓였거나 "
-                      "BinData 누락). 이 파일을 제출하지 마세요. reference/signing.md 참조.",
-                      file=sys.stderr)
-                return 1
-            if n_img is None:
-                print(f"[OK] 검증 PDF: {pdf} (이미지 객체 수 검증 생략. PyMuPDF를 설치하거나 "
-                      "pdfimages -list로 직접 확인)")
-            else:
-                print(f"[OK] 검증 PDF: {pdf} (이미지 객체 {n_img}개. 로고·직인 등 다른 "
-                      "이미지가 있는 문서는 이 수만으로 서명 유무를 단정할 수 없으니 "
-                      "서명 구역을 육안 확인)")
-        else:
-            print("[WARN] PDF 변환 실패(한컴 COM 잔류 의심: 사용자가 연 한글 문서가 없는지 확인한 뒤 "
-                  "taskkill /F /IM Hwp.exe 후 재시도. reference/warnings-com.md 9번)",
-                  file=sys.stderr)
+
+def make_pdf(out: str, svg_check=None) -> int:
+    """검증 PDF를 만들고 그림이 실제로 그려졌는지 센다.
+
+    svg_check=(원본, 쪽): PyMuPDF가 없을 때 rhwp export-svg로 그 쪽의 <image>가
+    원본보다 하나 늘었는지 본다.
+    """
+    pdf = os.path.splitext(out)[0] + ".pdf"
+    here = os.path.dirname(os.path.abspath(__file__))
+    rc = subprocess.run(
+        [sys.executable, os.path.join(here, "hwpx_edit.py"), out, "--to-pdf", "-o", pdf]
+    ).returncode
+    if rc != 0:
+        print("[WARN] PDF 변환 실패(COM이면 한컴 잔류 의심: 사용자가 연 한글 문서가 없는지 확인한 뒤 "
+              "taskkill /F /IM Hwp.exe 후 재시도. reference/warnings-com.md 9번)",
+              file=sys.stderr)
+        return 0
+    try:
+        n_img = count_pdf_images(pdf)
+    except Exception as e:  # 변환은 0으로 끝났는데 PDF를 열지 못함
+        print(f"[WARN] 검증 PDF를 열지 못해 이미지 객체 수 검증을 생략: {e}", file=sys.stderr)
+        n_img = None
+    if n_img == 0:
+        print(f"[ERROR] 검증 PDF에 이미지 객체가 없습니다: {pdf}\n"
+              "  서명이 그려지지 않은 문서입니다(hp:pic이 hp:run 밖에 놓였거나 "
+              "BinData 누락). 이 파일을 제출하지 마세요. reference/signing.md 참조.",
+              file=sys.stderr)
+        return 1
+    if n_img is None and svg_check:
+        src, page = svg_check
+        before, after = svg_image_count(src, page), svg_image_count(out, page)
+        if after <= before:
+            print(f"[ERROR] {page + 1}쪽 렌더에 서명 그림이 늘지 않았습니다(<image> {before}→{after}). "
+                  "이 파일을 제출하지 마세요.", file=sys.stderr)
+            return 1
+        print(f"[OK] 검증 PDF: {pdf} ({page + 1}쪽 렌더의 그림 {before}→{after}개. 서명 구역을 육안 확인)")
+    elif n_img is None:
+        print(f"[OK] 검증 PDF: {pdf} (이미지 객체 수 검증 생략. PyMuPDF를 설치하거나 "
+              "pdfimages -list로 직접 확인)")
+    else:
+        print(f"[OK] 검증 PDF: {pdf} (이미지 객체 {n_img}개. 로고·직인 등 다른 "
+              "이미지가 있는 문서는 이 수만으로 서명 유무를 단정할 수 없으니 "
+              "서명 구역을 육안 확인)")
     return 0
 
 
