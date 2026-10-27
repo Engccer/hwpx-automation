@@ -120,3 +120,19 @@ git push origin feat/<name>:master && git -C ~/Mac-Projects/hwpx-automation pull
 - 2026-10-28 07:30, 9b7e7d7 기준. §2-1 ② 정정: 허용 목록은 header.xml 개요 블록에 그치지 않는다. 세션 sign이 실측하고 코디네이터가 한컴 저장 HWPX(문단 16,671개)로 재현했다: rhwp 재직렬화는 모든 문서에서 section*.xml의 `hp:p id`를 0,1,2…로 다시 매기고(문단 수·내용은 그대로) `hp:shadow type="NONE"`을 지운다(32→22). `allow_rhwp=True`는 이 둘도 allowed로 보낸다. 조건: p id는 문단 수가 같고 id를 뺀 속성 묶음이 같을 때만, shadow는 `type="NONE"`일 때만. 둘 다 "허용된 손실(rhwp 재직렬화)" 줄에 건수로 보고한다. 개요 블록 허용은 본문이 쓰지 않는 paraPr 안의 손실로 좁힌다(본문이 쓰는 paraPr의 개요 단계 손실은 실패). 기존 시그니처 호출의 동작은 바뀌지 않는다.
 - M6 완료(9b7e7d7): hunyong-samsung `C:\Users\pc\.local\bin\rhwp.exe` v0.8.7, 해시 대조, `setx` 불필요.
 - M2 통합(718bc46, 세션 edit): 단위 91건. 리뷰 8번(cross_check BinData 해시 미대조)은 hwpx_gate 소유자인 sign의 M3 범위로 넘겼다(07:40 전파).
+- 07:50 소유권 예외 승인: sign이 M3 커밋에 edit 소유 test_doc_promises.py의 SignPdfImageGate argv 두 곳에 `--backend com`을 넣는다(기본 백엔드 전환과 같은 커밋이어야 시험이 깨지지 않는다). edit에 전파.
+- 08:00 판정(edit judgment-202610280735): `hwpx_sign.py --pdf`의 하위 호출은 sign이 M3에서 `--backend com`이면 `--pdf-backend com`을 붙인다(소유권대로). edit의 `reference/com.md` 수정(`--to-pdf` 예시에 `--pdf-backend com`) 자진 신고 수용.
+- M4 통합(d018158, 세션 edit): 단위 98건. `--to-pdf` 모든 OS rhwp 기본, `--pdf-backend com` Windows 폴백. 암호 HWPX의 rhwp PDF 해제는 미실측(M7 인계 목록에 있음).
+- M3 통합(038b798, 세션 sign): 단위 116건. 허용 목록 술어 실측(본문이 안 쓰는 paraPr 안 개요 블록·p id 재부여·shadow NONE 소실만), cross_check BinData 해시 대조, `--backend com`이면 `--pdf-backend com`. sign 창 닫음(08:20).
+
+## M7 인계 목록 (edit·sign 보고에서 모음, docs 세션이 처리)
+
+- CLAUDE.md 구조도 `rhwp_pdf.py`("macOS·Linux")·`pdf_export.py`("Windows --to-pdf 공통") 설명과 색인 "macOS·Linux PDF" 줄을 "모든 OS rhwp 기본, Windows COM은 `--pdf-backend com`"으로.
+- SKILL.md 절 제목 "macOS·Linux에서 PDF 변환 (rhwp)"과 상세 레퍼런스 색인 줄. 의사결정 트리 72행 "hwp2hwpx 변환물은 PrvText 누락…"은 `--engine jar`·래퍼 직접 호출에만 해당.
+- `evals/scenarios.md` 39행: Pandoc 산출물 PDF 갭이 메워졌으니 기대 답 수정.
+- 암호 문서: rhwp `export-pdf`의 암호 해제는 미실측. 실패 안내에 "암호 문서는 Windows `--pdf-backend com`"이 들어 있다. BACKLOG 감시 항목으로.
+- 표본 함정(CLAUDE.md 함정 후보): python-hwpx로 갓 만든 HWPX를 rhwp convert로 만든 HWP는 lineseg가 없어 export-hwpx `--verify`가 exit 3. 한 번 더 왕복한 HWP는 차이 0.
+- AGENTS.md 재생성(`python ../sync_agent_docs.py`).
+- (sign 보고) 아직 "서명은 Windows+한컴 전용"이라고 말하는 자리: `SKILL.md` 19행(도구 위치)·36행 근처(Tier 표)·105행(도구별 용도 표 `hwpx_sign.py (COM+XML)`), `README.md` 75행, `CLAUDE.md` 11행(구조 주석). 새 기본 동작·T4 채점과 맞춘다.
+- (sign 보고) `reference/rhwp.md`에 옮길 rhwp 계약 실측: `search`의 `page`는 문단 시작 쪽, 표 셀 매치의 `cell` 키와 컨테이너 기준 `pi`, `export-render-tree`·`measure-width`는 `--json` 없음(exit 2, `rhwp_cli.run(expect_json=False)`), render-tree 파일명 `render_tree_<쪽+1 세 자리>.json`, `measure-width`는 TSV, `edit insert-image` 봉투 필드(`output, outputFormat, page, x, y, width, height, overflow, binDataId, changedPages`)와 "그 쪽 첫 문단에 SQUARE로 붙여 빈 문단이면 줄이 접힌다" 함정(`float_over_anchor`가 처리).
+- (sign 보고) 위원장 실사용 확인 권고: 한컴 2024에서 rhwp 서명본 열기, 앵커 문단이 여러 줄인 표본 하나 포함. PROGRESS "실기 확인 대기" 문장에 넣는다.
