@@ -9,7 +9,7 @@
 ## 다음 단계
 
 - M2~M5 착수 순서와 자리는 `docs/BACKLOG.md`.
-- M6은 Windows hunyong-samsung rhwp 설치만. 한컴 2024 호환은 위원장 실사용에서 확인하고 문제가 보이면 그 축을 COM 폴백 기본으로 되돌린다.
+- Windows hunyong-samsung rhwp v0.8.7 설치 완료(M6). 한컴 2024 호환은 위원장 실사용에서 확인하고 문제가 보이면 그 축을 COM 폴백 기본으로 되돌린다.
 
 ## 미결 결정
 

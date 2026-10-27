@@ -2,6 +2,7 @@
 
 ## 2026-10-28
 
+- M6: Windows hunyong-samsung에 rhwp v0.8.7(`C:\Users\pc\.local\bin\rhwp.exe`, SHA256 릴리스 대조)을 설치했다. 한컴 2024 호환은 위원장 실사용에서 확인한다.
 - rhwp 중심 재설계 M1: `rhwp_cli.py`(어댑터)와 `hwpx_gate.py`(독립 손실 게이트)를 추가하고 `rhwp_pdf.py`를 어댑터 위로 옮겼다. 봉투·exit code 계약 검사, 0.8.7 하한, 임시 폴더→검증→교체를 한곳에 모았다. 플랜 `docs/plans/2026-10-28-rhwp-redesign.md`, codex 적대적 리뷰 반영.
 - 실측: rhwp HWPX 왕복은 자가 검증 PASS지만 게이트가 header.xml `hp:switch`·paraPr 손실을 잡는다. HWP 3건의 rhwp·JAR 변환물 교차 대조는 글자·표·셀·그림·BinData 수 일치.
 - 버전 1.4.0 → 1.5.0.
