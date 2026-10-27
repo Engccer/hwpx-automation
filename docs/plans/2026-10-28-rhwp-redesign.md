@@ -29,11 +29,12 @@
 ## 설계 원칙
 
 1. **rhwp 호출은 어댑터 하나로만.** 새 모듈 `rhwp_cli.py`가 바이너리 탐색·버전 확인·`--json` 봉투 파싱·exit code 매핑·임시 폴더→검증→`os.replace`를 맡고, 다른 파일은 이 모듈만 부른다. `rhwp_pdf.py`의 `save_pdf()`가 가진 패턴(shutil.which, 임시 폴더, 헤더 검증, `--password-stdin`)을 여기로 끌어올린다.
-2. **rhwp가 쓴 파일은 독립 손실 게이트를 거친다.** rhwp 자가 검증은 자기 IR 밖의 손실을 못 보므로, 산출물마다 (a) hwpx-tomd recall(글자·단어 100%) (b) header.xml·section0.xml 태그 census 대조(사라진 요소 이름·수 보고) (c) `hwpx-validate`를 묶은 `hwpx_gate.py`를 통과해야 결과물로 인정한다. 변환·이미지·HWP 편집 축에서 필수, PDF는 기존 빈 네모 검사 유지.
-3. **폴백은 자동 전환이 아니라 명시 안내다.** rhwp가 exit 1·3·4나 게이트 실패를 내면 결과를 `_work-hwpx-automation/`에 남기고 어느 폴백(JAR·COM)을 어떤 명령으로 부를지 stderr에 적는다. 조용한 자동 전환은 어느 엔진이 썼는지 알 수 없게 만든다.
+2. **rhwp가 쓴 파일은 독립 손실 게이트를 거친다.** rhwp 자가 검증은 자기 IR 밖의 손실을 못 보므로, 산출물마다 `hwpx_gate.py`를 통과해야 결과물로 인정한다. 게이트 항목: (a) hwpx-tomd recall(글자·단어 100%) (b) **모든** `Contents/section*.xml`과 header.xml의 요소 census를 태그 이름 + 정렬된 속성 묶음 단위로 대조해 사라지거나 바뀐 요소를 보고(의도한 편집 자리의 변화는 호출자가 허용 목록으로 제외) (c) `BinData/*` 파일 집합과 SHA-256 대조(그림·OLE·차트 변형 검출) (d) `hwpx-validate`. HWP 원본처럼 XML이 없는 쪽은 census·BinData 대조를 **같은 문서의 JAR 변환물**과 교차 대조로 대체하고, JDK가 없어 교차 대조가 불가능하면 `passed`가 아니라 `unverified`로 표기한다. 변환·이미지·누름틀·격자 셀 축에서 필수, PDF는 기존 빈 네모 검사 유지.
+3. **폴백은 자동 전환이 아니라 명시 안내다.** rhwp가 exit 1·3·4나 게이트 실패를 내면 결과를 `_work-hwpx-automation/`에 남기고 어느 폴백(JAR·COM)을 어떤 명령으로 부를지 stderr에 적는다. 모든 산출물 보고에 `engine=`(rhwp·jar·com·lxml)과 전환 사유를 함께 적고, SKILL.md에 "폴백으로 전환했으면 완료 보고에 엔진과 사유를 쓴다"를 행동 문장으로 둔다. 조용한 자동 전환은 어느 엔진이 썼는지 알 수 없게 만든다.
 4. **좌표 체계는 섞지 않는다.** 기존 `--set-cell T,R,C`(물리 tc 인덱스, lxml)는 그대로 두고, rhwp 격자 좌표 명령은 `--grid-*` 접두로 분리한다. 안내문에 "격자 좌표는 `--tables`로 먼저 본다"를 적는다.
 5. **`.hwp`는 입구에서만 만난다.** 모든 명령은 `.hwp` 입력을 받으면 먼저 M2의 변환을 거쳐 HWPX 위에서 동작한다. `.hwp`를 `.hwp`로 저장하는 편집 경로는 만들지 않는다. 역방향은 `--to-hwp`(rhwp `convert`) 하나만 두고, rhwp가 경고하는 대로 그림·차트가 빠질 수 있으니 결과 안내에 "정본은 HWPX" 문장을 넣는다.
-6. **버전 핀.** 어댑터가 `rhwp --version`을 읽어 0.8.7 미만이면 거부한다(이유: `export-hwpx` 위치 인자·`edit insert-image`·`--json` 봉투 계약을 이 버전에서 실측했다). 상한은 두지 않되 1.0 전까지는 CHANGELOG에 실측 버전을 적는다.
+6. **버전·계약 검사.** 어댑터가 `rhwp --version`을 읽어 0.8.7 미만이면 거부한다(이유: `export-hwpx` 위치 인자·`edit insert-image`·`--json` 봉투 계약을 이 버전에서 실측했다). 실측 상한(`TESTED_MAX`)을 넘으면 경고만 내고 진행한다(상한 차단은 2~4주 릴리스마다 도구를 멈추게 하므로 기각). 대신 봉투를 명령별로 검사한다: `schemaVersion`이 `1.0`이 아니거나 명령별 필수 필드(`output`·`outputFormat`·`changedPages` 등)가 없거나 exit 0인데 출력 파일이 없으면 산출물을 게시하지 않고 `RhwpContractError`로 실패한다. rhwp 원시 exit code는 `RhwpResult.exit_code`에 그대로 남기고 래퍼 오류와 분리한다.
+7. **기본값 승격은 축별 Windows 실기 통과 뒤에만.** 모든 rhwp 경로는 먼저 옵트인 플래그(`--engine rhwp`)로 들어가고 기존 기본값은 유지한다. 한컴 2024에서 그 축의 산출물이 열리고 내용·위치가 맞는지 확인한 뒤 그 축만 기본값으로 바꾸는 별도 커밋을 낸다. 확인 전 push되는 코드는 기존 사용자 동작을 바꾸지 않는다.
 
 ## 마일스톤
 
@@ -57,7 +58,7 @@
 
 ### M2. HWP→HWPX를 rhwp 기본으로, JAR은 폴백
 
-- `hwpx_edit.py`에 `--from-hwp <입력.hwp>` 플래그(또는 입력이 `.hwp`이면 `--to-md`·편집 전에 자동 변환). 구현 `cmd_from_hwp()`: `rhwp export-hwpx <in> <out> --verify --json` → `hwpx_gate.gate(require_census=False)` → 성공 시 `_work-hwpx-automation/<이름>.hwpx`.
+- `hwpx_edit.py`에 `--from-hwp <입력.hwp>` 플래그(또는 입력이 `.hwp`이면 `--to-md`·편집 전에 자동 변환). 엔진 선택 `--engine rhwp|jar`(기본은 실기 승격 전까지 `jar`). 구현 `cmd_from_hwp()`: `rhwp export-hwpx <in> <out> --verify --json` → 교차 대조: JDK가 있으면 같은 HWP를 JAR로도 변환해 `hwpx_gate.cross_check(rhwp_out, jar_out)`(hwpx-tomd 텍스트 일치, 표 수·셀 수, BinData 수·해시) → 성공 시 `_work-hwpx-automation/<이름>.hwpx`. JDK가 없으면 결과를 `unverified`로 표기하고 그 사실을 출력한다.
 - 실패 시 안내: `bash convert/hwp2hwpx.sh` 또는 `.bat` 명령과 `--add-preview` 후속을 그대로 출력. JAR 래퍼·패치·`--add-preview`·`--sanitize`는 삭제하지 않는다(EmptyStackException 같은 rhwp 미실측 문서군의 폴백).
 - `--check-env` Tier 재정의: Tier 1 읽기·편집(python-hwpx·lxml·hwpx-tomd), Tier 2 변환·PDF·이미지(**rhwp**, 버전 표시), Tier 3 MD→HWPX(pypandoc-hwpx), Tier 4 폴백(JDK+JAR, Windows 한컴 COM). `cmd_check_env()`·`test_rhwp_pdf.py`의 check-env 테스트를 함께 고친다.
 - SKILL.md 259행 "HWP 바이너리 직접 파싱 금지"에 예외를 명시: rhwp는 허용하며 근거는 실측(단어 집합 일치·PrvText 포함·validate 통과). kordoc 금지는 유지.
@@ -66,12 +67,12 @@
 
 ### M3. 이미지·서명을 맥·Windows 공통 rhwp 경로로
 
-- `hwpx_sign.py`에 백엔드 분기 `--backend rhwp|com`(기본 `rhwp`; Windows + COM 가능 환경에서도 rhwp 기본, `com`은 옵트인).
+- `hwpx_sign.py`에 백엔드 분기 `--backend rhwp|com`. 실기 승격 전 기본은 기존 `com`, rhwp는 옵트인. 승격 뒤 모든 OS에서 `rhwp` 기본.
 - rhwp 경로 `rhwp_sign()`:
   1. `rhwp search <doc> <앵커> --json` → page·paragraph·charOffset. 매치 0건·2건 이상은 기존 규칙대로 exit 1(거짓 OK 금지, `--occurrence`로 지정).
-  2. `rhwp export-render-tree <doc> -p <page>` → 앵커 TextRun bbox(px). 앵커 글자가 run 중간이면 run 폭을 글자 수로 비례 분할해 x를 추정하고 WARN을 남긴다.
+  2. `rhwp export-render-tree <doc> -p <page>` → search 결과와 같은 section·paragraph(`pi`)의 TextRun bbox(px)만 후보로 삼는다(쪽 번호는 두 명령 모두 0부터, 어긋나면 중단). 앵커 글자가 run 중간이면 `rhwp measure-width`로 앵커 앞 문자열 폭을 재서 x를 구한다. measure-width가 없으면 글자 수 비례 추정으로 내려가되 결과를 `estimated`로 표시하고, `--allow-estimated`가 없으면 삽입을 중단한다. 다단·표 안 앵커는 render-tree의 Column·Table 좌표계를 그대로 쓰며, 첫 구현에서 표 안 앵커는 `--backend com` 안내로 거부한다.
   3. px×75 → HWPUNIT, `--width-mm`·`--height-mm`·`--gap-mm`·`--vert-adjust`(기존 옵션 이름 유지, mm→HWPUNIT는 1mm = 283.46 HWPUNIT) 적용. "(서명)" 위에 겹쳐 찍는 기본값은 앵커 bbox 중심.
-  4. `rhwp edit insert-image <doc> --image <png> --page --x --y --width --height -o <임시>` → `hwpx_gate.gate()` → `<입력>_서명.<같은 확장자>`.
+  4. 입력이 `.hwp`이면 M2 변환을 먼저 거친다. `rhwp edit insert-image <doc.hwpx> --image <png> --page --x --y --width --height -o <임시>` → `hwpx_gate.gate()`(BinData에 그림 1개 추가만 허용) → **항상 `<입력>_서명.hwpx`**.
   5. `--pdf`는 `hwpx_edit.py --to-pdf`(M4 뒤에는 rhwp 기본)로 만들고 기존 `count_pdf_images()` 또는 `rhwp export-svg -p <page>`의 `<image>` 수로 확인(pymupdf 없는 환경 대안).
 - COM 경로(`com_insert`·`to_floating`·`anchor_geometry`)는 그대로 두고 `--backend com`에서만 쓴다. `reference/signing.md`·`evals/scenarios.md` T4("Mac 사용자, 원격 Windows")를 rhwp 경로로 다시 쓴다.
 - 테스트: `test_sign_rhwp.py`(가짜 rhwp가 search·render-tree·insert-image 봉투를 순서대로 돌려줄 때 좌표 계산값, 매치 0·2건 거부, run 중간 앵커 WARN, mm 변환).
@@ -79,7 +80,7 @@
 
 ### M4. PDF 라우팅 통일과 Pandoc 산출물 갭 해소
 
-- `hwpx_edit.py --to-pdf`: 모든 OS에서 rhwp 기본, `--pdf-backend com`(Windows 한컴 동일 조판이 꼭 필요할 때) 옵트인. `cmd_to_pdf()` 분기와 `test_rhwp_pdf.py`·`test_pdf_export.py` 기대값 수정.
+- `hwpx_edit.py --to-pdf`: `--pdf-backend rhwp|com` 추가. 비Windows는 이미 rhwp. Windows는 실기 승격 전 `com` 기본, 승격 뒤 모든 OS `rhwp` 기본이고 `com`은 옵트인. `cmd_to_pdf()` 분기와 `test_rhwp_pdf.py`·`test_pdf_export.py` 기대값 수정.
 - Pandoc(`hwpx_convert.py`) 산출물의 PDF는 rhwp로 낸다고 SKILL.md 의사결정 트리에 명시(기존 "문서가 정하지 않았다" 갭 해소). COM `--to-pdf`에는 Pandoc 산출물 입력 금지가 그대로 남는다.
 - 검증: `test.md`→HWPX→rhwp PDF 1건, 기존 표본 HWPX PDF 1건에서 빈 네모 0.
 
@@ -89,12 +90,14 @@
   - `--tables`: `rhwp export-tables --json`을 사람이 읽는 격자 표로 출력(좌표 확인용, 변경 없음).
   - `--fields` / `--fill-fields <JSON|@파일>`: `rhwp fields`·`rhwp edit fill-fields`.
   - `--grid-set-cell T,R,C TEXT`: `rhwp edit set-cell`(격자 좌표). 중첩 표 거부 메시지는 그대로 전달하고 기존 `--set-cell`(lxml, 물리 인덱스)을 안내. 원본 보존이 중요한 공문은 기존 `--set-cell`이 1순위라는 문장을 도움말에 둔다.
-  - `--to-hwp`: `rhwp convert <in.hwpx> <out.hwp> --verify --verify-pages`. 상대가 `.hwp`를 요구할 때만 쓰는 비상구. 결과 안내에 "정본은 HWPX, 그림·차트 손실 가능" 문장을 넣고 변환 전후 `rhwp export-text` 글자 수를 대조한다.
+  - `--to-hwp`: `rhwp convert <in.hwpx> <out.hwp> --verify --verify-pages`. **배포용 내보내기**이며 정본 편집 경로가 아니다. 독립 검증: 산출 `.hwp`를 JAR로 다시 HWPX로 바꿔 원본 HWPX와 `hwpx_gate.cross_check`(텍스트·표 수·BinData 수)로 대조한다. JDK가 없으면 `unverified`. 그림·차트 수가 줄면 실패로 보고하고 COM 다른 이름 저장을 안내한다.
 - `--fill-fields`·`--grid-set-cell` 산출물은 `rhwp_cli.run` + `hwpx_gate.gate`(census 포함) 필수.
 - 테스트: 가짜 rhwp로 플래그→인자 매핑, `.hwp` 입력 시 변환 선행, 중첩 표 오류 전달, `--to-hwp` 안내 문구.
 - 검증: 평가서.hwp → 변환 → `--grid-set-cell 0,4,3`로 성명 칸 변경 → `--tables`로 확인 → 게이트 통과.
 
-### M6. Windows 설치와 실기 게이트 (자리: 로컬·위원장)
+### M6. Windows 설치와 축별 실기 게이트 (자리: 로컬·위원장, M1 직후부터 병행)
+
+M2~M5가 옵트인으로 들어가는 즉시 그 축의 실기 확인을 할 수 있어야 하므로 설치는 M1 다음에 바로 한다. 각 축의 "기본값 승격" 커밋은 이 절의 해당 항목 통과가 선행 조건이다.
 
 - hunyong-samsung에 rhwp v0.8.7 windows x86_64 zip 설치: 맥에서 받아 `SHA256SUMS.txt` 대조 → `scp` → `%USERPROFILE%\.local\bin`에 풀고 사용자 PATH 등록(`setx`는 영구 변경이라 실행 전 명령을 보고). SSH 기본 셸이 cmd인 점을 지킨다(`reference/environment.md`).
 - 한컴 2024 실기 확인(위원장 또는 원격 데스크톱 세션): rhwp 변환 HWPX 3건, rhwp 서명 삽입본(HWP·HWPX), Pandoc 재저장본이 한글에서 열리고 서명 위치가 "(서명)" 위에 있는지. 열리지 않는 문서군이 있으면 그 축은 COM 폴백을 기본으로 되돌리고 CLAUDE.md에 사유를 적는다.
@@ -126,7 +129,7 @@
 
 ## 리뷰 게이트 판정
 
-새 판정 계층(손실 게이트)과 외부 도구 계약 가정(rhwp JSON 봉투·exit code)을 담으므로 설계 단계 적대적 리뷰 대상이다. M1 착수 전 codex `adversarial-review`(실패 신호면 `model: fable` 서브에이전트)로 이 플랜을 검토한다. 구현 중 묶음별 spec-compliance 서브에이전트, M6 실기 확인은 리뷰로 대체할 수 없는 게이트다.
+새 판정 계층(손실 게이트)과 외부 도구 계약 가정(rhwp JSON 봉투·exit code)을 담으므로 설계 단계 적대적 리뷰 대상이다. 2026-10-28 codex `adversarial-review` 실행, 판정 needs-attention, high 7건·medium 1건. 반영: 게이트 강화(원칙 2), 폴백 보고 계약(원칙 3), 봉투 계약 검사(원칙 6), 옵트인 선행·축별 승격(원칙 7), 서명 결과 HWPX 고정(M3), `--to-hwp`를 배포용 내보내기로 격하하고 JAR 왕복 대조(M5), HWP 변환 교차 대조(M2). 기각 1건: 검증 상한 초과 버전 차단(원칙 6에 사유). 구현 중 묶음별 spec-compliance 서브에이전트, 축별 Windows 실기 확인은 리뷰로 대체할 수 없는 게이트다.
 
 ## 전체 검증
 
