@@ -7,6 +7,7 @@
 - 실측: rhwp HWPX 왕복은 자가 검증 PASS지만 게이트가 header.xml `hp:switch`·paraPr 손실을 잡는다. HWP 3건의 rhwp·JAR 변환물 교차 대조는 글자·표·셀·그림·BinData 수 일치.
 - 버전 1.4.0 → 1.5.0.
 - M2: HWP→HWPX 기본 엔진을 rhwp로 바꿨다. `hwpx_edit.py --from-hwp`(`--engine jar` 폴백)와 `hwp_to_hwpx()`를 추가하고, 변환물은 `hwpx-validate`와 다른 엔진 변환물 교차 대조를 통과해야 놓인다. 실패하면 `.rejected.hwpx`를 남기고 JAR 폴백 명령을 안내한다. `.hwp` 입력은 `--to-pdf`를 뺀 모든 명령의 입구에서 변환한다. `--check-env` Tier를 rhwp 기본·JAR·COM 폴백 구조로 재정의했다. 익명 표본 `tests/fixtures/sample-form.hwp`와 통합 시험 `test_rhwp_integration.py`를 추가했다.
+- M4: `--to-pdf`를 모든 OS에서 rhwp 기본으로 바꾸고 `--pdf-backend rhwp|com`을 추가했다. `com`은 Windows가 아니면 exit 1로 거부한다. 산출 뒤 stdout 마지막 줄에 `engine=rhwp|com`을 찍는다. Pandoc 산출물 PDF는 rhwp로 낸다고 SKILL.md에 적었다. 표본 HWPX와 Pandoc 산출물 rhwp PDF 빈 네모 0을 통합 시험으로 고정했다.
 
 ## 2026-10-26
 

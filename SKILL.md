@@ -71,8 +71,8 @@ HWP/HWPX 작업 요청
 │   ※ 편집 후 검증: hwpx-validate + hwpx-page-guard
 │     (hwp2hwpx 변환물은 PrvText 누락으로 hwpx-validate가 실패한다. 아래 "HWP → HWPX 변환")
 ├── PDF 만들기 → hwpx_edit.py --to-pdf
-│   (Windows는 한컴 COM, macOS·Linux는 rhwp. 아래 "macOS·Linux에서 PDF 변환 (rhwp)")
-│   ※ Pandoc(hwpx_convert.py) 변환물은 Windows COM으로 PDF를 내지 않는다(아래 줄).
+│   (모든 OS rhwp 기본, Windows 한컴 조판은 --pdf-backend com. 아래 "macOS·Linux에서 PDF 변환 (rhwp)")
+│   ※ Pandoc(hwpx_convert.py) 변환물의 PDF는 rhwp로 낸다(--pdf-backend com 금지, 아래 줄).
 │     한컴 PDF가 필요하면 hwpx_com.py --from-md로 COM에서 생성한다
 └── 새로 생성 (마크다운 등에서)
     ├── 간단한 문서 (스타일 최소, 빠른 변환)
@@ -332,7 +332,7 @@ ZIP 내부 구조·네임스페이스가 필요할 때 `reference/format.md`를 
 
 ## macOS·Linux에서 PDF 변환 (rhwp)
 
-Windows가 아닌 OS에서 `--to-pdf`를 쓰거나 rhwp 설치·출력 해석(`글꼴에 없는 문자가 빈 네모로 찍혔습니다`, exit 2)이 필요할 때 `reference/rhwp-pdf.md`를 읽는다. exit 2가 난 PDF는 배포하지 않는다.
+`--to-pdf`는 모든 OS에서 rhwp가 기본이다. 한컴과 똑같은 조판이 필요할 때만 Windows에서 `--pdf-backend com`을 명시하고, 완료 보고에 stdout 마지막 줄 `engine=<rhwp|com>`을 옮긴다. Pandoc(`hwpx_convert.py`) 산출물의 PDF는 rhwp로 낸다(COM은 본문을 0자로 읽는다). rhwp 설치·출력 해석(`글꼴에 없는 문자가 빈 네모로 찍혔습니다`, exit 2)이 필요할 때 `reference/rhwp-pdf.md`를 읽는다. exit 2가 난 PDF는 배포하지 않는다.
 
 ## 한컴 COM 자동화 (Windows 전용, 한컴오피스 필수)
 

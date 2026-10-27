@@ -60,7 +60,7 @@ python hwpx_edit.py <파일.hwpx> --fix-squeeze              # 과압축 문단�
 
 # 한컴 COM 자동화 (Windows + 한컴오피스)
 python hwpx_edit.py --diagnose-com                         # COM 사용 가능 여부 진단
-python hwpx_edit.py <파일.hwpx> --to-pdf                    # HWPX/HWP → PDF (macOS·Linux는 rhwp)
+python hwpx_edit.py <파일.hwpx> --to-pdf                    # HWPX/HWP → PDF (rhwp, --pdf-backend com은 Windows 한컴)
 ```
 
 ### hwpx_com.py
@@ -111,8 +111,8 @@ bash convert/hwp2hwpx.sh input.hwp [output.hwpx]    # macOS/Linux
 - **Python**: `python-hwpx` (비상업 라이선스), `lxml` (BSD-3-Clause), 편집 명령에 사용
 - **hwpx-tomd** (MIT): `--to-md` 변환 엔진. `pip install hwpx-tomd` (PyPI·GitHub `Engccer/hwpx-tomd` 공개). 라이브러리로도 직접 사용 가능
 - **Java**: JDK 21 (`--engine jar` 폴백과 rhwp 변환물의 교차 대조에만. 없으면 변환은 `unverified`)
-- **Windows + 한컴오피스 + pywin32**: `--to-pdf`(Windows), `--diagnose-com` 등 COM 자동화 기능에 사용
-- **rhwp CLI** (MIT, 별도 설치, v0.8.7 이상): HWP→HWPX 변환의 기본 엔진, macOS·Linux의 `--to-pdf`. GitHub Releases 바이너리를 PATH에 두거나 `HWPX_RHWP_BIN`으로 경로를 준다
+- **Windows + 한컴오피스 + pywin32**: `--to-pdf --pdf-backend com`, `--diagnose-com` 등 COM 자동화 기능에 사용
+- **rhwp CLI** (MIT, 별도 설치, v0.8.7 이상): HWP→HWPX 변환과 `--to-pdf`의 기본 엔진(모든 OS). GitHub Releases 바이너리를 PATH에 두거나 `HWPX_RHWP_BIN`으로 경로를 준다
 - **pyhwpx** (선택): `hwpx_com.py` COM 네이티브 파이프라인 전용. `pip install pyhwpx` (1.7.2 검증, 2026-06-10)
 - **번들된 JAR**: hwplib, hwpxlib, hwp2hwpx (모두 Apache-2.0)
 

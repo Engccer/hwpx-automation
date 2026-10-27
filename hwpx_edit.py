@@ -8,7 +8,7 @@ hwpx_edit.py - HWPX 파일 편집 유틸리티
   python hwpx_edit.py <파일.hwpx> --info                       # 표 구조 출력
   python hwpx_edit.py <파일.hwpx> --to-md                      # HWPX → Markdown 변환 (hwpx-tomd 엔진, API 불필요)
   python hwpx_edit.py --diagnose-com                         # 한컴 COM 자동화 진단
-  python hwpx_edit.py <파일.hwpx> --to-pdf                    # HWPX/HWP → PDF (Windows 한컴 COM, 그 밖의 OS rhwp)
+  python hwpx_edit.py <파일.hwpx> --to-pdf                    # HWPX/HWP → PDF (rhwp. --pdf-backend com은 Windows 한컴)
   python hwpx_edit.py <파일.hwpx> --find "이전" --replace "이후"  # 텍스트 치환
   python hwpx_edit.py <파일.hwpx> --set-cell 0,1,0 "텍스트"     # 표 셀에 텍스트 입력
   python hwpx_edit.py <파일.hwpx> --split-cell 0,1,0            # 병합 셀 분할
@@ -17,7 +17,7 @@ hwpx_edit.py - HWPX 파일 편집 유틸리티
   - 편집 명령(--find/--set-cell 등): python-hwpx, lxml
   - 변환(--to-md): hwpx-tomd 패키지 (pip install hwpx-tomd). 변환 엔진은 이 패키지가
     단일 소스로 관리하며, 본 파일은 출력 경로·콘솔 메시지 등 CLI 래퍼만 담당한다.
-  - PDF 변환(--to-pdf): Windows는 한컴오피스 + pywin32, 그 밖의 OS는 rhwp CLI(rhwp_pdf.py)
+  - PDF 변환(--to-pdf): rhwp CLI(rhwp_pdf.py). --pdf-backend com은 Windows 한컴오피스 + pywin32
   - HWP 변환(--from-hwp, .hwp 입력): rhwp CLI. JDK 21 + 번들 JAR은 --engine jar 폴백과 교차 대조
 """
 
@@ -1635,7 +1635,7 @@ def cmd_check_env():
             print(f"  [O] rhwp           {rhwp_cli.fmt(rhwp_cli.version(rhwp))}  {rhwp}")
             for note in notes:
                 print(f"  [경고] {note}")
-            ready.append("HWP→HWPX 변환(rhwp)" if sys.platform == "win32" else "HWP→HWPX 변환·PDF(rhwp)")
+            ready.append("HWP→HWPX 변환·PDF(rhwp)")
         except rhwp_cli.RhwpError as exc:
             print(f"  [경고] rhwp         {exc}")
     else:
@@ -1692,10 +1692,10 @@ def cmd_check_env():
         print("      --engine jar 변환과 rhwp 변환의 교차 대조에 쓰인다")
         ready.append("JAR 폴백")
     if sys.platform != "win32":
-        print("  [-] 한컴 COM 폴백(PDF·서명·한컴 정규화)은 Windows + 한컴오피스 전용")
+        print("  [-] 한컴 COM 폴백(--pdf-backend com·서명·한컴 정규화)은 Windows + 한컴오피스 전용")
     else:
         if installed("win32com"):
-            print(f"  [O] pywin32        COM 폴백 의존성(PDF·hwpx_sign.py 등)")
+            print(f"  [O] pywin32        COM 폴백 의존성(--pdf-backend com, hwpx_sign.py 등)")
             ready.append("한컴 COM 폴백")
         else:
             print(f"  [설치] pywin32      pip install pywin32")
@@ -1714,14 +1714,22 @@ def cmd_check_env():
     return 0
 
 
-def cmd_to_pdf(filepath, output=None, password=None):
-    """HWP/HWPX를 PDF로 저장. Windows는 한컴오피스 COM, 그 밖의 OS는 rhwp."""
+PDF_BACKENDS = ("rhwp", "com")
+
+
+def cmd_to_pdf(filepath, output=None, password=None, backend="rhwp"):
+    """HWP/HWPX를 PDF로 저장. 모든 OS에서 rhwp가 기본이고, com(Windows 한컴오피스)은
+    한컴과 같은 조판이 필요할 때 명시하는 폴백이다."""
     if output is None:
         output = get_output_path(filepath, ".pdf")
 
-    if sys.platform != "win32":
+    if backend == "rhwp":
         cmd_to_pdf_rhwp(filepath, output, password)
         return
+    if sys.platform != "win32":
+        print("오류: --pdf-backend com은 Windows + 한컴오피스 전용입니다. "
+              "이 OS에서는 기본값(rhwp)을 쓰세요.", file=sys.stderr)
+        sys.exit(1)
 
     abs_input = os.path.abspath(filepath)
     abs_output = os.path.abspath(output)
@@ -1751,26 +1759,30 @@ def cmd_to_pdf(filepath, output=None, password=None):
         sys.exit(1)
 
     print(f"PDF 저장: {abs_output}")
+    print("engine=com")
 
 
 def cmd_to_pdf_rhwp(filepath, output, password=None):
     """rhwp 렌더링 PDF. 글꼴에 없는 문자가 빈 네모로 찍혔으면 PDF는 남기고 exit 2."""
     from rhwp_pdf import save_pdf
+    com_hint = ("한컴과 같은 조판이 필요하면 Windows에서 --pdf-backend com"
+                if sys.platform == "win32" else "한컴과 같은 조판이 필요하면 Windows 한컴(--pdf-backend com)")
     try:
         report = save_pdf(filepath, output, password)
     except Exception as exc:
-        print(f"오류: PDF 저장 실패: {exc}", file=sys.stderr)
+        print(f"오류: PDF 저장 실패: {exc}\n  폴백: {com_hint}", file=sys.stderr)
         sys.exit(1)
 
     print(f"PDF 저장: {os.path.abspath(output)}")
     print("  렌더러: rhwp(한컴 아님) · 사용 글꼴: " + ", ".join(report["fonts"]))
+    print("engine=rhwp")
     if report["overflow"]:
         print(f"경고: 쪽 하단 넘침 {report['overflow']}건. 쪽 끝 줄이 잘리지 않았는지 렌더를 눈으로 확인하세요.",
               file=sys.stderr)
     if report["missing"]:
         chars = " ".join(f"{c}(U+{ord(c):04X})" for c in report["missing"])
         print(f"오류: 글꼴에 없는 문자가 빈 네모로 찍혔습니다: {chars}. "
-              "배포 전에 한컴(Windows)으로 변환하거나 해당 문자를 바꾸세요.", file=sys.stderr)
+              "배포 전에 해당 문자를 바꾸거나 Windows 한컴(--pdf-backend com)으로 변환하세요.", file=sys.stderr)
         sys.exit(2)
 
 
@@ -1838,7 +1850,8 @@ def main():
   %(prog)s doc.hwpx --list-squeeze        # "한 줄로 입력" 과압축 문단 나열
   %(prog)s doc.hwpx --fix-squeeze         # 과압축 문단을 자연 줄바꿈으로 전환
   %(prog)s --diagnose-com                 # 한컴 COM 자동화 진단
-  %(prog)s doc.hwpx --to-pdf              # PDF 저장 (Windows 한컴 COM, 그 밖의 OS rhwp)
+  %(prog)s doc.hwpx --to-pdf              # PDF 저장 (rhwp)
+  %(prog)s doc.hwpx --to-pdf --pdf-backend com   # Windows 한컴 COM PDF
   %(prog)s doc.hwpx --set-cell 0,1,0 "텍스트" -o output.hwpx
         """)
 
@@ -1853,8 +1866,10 @@ def main():
     parser.add_argument('--to-md', action='store_true',
                         help='HWPX → Markdown 변환 (XML 직접 파싱, API 불필요)')
     parser.add_argument('--to-pdf', action='store_true',
-                        help='HWPX/HWP → PDF 저장 (Windows는 한컴오피스 COM, 그 밖의 OS는 rhwp. '
-                             'rhwp에서 글꼴에 없는 문자가 있으면 exit 2)')
+                        help='HWPX/HWP → PDF 저장 (기본 rhwp, 모든 OS. '
+                             '글꼴에 없는 문자가 빈 네모로 찍히면 exit 2)')
+    parser.add_argument('--pdf-backend', choices=PDF_BACKENDS, default='rhwp',
+                        help='--to-pdf 렌더러 (기본 rhwp, com은 Windows 한컴오피스 명시 폴백)')
     parser.add_argument('--check-env', action='store_true',
                         help='기능 계층(tier)별 의존성·런타임 준비 상태 점검 (첫 실행·의존성 의심 시, 읽기 전용)')
     parser.add_argument('--diagnose-com', action='store_true',
@@ -1954,7 +1969,7 @@ def main():
     elif args.to_md:
         cmd_to_md(args.file, args.output, cell_br=args.cell_br, merge_fill=args.merge_fill)
     elif args.to_pdf:
-        cmd_to_pdf(args.file, args.output, password=args.password)
+        cmd_to_pdf(args.file, args.output, password=args.password, backend=args.pdf_backend)
     elif args.find is not None and args.replace is not None:
         cmd_find_replace(args.file, args.find, args.replace, args.output)
     elif args.set_cell:

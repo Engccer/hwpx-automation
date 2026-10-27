@@ -44,5 +44,42 @@ class FromHwpIntegration(unittest.TestCase):
         self.assertIn("홍길동", md.markdown)
 
 
+@unittest.skipUnless(os.environ.get("RHWP_INTEGRATION"), "RHWP_INTEGRATION=1일 때 실제 rhwp로 실행")
+class PdfIntegration(unittest.TestCase):
+    """--to-pdf 기본 rhwp: 표본 HWPX와 Pandoc 산출물 모두 빈 네모 0."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+
+    def assert_clean_pdf(self, hwpx):
+        from rhwp_pdf import save_pdf
+        report = save_pdf(hwpx, self.dir / "out.pdf")
+        self.assertEqual(report["missing"], [])
+        self.assertGreaterEqual(report["pages"], 1)
+
+    def test_fixture_hwpx_renders_without_missing_glyphs(self):
+        hwp = self.dir / "sample-form.hwp"
+        shutil.copyfile(FIXTURES / "sample-form.hwp", hwp)
+        res, _ = quiet_call(hwpx_edit.hwp_to_hwpx, str(hwp))
+        self.assert_clean_pdf(res.path)
+
+    def test_pandoc_output_renders_with_rhwp(self):
+        try:
+            import pypandoc_hwpx  # noqa: F401
+        except ImportError:
+            self.skipTest("pypandoc-hwpx 없음")
+        import subprocess
+        import sys
+        md, hwpx = self.dir / "t.md", self.dir / "t.hwpx"
+        md.write_text("# 시험 문서\n\n가상의 안내문입니다.\n\n| 항목 | 내용 |\n|---|---|\n| 장소 | 강당 |\n",
+                      encoding="utf-8")
+        script = Path(__file__).resolve().parent / "convert" / "hwpx_convert.py"
+        subprocess.run([sys.executable, str(script), str(md), "-o", str(hwpx)],
+                       check=True, capture_output=True)
+        self.assert_clean_pdf(hwpx)
+
+
 if __name__ == "__main__":
     unittest.main()

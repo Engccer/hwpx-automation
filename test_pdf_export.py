@@ -1,8 +1,12 @@
+import contextlib
+import io
 import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
+import hwpx_edit
 from pdf_export import save_pdf
 
 
@@ -58,6 +62,54 @@ class PdfExportTests(unittest.TestCase):
                 save_pdf(hwp, output)
             self.assertFalse(output.exists())
             self.assertEqual(hwp.mode, 0x20000)
+
+
+class OpenableHwp(FakeHwp):
+    def Open(self, path, fmt, arg):
+        return True
+
+
+class PdfBackendRouting(unittest.TestCase):
+    """--to-pdf는 모든 OS에서 rhwp가 기본이고 COM은 --pdf-backend com으로만 탄다."""
+
+    def run_pdf(self, platform, backend):
+        out, err = io.StringIO(), io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(hwpx_edit.sys, "platform", platform), \
+                mock.patch.object(hwpx_edit, "cmd_to_pdf_rhwp") as rhwp, \
+                mock.patch.object(hwpx_edit, "create_hwp_com",
+                                  return_value=(None, OpenableHwp())) as com, \
+                mock.patch.object(hwpx_edit, "close_hwp_com"), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = 0
+            try:
+                hwpx_edit.cmd_to_pdf(os.path.join(tmp, "a.hwpx"), os.path.join(tmp, "a.pdf"),
+                                     backend=backend)
+            except SystemExit as exc:
+                code = exc.code
+        return code, rhwp, com, out.getvalue(), err.getvalue()
+
+    def test_default_is_rhwp_even_on_windows(self):
+        for platform in ("win32", "darwin", "linux"):
+            with self.subTest(platform=platform):
+                code, rhwp, com, _, _ = self.run_pdf(platform, "rhwp")
+                self.assertEqual(code, 0)
+                rhwp.assert_called_once()
+                com.assert_not_called()
+
+    def test_com_backend_on_windows_uses_hancom(self):
+        code, rhwp, com, out, _ = self.run_pdf("win32", "com")
+        self.assertEqual(code, 0)
+        com.assert_called_once()
+        rhwp.assert_not_called()
+        self.assertEqual(out.strip().splitlines()[-1], "engine=com")
+
+    def test_com_backend_off_windows_is_refused(self):
+        code, rhwp, com, _, err = self.run_pdf("darwin", "com")
+        self.assertEqual(code, 1)
+        self.assertIn("Windows", err)
+        com.assert_not_called()
+        rhwp.assert_not_called()
 
 
 if __name__ == "__main__":

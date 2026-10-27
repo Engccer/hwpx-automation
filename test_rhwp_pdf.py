@@ -210,7 +210,7 @@ class NonWindowsTests(unittest.TestCase):
                             "--to-pdf", "-o", str(self.out)],
                            capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("rhwp", r.stdout)
+        self.assertEqual(r.stdout.strip().splitlines()[-1], "engine=rhwp")
 
 
 if __name__ == "__main__":
