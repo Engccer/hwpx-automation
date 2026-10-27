@@ -4,13 +4,13 @@
 
 - HWP 변환 번들: edc0527+p1 / hwplib 1.1.11 / hwpxlib 1.0.9. Windows 40건 대조 통과.
 - rhwp 재설계(`docs/plans/2026-10-28-rhwp-redesign.md`): M1 어댑터·게이트 완료. 단위 75건 통과(`RHWP_INTEGRATION=1` 포함).
-- rhwp 경로는 아직 어느 축에서도 기본값이 아니다. `--to-pdf`(비Windows)만 종전처럼 rhwp.
+- 위원장 결정(2026-10-28): 실기 검증은 위원장이 실사용으로 한다. 축별 옵트인 단계 없이 플랜 원안대로 rhwp를 기본값으로 두고 JAR·COM은 명시 폴백으로 남긴다.
 
 ## 다음 단계
 
 - M2~M5 착수 순서와 자리는 `docs/BACKLOG.md`.
-- M6 Windows hunyong-samsung rhwp 설치는 M1 직후 병행. 축별 기본값 승격은 한컴 2024 실기 확인이 선행 조건.
+- M6은 Windows hunyong-samsung rhwp 설치만. 한컴 2024 호환은 위원장 실사용에서 확인하고 문제가 보이면 그 축을 COM 폴백 기본으로 되돌린다.
 
 ## 미결 결정
 
-- rhwp가 HWPX를 다시 쓸 때 사라지는 header.xml OUTLINE 7~9단계 `hp:switch` 블록·미사용 paraPr을 "허용 손실"로 둘지. M3·M5 산출물이 게이트를 지나려면 이 판정이 필요하다(위원장).
+- 없음. rhwp 재직렬화의 header.xml 손실(OUTLINE 7~9단계 `hp:switch`·미사용 paraPr)은 게이트 허용 목록으로 통과시키고 보고에 표기한다(2026-10-28).
