@@ -311,5 +311,16 @@ class RhwpSignIntegrationTests(unittest.TestCase):
         self.assertAlmostEqual(y + h / 2, box.y + box.h / 2, delta=0.5)
 
 
+    def test_hwp_input_converts_and_keeps_empty_runs(self):
+        # rhwp가 변환한 HWPX는 첫 문단에 빈 <hp:t>가 있고, insert-image가 그 자리를 그림으로 바꿔 쓴다.
+        hwp = self.dir / "sample-form.hwp"
+        hwp.write_bytes((Path(__file__).parent / "tests" / "fixtures" / "sample-form.hwp").read_bytes())
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            rc = hwpx_sign.main([str(hwp), "--image", str(self.dir / "sig.png"), "--anchor", "작성일"])
+        self.assertEqual(rc, 0, err.getvalue())
+        self.assertTrue((self.dir / "sample-form_서명.hwpx").exists())
+        self.assertEqual(out.getvalue().strip().splitlines()[-1], "engine=rhwp")
+
 if __name__ == "__main__":
     unittest.main()

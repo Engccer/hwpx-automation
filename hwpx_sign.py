@@ -298,7 +298,11 @@ def float_over_anchor(path: str, section: int, paragraph: int, x: int, y: int) -
     pic = pics[0]
     pic.set("textWrap", "IN_FRONT_OF_TEXT")
     pic.find(HP + "pos").set("allowOverlap", "1")
-    pic.getparent().remove(pic)
+    left = pic.getparent()
+    left.remove(pic)
+    if left.tag == HP + "run" and len(left) == 0:
+        # rhwp는 빈 run의 <hp:t/>를 그림으로 바꿔 쓴다. 떼어 낸 자리를 원래 모양으로 되돌린다.
+        etree.SubElement(left, HP + "t")
     run = top[paragraph].find(HP + "run")
     if run is None:
         raise SignError("앵커 문단에 글자 묶음(run)이 없습니다.")
