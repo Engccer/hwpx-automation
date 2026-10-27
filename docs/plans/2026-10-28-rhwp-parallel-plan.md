@@ -1,5 +1,7 @@
 # rhwp 재설계 M2~M7 병렬 세션 계획
 
+> 1차 웨이브 종료(2026-10-28 08:35): edit M2 718bc46 · M4 d018158 · M5 98623cc, sign M3 038b798, 코디네이터 M6 9b7e7d7. 단위·통합 140건 통과. 2차 웨이브 docs(M7 + doc-audit) 착수. 남은 위원장 판정: 없음(한컴 2024 실사용 확인은 위원장 몫).
+
 기준 플랜: `docs/plans/2026-10-28-rhwp-redesign.md`. M1은 cc08c7e로 끝났다. 코디네이터는 이 문서를 쓴 세션이며 코드를 만지지 않는다.
 
 ## §1 마일스톤·확정 판정·모델 배정
@@ -124,6 +126,7 @@ git push origin feat/<name>:master && git -C ~/Mac-Projects/hwpx-automation pull
 - 08:00 판정(edit judgment-202610280735): `hwpx_sign.py --pdf`의 하위 호출은 sign이 M3에서 `--backend com`이면 `--pdf-backend com`을 붙인다(소유권대로). edit의 `reference/com.md` 수정(`--to-pdf` 예시에 `--pdf-backend com`) 자진 신고 수용.
 - M4 통합(d018158, 세션 edit): 단위 98건. `--to-pdf` 모든 OS rhwp 기본, `--pdf-backend com` Windows 폴백. 암호 HWPX의 rhwp PDF 해제는 미실측(M7 인계 목록에 있음).
 - M3 통합(038b798, 세션 sign): 단위 116건. 허용 목록 술어 실측(본문이 안 쓰는 paraPr 안 개요 블록·p id 재부여·shadow NONE 소실만), cross_check BinData 해시 대조, `--backend com`이면 `--pdf-backend com`. sign 창 닫음(08:20).
+- M5 통합(98623cc, 세션 edit): 단위 140건. `--tables`·`--grid-set-cell`·`--fields`·`--fill-fields`·`--to-hwp`. 허용된 손실 줄은 stdout 둘째 줄로 사용자에게 보인다(시험 고정). edit 창 닫음(08:35).
 
 ## M7 인계 목록 (edit·sign 보고에서 모음, docs 세션이 처리)
 
@@ -136,3 +139,7 @@ git push origin feat/<name>:master && git -C ~/Mac-Projects/hwpx-automation pull
 - (sign 보고) 아직 "서명은 Windows+한컴 전용"이라고 말하는 자리: `SKILL.md` 19행(도구 위치)·36행 근처(Tier 표)·105행(도구별 용도 표 `hwpx_sign.py (COM+XML)`), `README.md` 75행, `CLAUDE.md` 11행(구조 주석). 새 기본 동작·T4 채점과 맞춘다.
 - (sign 보고) `reference/rhwp.md`에 옮길 rhwp 계약 실측: `search`의 `page`는 문단 시작 쪽, 표 셀 매치의 `cell` 키와 컨테이너 기준 `pi`, `export-render-tree`·`measure-width`는 `--json` 없음(exit 2, `rhwp_cli.run(expect_json=False)`), render-tree 파일명 `render_tree_<쪽+1 세 자리>.json`, `measure-width`는 TSV, `edit insert-image` 봉투 필드(`output, outputFormat, page, x, y, width, height, overflow, binDataId, changedPages`)와 "그 쪽 첫 문단에 SQUARE로 붙여 빈 문단이면 줄이 접힌다" 함정(`float_over_anchor`가 처리).
 - (sign 보고) 위원장 실사용 확인 권고: 한컴 2024에서 rhwp 서명본 열기, 앵커 문단이 여러 줄인 표본 하나 포함. PROGRESS "실기 확인 대기" 문장에 넣는다.
+- (edit M5 보고) `hwpx_gate.cross_check`는 chart·ole·equation 요소를 세지 않는다. `--to-hwp`는 자체로 세지만 M2 HWP 변환 교차 대조에는 같은 빈틈이 있다. BACKLOG 열린 항목으로(자리 로컬, 병행).
+- (edit M5 보고) `--fields`·`--fill-fields`는 누름틀 실표본이 없어 가짜 rhwp로만 시험했다. BACKLOG 감시 항목(실표본이 생기면 통합 시험 추가).
+- (edit M5 보고) CLAUDE.md 함정 후보: python-hwpx로 갓 만든 HWPX에 rhwp 편집(`--grid-set-cell` 등)을 하면 본문이 쓰는 paraPr 1개가 사라져 게이트가 거부한다(맞는 판정). python-hwpx 산출물은 `--set-cell`(lxml)을 쓴다.
+- (코디네이터 결정) SKILL.md 행동 문장 추가: rhwp 산출물 보고에 "허용된 손실(rhwp 재직렬화)" 줄이 찍히면 완료 보고에 그 줄을 그대로 옮겨 적는다(위원장의 원문 보존 우려에 대한 강한 디폴트).
