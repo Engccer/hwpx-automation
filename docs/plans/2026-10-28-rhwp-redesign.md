@@ -58,7 +58,7 @@
 
 ### M2. HWP→HWPX를 rhwp 기본으로, JAR은 폴백
 
-- `hwpx_edit.py`에 `--from-hwp <입력.hwp>` 플래그(또는 입력이 `.hwp`이면 `--to-md`·편집 전에 자동 변환). 엔진 선택 `--engine rhwp|jar`(기본은 실기 승격 전까지 `jar`). 구현 `cmd_from_hwp()`: `rhwp export-hwpx <in> <out> --verify --json` → 교차 대조: JDK가 있으면 같은 HWP를 JAR로도 변환해 `hwpx_gate.cross_check(rhwp_out, jar_out)`(hwpx-tomd 텍스트 일치, 표 수·셀 수, BinData 수·해시) → 성공 시 `_work-hwpx-automation/<이름>.hwpx`. JDK가 없으면 결과를 `unverified`로 표기하고 그 사실을 출력한다.
+- `hwpx_edit.py`에 `--from-hwp <입력.hwp>` 플래그(또는 입력이 `.hwp`이면 `--to-md`·편집 전에 자동 변환). 엔진 선택 `--engine rhwp|jar`(기본 `rhwp`, 2026-10-28 위원장 결정). 구현 `cmd_from_hwp()`: `rhwp export-hwpx <in> <out> --verify --json` → 교차 대조: JDK가 있으면 같은 HWP를 JAR로도 변환해 `hwpx_gate.cross_check(rhwp_out, jar_out)`(hwpx-tomd 텍스트 일치, 표 수·셀 수, BinData 수·해시) → 성공 시 `_work-hwpx-automation/<이름>.hwpx`. JDK가 없으면 결과를 `unverified`로 표기하고 그 사실을 출력한다.
 - 실패 시 안내: `bash convert/hwp2hwpx.sh` 또는 `.bat` 명령과 `--add-preview` 후속을 그대로 출력. JAR 래퍼·패치·`--add-preview`·`--sanitize`는 삭제하지 않는다(EmptyStackException 같은 rhwp 미실측 문서군의 폴백).
 - `--check-env` Tier 재정의: Tier 1 읽기·편집(python-hwpx·lxml·hwpx-tomd), Tier 2 변환·PDF·이미지(**rhwp**, 버전 표시), Tier 3 MD→HWPX(pypandoc-hwpx), Tier 4 폴백(JDK+JAR, Windows 한컴 COM). `cmd_check_env()`·`test_rhwp_pdf.py`의 check-env 테스트를 함께 고친다.
 - SKILL.md 259행 "HWP 바이너리 직접 파싱 금지"에 예외를 명시: rhwp는 허용하며 근거는 실측(단어 집합 일치·PrvText 포함·validate 통과). kordoc 금지는 유지.
@@ -67,12 +67,12 @@
 
 ### M3. 이미지·서명을 맥·Windows 공통 rhwp 경로로
 
-- `hwpx_sign.py`에 백엔드 분기 `--backend rhwp|com`. 실기 승격 전 기본은 기존 `com`, rhwp는 옵트인. 승격 뒤 모든 OS에서 `rhwp` 기본.
+- `hwpx_sign.py`에 백엔드 분기 `--backend rhwp|com`. 기본은 모든 OS에서 `rhwp`(2026-10-28 위원장 결정), `com`은 명시 폴백.
 - rhwp 경로 `rhwp_sign()`:
   1. `rhwp search <doc> <앵커> --json` → page·paragraph·charOffset. 매치 0건·2건 이상은 기존 규칙대로 exit 1(거짓 OK 금지, `--occurrence`로 지정).
   2. `rhwp export-render-tree <doc> -p <page>` → search 결과와 같은 section·paragraph(`pi`)의 TextRun bbox(px)만 후보로 삼는다(쪽 번호는 두 명령 모두 0부터, 어긋나면 중단). 앵커 글자가 run 중간이면 `rhwp measure-width`로 앵커 앞 문자열 폭을 재서 x를 구한다. measure-width가 없으면 글자 수 비례 추정으로 내려가되 결과를 `estimated`로 표시하고, `--allow-estimated`가 없으면 삽입을 중단한다. 다단·표 안 앵커는 render-tree의 Column·Table 좌표계를 그대로 쓰며, 첫 구현에서 표 안 앵커는 `--backend com` 안내로 거부한다.
   3. px×75 → HWPUNIT, `--width-mm`·`--height-mm`·`--gap-mm`·`--vert-adjust`(기존 옵션 이름 유지, mm→HWPUNIT는 1mm = 283.46 HWPUNIT) 적용. "(서명)" 위에 겹쳐 찍는 기본값은 앵커 bbox 중심.
-  4. 입력이 `.hwp`이면 M2 변환을 먼저 거친다. `rhwp edit insert-image <doc.hwpx> --image <png> --page --x --y --width --height -o <임시>` → `hwpx_gate.gate()`(BinData에 그림 1개 추가만 허용) → **항상 `<입력>_서명.hwpx`**.
+  4. 입력이 `.hwp`이면 M2 변환을 먼저 거친다. `rhwp edit insert-image <doc.hwpx> --image <png> --page --x --y --width --height -o <임시>` → `hwpx_gate.gate(allow_rhwp=True, allow_bindata_added=1)`(header.xml 재직렬화 손실은 허용 목록으로 통과시키되 보고에 표기) → **항상 `<입력>_서명.hwpx`**.
   5. `--pdf`는 `hwpx_edit.py --to-pdf`(M4 뒤에는 rhwp 기본)로 만들고 기존 `count_pdf_images()` 또는 `rhwp export-svg -p <page>`의 `<image>` 수로 확인(pymupdf 없는 환경 대안).
 - COM 경로(`com_insert`·`to_floating`·`anchor_geometry`)는 그대로 두고 `--backend com`에서만 쓴다. `reference/signing.md`·`evals/scenarios.md` T4("Mac 사용자, 원격 Windows")를 rhwp 경로로 다시 쓴다.
 - 테스트: `test_sign_rhwp.py`(가짜 rhwp가 search·render-tree·insert-image 봉투를 순서대로 돌려줄 때 좌표 계산값, 매치 0·2건 거부, run 중간 앵커 WARN, mm 변환).
@@ -80,7 +80,7 @@
 
 ### M4. PDF 라우팅 통일과 Pandoc 산출물 갭 해소
 
-- `hwpx_edit.py --to-pdf`: `--pdf-backend rhwp|com` 추가. 비Windows는 이미 rhwp. Windows는 실기 승격 전 `com` 기본, 승격 뒤 모든 OS `rhwp` 기본이고 `com`은 옵트인. `cmd_to_pdf()` 분기와 `test_rhwp_pdf.py`·`test_pdf_export.py` 기대값 수정.
+- `hwpx_edit.py --to-pdf`: `--pdf-backend rhwp|com` 추가. 모든 OS에서 `rhwp` 기본(2026-10-28 위원장 결정), `com`은 Windows 명시 폴백. `cmd_to_pdf()` 분기와 `test_rhwp_pdf.py`·`test_pdf_export.py` 기대값 수정.
 - Pandoc(`hwpx_convert.py`) 산출물의 PDF는 rhwp로 낸다고 SKILL.md 의사결정 트리에 명시(기존 "문서가 정하지 않았다" 갭 해소). COM `--to-pdf`에는 Pandoc 산출물 입력 금지가 그대로 남는다.
 - 검증: `test.md`→HWPX→rhwp PDF 1건, 기존 표본 HWPX PDF 1건에서 빈 네모 0.
 
