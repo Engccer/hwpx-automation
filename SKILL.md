@@ -15,7 +15,7 @@ metadata:
 - **hwpx_convert.py**: 이 디렉토리의 `convert/hwpx_convert.py` (MD/DOCX/HTML/RST/TEX/TXT → HWPX 변환, `pip install pypandoc-hwpx` 필요)
 - **hwpx_com.py**: 이 디렉토리의 `hwpx_com.py` (한컴 COM 네이티브 파이프라인, pyhwpx 기반, Windows + 한컴오피스 전용, `pip install pyhwpx` 필요). MD→HWPX 생성·HWP→HWPX 변환·이미지 삽입·본문 추출·한컴 재저장 정규화(--normalize)·PDF 변환 (아래 "한컴 COM 자동화" 참조)
 - **PDF 변경 추적 경고 자동 처리**: 두 CLI의 `--to-pdf`는 `pdf_export.py`를 공유한다. PDF 저장 구간에서만 변경 추적 형식 경고에 저장으로 응답하고 원래 메시지 모드를 복원한다. 원본 이력은 수정하지 않는다. 상세와 적용 범위는 `reference/warnings-com.md` 15번 참조.
-- **rhwp_pdf.py**: Windows가 아닌 OS에서 `hwpx_edit.py --to-pdf`가 쓰는 PDF 백엔드. 오픈소스 조판 엔진 rhwp CLI를 호출하고, 글꼴에 없어 빈 네모로 찍힌 문자를 PDF에서 찾아 보고한다(아래 "macOS·Linux에서 PDF 변환 (rhwp)" 참조)
+- **rhwp_pdf.py**: `hwpx_edit.py --to-pdf`의 기본 PDF 백엔드(모든 OS. Windows 한컴은 `--pdf-backend com`). 오픈소스 조판 엔진 rhwp CLI를 호출하고, 글꼴에 없어 빈 네모로 찍힌 문자를 PDF에서 찾아 보고한다(아래 "macOS·Linux에서 PDF 변환 (rhwp)" 참조)
 - **hwpx_sign.py**: 이 디렉토리의 `hwpx_sign.py` (서명란(기준 텍스트 "(서명)" 등)에 서명/도장 이미지를 삽입하는 전용 도구, Windows + 한컴오피스 필요. 아래 "서명/도장 이미지 삽입" 참조)
 - **hwp2hwpx**: 이 디렉토리의 `convert/hwp2hwpx.bat`(Windows) 또는 `convert/hwp2hwpx.sh`(macOS/Linux)
 - **python-hwpx CLI**: `pip install python-hwpx`에 포함: `hwpx-validate`, `hwpx-page-guard` 등. 머신마다 설치본 버전이 다르다(3.x·6.x). `hwpx_edit.py`는 양쪽을 지원하고, API를 직접 부를 때만 이름 차이를 확인한다(`reference/api.md`)
@@ -84,7 +84,7 @@ HWP/HWPX 작업 요청
     │   ⚠ 한컴 13.0.0.3903 PC에서는 HAction.Run이 전부 무시돼 본문이 한 덩어리가 된다
     │     (reference/warnings-com.md 16번). 쓰기 전에 PDF 페이지 이미지로 확인한다
     │   ※ COM은 Pandoc 생성물의 본문을 0자로 읽는다. Pandoc 생성물은 COM으로 처리하지
-    │     않는다(--normalize·--insert-image·Windows --to-pdf·hwpx_sign.py 모두. --get-text
+    │     않는다(--normalize·--insert-image·--pdf-backend com·hwpx_com.py --to-pdf·hwpx_sign.py 모두. --get-text
     │     호환성 점검만 예외, reference/warnings-com.md 4번). COM 생성물은 XML 파이프라인에서
     │     읽고 편집해도 안전하다
     └── 제출 서식(용지·여백·글꼴·줄 간격)이 지정된 원고
@@ -103,7 +103,7 @@ HWP/HWPX 작업 요청
 | 표에 행 추가/복제, 표 복제 | raw lxml + regex | **수동 제거 필수** |
 | MD → HWPX 직접 빌드 (보고서급) | python-hwpx API + raw XML | **수동 제거 필수** |
 | 서명란에 서명/도장 이미지 삽입 | `hwpx_sign.py` (COM+XML) | **자동 제거** |
-| HWPX/HWP → PDF | `hwpx_edit.py --to-pdf` (Windows 한컴 COM · 그 밖의 OS rhwp) | N/A |
+| HWPX/HWP → PDF | `hwpx_edit.py --to-pdf` (rhwp 기본 · Windows 한컴은 `--pdf-backend com`) | N/A |
 | 무결성 검증, 쪽수 드리프트 감지 | python-hwpx CLI | N/A |
 
 `--delete-rows`·`--delete-empty-rows`는 행을 지운 뒤 표의 `rowCnt`와 `rowAddr`를 다시 맞춘다(아래 "구조적 편집"의 필수 규칙 2·3). 지울 행이 세로 병합에 걸려 있으면 지우지 않고 멈추므로, 먼저 `--split-cell`로 병합을 푼다.

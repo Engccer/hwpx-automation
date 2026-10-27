@@ -28,7 +28,7 @@ XML 직접 편집으로 불가능한 작업(이미지 삽입, PDF 변환)과 COM
 | COM 네이티브 | **hwpx_com.py** (pyhwpx) | Windows + 한컴오피스 | 신규 생성+COM 후속 작업, 이미지 삽입, PDF |
 
 - **COM 생성 HWPX → XML 파이프라인 읽기·편집**: 안전. COM으로 넣은 결과를 XML로 후처리하고 다시 COM으로 여는 흐름(아래 "이미지 위치/배치 변경", `hwpx_sign.py`)도 이 범위다. → 사례
-- **Pandoc 생성 HWPX → COM**: 금지. COM이 본문을 0자로 인식하고, 같은 파일에 저장하면 내용 전체가 사라진다(`reference/warnings-com.md` 4번). COM으로 여는 명령 전부(`--normalize`·`--insert-image`·Windows `--to-pdf`(`hwpx_edit.py`·`hwpx_com.py` 모두)·`hwpx_sign.py`)에 넣지 않는다. 본문을 0자로 본 채 처리해 삽입 위치·인쇄·서명 자리 찾기가 어긋난다(`--normalize`는 입력 0자를 감지해 멈춘다). `--get-text`로 0자인지 확인하는 호환성 점검만 예외다. 한컴 결과물이 필요하면 `--from-md`로 COM에서 생성한다.
+- **Pandoc 생성 HWPX → COM**: 금지. COM이 본문을 0자로 인식하고, 같은 파일에 저장하면 내용 전체가 사라진다(`reference/warnings-com.md` 4번). COM으로 여는 명령 전부(`--normalize`·`--insert-image`·`hwpx_edit.py --to-pdf --pdf-backend com`·`hwpx_com.py --to-pdf`·`hwpx_sign.py`)에 넣지 않는다. 본문을 0자로 본 채 처리해 삽입 위치·인쇄·서명 자리 찾기가 어긋난다(`--normalize`는 입력 0자를 감지해 멈춘다). `--get-text`로 0자인지 확인하는 호환성 점검만 예외다. 한컴 결과물이 필요하면 `--from-md`로 COM에서 생성한다.
 - hwpx_com.py는 입력 파일을 절대 in-place로 덮어쓰지 않는다 (위 사고의 구조적 방지)
 
 ## hwpx_com.py 사용법 (pyhwpx 기반)
@@ -53,7 +53,7 @@ python hwpx_com.py doc.hwpx --get-text
 # 입력 본문을 COM이 0자로 읽으면(Pandoc 변환물) 저장하지 않고 오류로 멈춘다
 python hwpx_com.py doc.hwpx --normalize [-o final.hwpx]
 
-# PDF 저장 (hwpx_edit.py --to-pdf와 동일 기능, COM 작업 연속 시 이쪽 사용)
+# PDF 저장 (hwpx_edit.py --to-pdf --pdf-backend com과 동일 기능, COM 작업 연속 시 이쪽 사용)
 python hwpx_com.py doc.hwpx --to-pdf [-o out.pdf] [--password "암호"]
 ```
 
@@ -67,20 +67,21 @@ python hwpx_com.py doc.hwpx --to-pdf [-o out.pdf] [--password "암호"]
 # pywin32, 보안 모듈 레지스트리, HWPFrame.HwpObject 생성 가능 여부 확인
 python hwpx_edit.py --diagnose-com
 
+# 한컴 PDF는 --pdf-backend com을 명시한다(빼면 rhwp로 렌더링한다. 마지막 줄 engine=com 확인)
 # 기본 출력: 원본 폴더의 _work-hwpx-automation/<파일명>.pdf (원본 비파괴)
 # PDF가 최종 결과물이면 작업 폴더로 옮기거나 -o로 작업 폴더를 직접 지정
-python hwpx_edit.py <파일.hwpx> --to-pdf
+python hwpx_edit.py <파일.hwpx> --to-pdf --pdf-backend com
 
 # 출력 경로 지정
-python hwpx_edit.py <파일.hwpx> --to-pdf -o <파일.pdf>
+python hwpx_edit.py <파일.hwpx> --to-pdf --pdf-backend com -o <파일.pdf>
 
 # 암호화된 HWPX/HWP를 PDF로 저장
-python hwpx_edit.py <파일.hwpx> --to-pdf --password "<비밀번호>" -o <파일.pdf>
+python hwpx_edit.py <파일.hwpx> --to-pdf --pdf-backend com --password "<비밀번호>" -o <파일.pdf>
 ```
 
 ## 원격 실행 (SSH)
 
-⚠ **SSH 세션에서는 COM 서버가 뜨지 않는다**(`서버 실행이 실패했습니다`, 대화형 데스크톱 없음). 원격에서 돌릴 때는 `schtasks /Create /TN <이름> /SC ONCE /ST 00:00 /IT /RL HIGHEST /TR "cmd /c cd /d <작업폴더> && python hwpx_com.py ... > com.log 2>&1" /F` 후 `schtasks /Run`으로 로그인 세션에서 실행하고 결과 파일을 폴링한다. `hwpx_sign.py`·`hwpx_edit.py --to-pdf`도 같다. → 사례
+⚠ **SSH 세션에서는 COM 서버가 뜨지 않는다**(`서버 실행이 실패했습니다`, 대화형 데스크톱 없음). 원격에서 돌릴 때는 `schtasks /Create /TN <이름> /SC ONCE /ST 00:00 /IT /RL HIGHEST /TR "cmd /c cd /d <작업폴더> && python hwpx_com.py ... > com.log 2>&1" /F` 후 `schtasks /Run`으로 로그인 세션에서 실행하고 결과 파일을 폴링한다. `hwpx_sign.py`·`hwpx_edit.py --to-pdf --pdf-backend com`도 같다. → 사례
 
 ## 보안모듈 (팝업 제거)
 

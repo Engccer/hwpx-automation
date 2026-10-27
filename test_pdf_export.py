@@ -97,6 +97,19 @@ class PdfBackendRouting(unittest.TestCase):
                 rhwp.assert_called_once()
                 com.assert_not_called()
 
+    def test_cli_without_flag_uses_rhwp_on_windows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = os.path.join(tmp, "a.hwpx")
+            Path(src).write_bytes(b"PK")
+            with mock.patch.object(hwpx_edit.sys, "platform", "win32"), \
+                    mock.patch.object(hwpx_edit.sys, "argv", ["hwpx_edit.py", src, "--to-pdf"]), \
+                    mock.patch.object(hwpx_edit, "cmd_to_pdf_rhwp") as rhwp, \
+                    mock.patch.object(hwpx_edit, "create_hwp_com") as com, \
+                    contextlib.redirect_stdout(io.StringIO()):
+                hwpx_edit.main()
+        rhwp.assert_called_once()
+        com.assert_not_called()
+
     def test_com_backend_on_windows_uses_hancom(self):
         code, rhwp, com, out, _ = self.run_pdf("win32", "com")
         self.assertEqual(code, 0)

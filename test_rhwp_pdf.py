@@ -163,6 +163,7 @@ class NonWindowsTests(unittest.TestCase):
                            capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 2, r.stderr)
         self.assertIn("U+2705", r.stderr)
+        self.assertEqual(r.stdout.strip().splitlines()[-1], "engine=rhwp")
         self.assertTrue(self.out.exists())
 
     def test_check_env_accepts_path_java_for_shell_wrapper(self):

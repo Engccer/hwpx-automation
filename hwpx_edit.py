@@ -1765,12 +1765,12 @@ def cmd_to_pdf(filepath, output=None, password=None, backend="rhwp"):
 def cmd_to_pdf_rhwp(filepath, output, password=None):
     """rhwp 렌더링 PDF. 글꼴에 없는 문자가 빈 네모로 찍혔으면 PDF는 남기고 exit 2."""
     from rhwp_pdf import save_pdf
-    com_hint = ("한컴과 같은 조판이 필요하면 Windows에서 --pdf-backend com"
-                if sys.platform == "win32" else "한컴과 같은 조판이 필요하면 Windows 한컴(--pdf-backend com)")
     try:
         report = save_pdf(filepath, output, password)
     except Exception as exc:
-        print(f"오류: PDF 저장 실패: {exc}\n  폴백: {com_hint}", file=sys.stderr)
+        why = "암호 문서는" if password else "rhwp로 안 되면"
+        print(f"오류: PDF 저장 실패: {exc}\n  폴백: {why} Windows 한컴오피스에서 --pdf-backend com",
+              file=sys.stderr)
         sys.exit(1)
 
     print(f"PDF 저장: {os.path.abspath(output)}")
