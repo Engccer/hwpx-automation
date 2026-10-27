@@ -8,13 +8,10 @@ rhwp(https://github.com/edwardkim/rhwp)는 한컴 없이 HWP/HWPX를 조판·렌
 
 import os
 import re
-import shutil
-import subprocess
-import tempfile
 import zlib
 
-INSTALL_HINT = ("rhwp CLI가 필요합니다. https://github.com/edwardkim/rhwp/releases 에서 "
-                "플랫폼용 바이너리를 받아 SHA256SUMS.txt로 확인한 뒤 PATH에 두세요.")
+import rhwp_cli
+from rhwp_cli import INSTALL_HINT  # noqa: F401  (hwpx_edit 등 기존 참조 유지)
 
 
 def _objects(pdf):
@@ -67,28 +64,30 @@ def embedded_fonts(pdf):
 def save_pdf(src, output, password=None):
     """rhwp로 PDF를 만든다. 실패하면 기존 output을 건드리지 않는다.
 
-    Returns: {"missing": 빈 네모로 찍힌 문자, "fonts": 임베드 글꼴, "overflow": 쪽 하단 넘침 경고 수}
+    호출은 rhwp_cli.run이 맡는다(임시 폴더 → 검증 → 교체). 이 함수는 PDF 헤더·빈 네모
+    글자 분석을 교체 전 검증 콜백으로 끼운다.
+
+    Returns: {"missing": 빈 네모로 찍힌 문자, "fonts": 임베드 글꼴,
+              "overflow": 쪽 하단 넘침 경고 수, "pages": 쪽수}
     """
-    rhwp = shutil.which("rhwp")
-    if not rhwp:
-        raise RuntimeError(INSTALL_HINT)
-    output = os.path.abspath(output)
-    os.makedirs(os.path.dirname(output), exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="rhwp-pdf-", dir=os.path.dirname(output)) as stage:
-        staged = os.path.join(stage, "export.pdf")
-        cmd = [rhwp, "export-pdf", os.path.abspath(src), "-o", staged]
-        if password:
-            cmd.append("--password-stdin")
-        r = subprocess.run(cmd, input=f"{password}\n" if password else None,
-                           capture_output=True, text=True)
-        if r.returncode != 0 or not os.path.exists(staged):
-            raise RuntimeError(f"rhwp PDF 변환 실패(exit {r.returncode}): {r.stderr.strip()[-500:]}")
+    report = {}
+
+    def analyze(staged):
         with open(staged, "rb") as fh:
             pdf = fh.read()
         if not pdf.startswith(b"%PDF-"):
             raise RuntimeError("rhwp 출력이 PDF 형식이 아닙니다.")
-        # 분석이 실패해도 기존 output을 덮어쓰지 않도록 교체 전에 끝낸다.
-        report = {"missing": missing_glyphs(pdf), "fonts": embedded_fonts(pdf),
-                  "overflow": r.stderr.count("LAYOUT_OVERFLOW:")}
-        os.replace(staged, output)
+        # 분석이 실패하면 예외가 전파돼 기존 output을 덮어쓰지 않는다.
+        report.update(missing=missing_glyphs(pdf), fonts=embedded_fonts(pdf))
+
+    try:
+        r = rhwp_cli.run(["export-pdf", os.path.abspath(src), "-o", rhwp_cli.OUTPUT],
+                         output=output, password=password,
+                         required_fields=("output", "format", "pageCount"), verify=analyze)
+    except rhwp_cli.RhwpNotInstalled:
+        raise RuntimeError(INSTALL_HINT)
+    except rhwp_cli.RhwpError as exc:
+        raise RuntimeError(f"rhwp PDF 변환 실패: {exc}")
+    report["overflow"] = r.stderr.count("LAYOUT_OVERFLOW:")
+    report["pages"] = r.envelope.get("pageCount")
     return report

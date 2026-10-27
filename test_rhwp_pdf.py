@@ -35,7 +35,9 @@ def fixture_pdf(compress=False):
 
 
 FAKE_RHWP = """#!{python}
-import os, sys
+import json, os, sys
+if sys.argv[1:] == ["--version"]:
+    print("rhwp v0.8.7"); sys.exit(0)
 mode = os.environ["FAKE_RHWP_MODE"]
 out = sys.argv[sys.argv.index("-o") + 1]
 if mode == "fail":
@@ -49,6 +51,7 @@ if mode == "nonpdf":
 data = open(os.environ["FAKE_RHWP_PDF"], "rb").read()
 open(out, "wb").write(data)
 sys.stderr.write("LAYOUT_OVERFLOW: page=0, sec=0, col=0, para=9, overflow=4.6px\\n")
+print(json.dumps(dict(schemaVersion="1.0", output=out, format="pdf", pageCount=1)))
 """
 
 
@@ -110,6 +113,7 @@ class NonWindowsTests(unittest.TestCase):
         self.assertEqual(report["overflow"], 1)
         self.assertIn("✅", report["missing"])
         self.assertIn("AppleSDGothicNeo-Regular", report["fonts"])
+        self.assertEqual(report["pages"], 1)
         self.assertEqual(list(self.out.parent.iterdir()), [self.out])
 
     def test_failed_export_preserves_existing_pdf(self):

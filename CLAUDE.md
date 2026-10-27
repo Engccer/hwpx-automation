@@ -9,9 +9,11 @@ hwpx-automation/
 ├── hwpx_edit.py          # HWPX 읽기/편집 통합 CLI (XML 파이프라인)
 ├── hwpx_com.py           # 한컴 COM 네이티브 파이프라인 CLI (pyhwpx, Windows 전용)
 ├── hwpx_sign.py          # 서명란에 서명/도장 이미지 삽입 (COM 삽입 + XML floating 후처리)
-├── rhwp_pdf.py           # macOS·Linux --to-pdf 백엔드 (rhwp CLI + 빈 네모 문자 검출)
+├── rhwp_cli.py           # rhwp 호출의 유일한 입구 (탐색·버전·JSON 봉투·exit code·임시 폴더→검증→교체)
+├── hwpx_gate.py          # rhwp 산출물 독립 손실 게이트 (요소 census·BinData 해시·글자 대조·hwpx-validate)
+├── rhwp_pdf.py           # macOS·Linux --to-pdf 백엔드 (rhwp_cli 위에서 빈 네모 문자 검출)
 ├── pdf_export.py         # Windows --to-pdf 공통 (변경 추적 경고 자동 응답)
-├── test_*.py             # 단위 시험 (rhwp_pdf·pdf_export, 문서가 약속한 동작: test_doc_promises)
+├── test_*.py             # 단위 시험 (rhwp_cli·hwpx_gate·rhwp_pdf·pdf_export, 문서가 약속한 동작: test_doc_promises)
 ├── SKILL.md              # 에이전트 스킬 정의 (의사결정 트리 + 사용법)
 ├── convert/
 │   ├── hwp2hwpx.bat      # HWP→HWPX 변환 (Windows, JDK 21 필요)
@@ -109,7 +111,7 @@ bash convert/hwp2hwpx.sh input.hwp [output.hwpx]    # macOS/Linux
 - **hwpx-tomd** (MIT): `--to-md` 변환 엔진. `pip install hwpx-tomd` (PyPI·GitHub `Engccer/hwpx-tomd` 공개). 라이브러리로도 직접 사용 가능
 - **Java**: JDK 21 (HWP→HWPX 변환 시에만)
 - **Windows + 한컴오피스 + pywin32**: `--to-pdf`(Windows), `--diagnose-com` 등 COM 자동화 기능에 사용
-- **rhwp CLI** (MIT, 별도 설치): macOS·Linux의 `--to-pdf`. GitHub Releases 바이너리를 PATH에 둔다
+- **rhwp CLI** (MIT, 별도 설치, v0.8.7 이상): macOS·Linux의 `--to-pdf`. GitHub Releases 바이너리를 PATH에 두거나 `HWPX_RHWP_BIN`으로 경로를 준다
 - **pyhwpx** (선택): `hwpx_com.py` COM 네이티브 파이프라인 전용. `pip install pyhwpx` (1.7.2 검증, 2026-06-10)
 - **번들된 JAR**: hwplib, hwpxlib, hwp2hwpx (모두 Apache-2.0)
 
@@ -144,3 +146,6 @@ bash convert/hwp2hwpx.sh input.hwp [output.hwpx]    # macOS/Linux
 - 편집 기능은 반드시 `save_hwpx()` 함수를 통해 저장 (sanitize 자동 적용). 저장 경로에 조건을 걸지 않는다
 - HWPX를 쓰는 새 경로는 `zipfile.ZipFile(..., 'w')`를 직접 쓰지 말고 `write_hwpx_zip()`을, XML 직렬화는 `serialize_xml()`을 쓴다. HWPX를 읽는 새 경로는 `zipfile`로 읽은 직후 `sanitize_xml_parts()`를 태운다(`reference/warnings-editing.md` 15·18번)
 - 구조적 편집(raw XML) 후에는 `lineseg` 수동 제거 필수
+- rhwp는 `rhwp_cli.run()`으로만 부른다(명령 문자열 직접 조립 금지). 산출 파일 자리는 `rhwp_cli.OUTPUT` 자리표로 적고, 게시 전 검증은 `verify=` 콜백으로 끼운다. 봉투 필드명은 `output`·`format`·`pageCount`·`verify`(실측 v0.8.7)
+- rhwp가 쓴 HWPX는 전체 재직렬화라 원본에 없던 손실이 생긴다(header.xml의 OUTLINE 7~9단계 `hp:switch` 블록과 미사용 paraPr이 사라진다, rhwp `--verify`는 이를 못 본다). 산출물은 `hwpx_gate.gate()`를 통과한 뒤에만 결과물로 삼고, 원본 XML이 없는 HWP 변환은 JAR 변환물과 `cross_check()`로 대조한다
+- 정본 형식은 HWPX다. `.hwp`는 입구에서 변환하고 결과물은 HWPX로 저장한다. `.hwp`를 `.hwp`로 저장하는 편집 경로는 만들지 않는다
