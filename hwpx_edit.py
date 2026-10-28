@@ -1534,7 +1534,7 @@ def hwp_to_hwpx(src, dest=None, *, engine="rhwp", reuse=False):
     dest가 None이면 입력 옆 `_work-hwpx-automation/<stem>.hwpx`이고, 그 자리에 파일이 이미
     있으면 덮지 않는다. reuse=True(다른 명령의 입구 변환)이고 그 파일이 이 원본에서 만든 그대로면
     (`<변환물>.source.json`의 원본·변환물 SHA-256이 지금과 같으면) 변환하지 않고 그 파일을
-    쓴다(status="reused"). 아니면 OutputExistsError(RuntimeError)다.
+    쓰고 처음 변환의 engine·status를 그대로 보고한다. 아니면 OutputExistsError(RuntimeError)다.
     산출물은 hwpx-validate와 다른 엔진 변환물과의 교차 대조(hwpx_gate.cross_check)를
     통과해야 dest에 놓인다. 대조 불가(JDK·hwpx-tomd 없음)면 status="unverified".
     실패하면 RuntimeError(rhwp_cli.RhwpError 포함)이고 메시지에 폴백 명령이 들어 있다.
@@ -1546,9 +1546,12 @@ def hwp_to_hwpx(src, dest=None, *, engine="rhwp", reuse=False):
     src = os.path.abspath(src)
     if dest is None:
         dest = get_output_path(src, ".hwpx")
-        if reuse and os.path.exists(dest) and _conversion_record(src, dest) == _read_record(dest):
+        kept = _read_record(dest) if reuse and os.path.exists(dest) else None
+        if kept and {k: kept.get(k) for k in ("hwp_sha256", "hwpx_sha256")} == _conversion_record(src, dest):
             print(f"변환물 재사용: {dest} (이 원본에서 만든 그대로. 다시 변환하려면 이 파일을 옮긴다)")
-            return ConvertResult(os.path.abspath(dest), engine, "reused", [])
+            print(f"engine={kept.get('engine', engine)} status={kept.get('status', 'unverified')}")
+            return ConvertResult(os.path.abspath(dest), kept.get("engine", engine),
+                                 kept.get("status", "unverified"), [])
         refuse_existing_default(dest, ("그 파일은 이 원본에서 만든 그대로가 아닙니다(원본이 바뀌었거나 "
                                        "변환물을 고쳤다). " if reuse else "")
                                 + "기존 파일을 옮긴 뒤 다시 실행하세요(--from-hwp는 -o로 다른 경로를 줄 수 있다).")
@@ -1595,7 +1598,7 @@ def hwp_to_hwpx(src, dest=None, *, engine="rhwp", reuse=False):
     status = state.get("status", "unverified")
     if record:
         with open(dest + ".source.json", "w", encoding="utf-8") as f:
-            json.dump(_conversion_record(src, dest), f)
+            json.dump(dict(_conversion_record(src, dest), engine=engine, status=status), f)
     for m in messages:
         print(m)
     print(f"변환: {src} → {dest}")

@@ -474,6 +474,13 @@ class NormalizationCounterexampleTests(EditCheck, unittest.TestCase):
                                                  header(ppr("")), {"0"})
         self.assertIn("heading", {k[0] for k, (a, b) in diff.items() if b < a})
 
+    def test_unused_parapr_outline_heading_only_levels_7_to_9(self):
+        ppr = lambda lv: f'<hh:paraPr id="16"><hh:heading type="OUTLINE" level="{lv}"/></hh:paraPr>'
+        for lv, ok in (("0", False), ("8", True)):
+            diff, _ = hwpx_gate.split_rhwp_known("Contents/header.xml", header(ppr(lv)),
+                                                 header('<hh:paraPr id="16"/>'), {"0"})
+            self.assertEqual(not [k for k, (a, b) in diff.items() if b < a], ok, lv)
+
     def test_textdir_rtl_loss_is_rejected(self):
         ppr = lambda d: f'<hh:paraPr id="0"{d}><hh:align horizontal="LEFT"/></hh:paraPr>'
         for value, ok in (("LTR", True), ("AUTO", True), ("RTL", False)):

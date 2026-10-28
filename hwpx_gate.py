@@ -324,7 +324,10 @@ def split_rhwp_known(name, before, after, used_parapr):
         known = {}
         # 미사용 paraPr 안에서는 개요 단계 갈래(switch)가 접히는 감소만 허용한다
         for k, v in compare_census(a_zone, b_zone).items():
-            collapse = k[0] in OUTLINE_COLLAPSE and (k[0] != "heading" or dict(k[1]).get("type") in ("OUTLINE", "NONE"))
+            h = dict(k[1])
+            collapse = k[0] in OUTLINE_COLLAPSE and (
+                k[0] != "heading" or h.get("type") == "NONE"
+                or (h.get("type") == "OUTLINE" and h.get("level", "").isdigit() and int(h["level"]) >= 7))
             (known if v[1] < v[0] and collapse else diff)[k] = v
         if a_ltr > b_ltr:
             known[("paraPr textDir LTR·AUTO 소실", (("textDir", "LTR|AUTO"),))] = (a_ltr, b_ltr)

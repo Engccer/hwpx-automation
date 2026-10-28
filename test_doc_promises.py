@@ -544,6 +544,7 @@ class FromHwpRoutesToRhwpThenJar(unittest.TestCase):
             code, out, err = quiet(hwpx_edit.main)
             self.assertEqual(code, 0, err)
             self.assertIn("변환물 재사용", out)
+            self.assertIn("engine=rhwp status=unverified", out)
             self.assertEqual(len(self.calls()), calls)  # 다시 변환하지 않았다
             self.dest.write_bytes(self.dest.read_bytes() + b"\0")  # 변환물을 고쳤다
             code, _, err = quiet(hwpx_edit.main)
