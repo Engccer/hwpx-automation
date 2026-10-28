@@ -79,7 +79,7 @@ Pandoc 생성 HWPX를 입력으로 넣으면 안 된다(`--get-text` 호환성 �
 ```bash
 python hwpx_com.py --diagnose                              # pyhwpx + COM 진단
 python hwpx_com.py output.hwpx --from-md input.md           # MD → COM 네이티브 HWPX 생성
-python hwpx_com.py <파일.hwp> --from-hwp                    # HWP → HWPX 변환 (rhwp·JAR 변환이 실패할 때 Windows 한컴 폴백)
+python hwpx_com.py <파일.hwp> --from-hwp                    # HWP → HWPX 변환 (rhwp가 실패했는데 JDK가 없거나 JAR도 실패할 때 Windows 한컴 폴백)
 python hwpx_com.py <파일.hwpx> --insert-image img.png       # 문서 끝 이미지 삽입 (별도 파일 저장)
 python hwpx_com.py <파일.hwpx> --normalize                  # 한컴 재저장 정규화 (python-hwpx 산출물, 별도 파일)
 python hwpx_com.py <파일.hwpx> --get-text                   # COM 기준 본문 추출 (호환성 점검)
@@ -119,7 +119,7 @@ bash convert/hwp2hwpx.sh input.hwp [output.hwpx]    # macOS/Linux
 
 - **Python**: `python-hwpx` (비상업 라이선스), `lxml` (BSD-3-Clause), 편집 명령에 사용
 - **hwpx-tomd** (MIT): `--to-md` 변환 엔진. `pip install hwpx-tomd` (PyPI·GitHub `Engccer/hwpx-tomd` 공개). 라이브러리로도 직접 사용 가능
-- **Java**: JDK 21 (`--engine jar` 폴백, HWP 변환 교차 대조, `--to-hwp` 왕복 대조. 없으면 그 결과는 `unverified`)
+- **Java**: JDK 21 (`--engine jar` 폴백, HWP 변환 교차 대조, `--to-hwp` 왕복 대조. 없으면 대조 결과는 `unverified`이고 `--engine jar`는 쓸 수 없다)
 - **Windows + 한컴오피스 + pywin32**: `--pdf-backend com`, `hwpx_sign.py --backend com`, `--diagnose-com`, `hwpx_com.py` 등 COM 폴백에 사용
 - **rhwp CLI** (MIT, 별도 설치): HWP→HWPX 변환·`--to-pdf`·서명 삽입·누름틀·격자 셀·`--to-hwp`의 기본 엔진(모든 OS). GitHub Releases 바이너리를 PATH에 두거나 `HWPX_RHWP_BIN`으로 경로를 준다. v0.8.7 미만은 거부하고, `rhwp_cli.TESTED_MAX`보다 새 버전은 경고만 낸다(실측을 마친 버전으로 올린다)
 - **pyhwpx** (선택): `hwpx_com.py` COM 네이티브 파이프라인 전용. `pip install pyhwpx` (1.7.2 검증, 2026-06-10)

@@ -341,7 +341,7 @@ MD 등을 `hwpx_convert.py`로 변환할 때 `reference/conversion.md`의 같은
 4. **(선택) 심층 분석**: `hwpx-analyze-template output.hwpx --json` (스타일 ID 맵 필요 시)
 5. **데이터 채우기**: `--set-cell`로 개별 셀(두 번째부터 앞 결과를 입력으로, 위 "여러 편집을 이어 할 때") 또는 Python 스크립트로 일괄 처리
 6. **"한 줄로 입력" 과압축 확인**: 제목·긴 문장을 채웠다면 `--list-squeeze`로 확인, 걸리면 `--fix-squeeze`로 자연 줄바꿈 전환 (양식 제목 문단의 lineWrap="SQUEEZE"가 긴 텍스트를 한 줄로 욱여넣어 글자가 겹침. `--find/--replace`·`--set-cell`이 자동 경고하지만, Python 스크립트로 일괄 채운 경우엔 수동 확인 필요. 상세: reference/warnings-editing.md 13번)
-7. **무결성 검증**: `hwpx-validate result.hwpx` (JAR 변환물이면 PrvText 누락 실패는 무해, 위 "JAR 폴백")
+7. **무결성 검증**: `hwpx-validate result.hwpx` (JAR 래퍼 변환물이면 PrvText 누락 실패는 무해, 위 "JAR 폴백")
 8. **쪽수 드리프트 감지**: `hwpx-page-guard --reference output.hwpx --output result.hwpx`
 9. **내용 확인**: `--to-md`로 최종 텍스트 검증. 서식이 중요한 문서는 `--to-pdf`로 렌더링 육안 확인(과압축·겹침은 텍스트 검증으로는 안 잡힌다)
 

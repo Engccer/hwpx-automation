@@ -78,7 +78,7 @@ rhwp는 문서를 자기 내부 구조로 읽어 **통째로 다시 써서** 저
 
 | 축 | 기본 | 폴백 | 전환 조건 |
 |---|---|---|---|
-| HWP→HWPX | rhwp `export-hwpx` + JAR 교차 대조 | `--engine jar`(JAR + PrvText 보정), JDK 없는 Windows는 `hwpx_com.py --from-hwp` | rhwp exit 1·3·4, `hwpx-validate` 실패, 교차 대조 불일치 |
+| HWP→HWPX | rhwp `export-hwpx` + JAR 교차 대조 | `--engine jar`(JAR + PrvText 보정), rhwp가 실패했는데 JDK가 없거나 JAR도 실패한 Windows는 `hwpx_com.py --from-hwp` | rhwp exit 1·3·4, `hwpx-validate` 실패, 교차 대조 불일치 |
 | PDF | rhwp `export-pdf` | Windows 한컴 `--pdf-backend com` | 한컴과 같은 조판이 필요할 때, 빈 네모 exit 2, rhwp가 암호 문서를 못 열 때 |
 | 서명·도장 | rhwp `insert-image`(`hwpx_sign.py`) | `hwpx_sign.py --backend com` | 표 안 앵커, 앵커 위치 미확정, 게이트 실패, 앵커 표시를 지우고 넣는 양식 |
 | HWPX 미세 편집 | lxml(`--find/--replace`·`--set-cell`·행 삭제) | rhwp `--grid-set-cell` | 사용자가 격자 좌표를 원할 때만 |
