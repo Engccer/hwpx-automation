@@ -45,4 +45,4 @@
     - **현재 구현**: HWPX를 여는 모든 경로가 적재 직후 `sanitize_xml_parts()`로 XML 파트(`.xml`·`.hpf`·`.rdf`, `BinData/` 제외)를 한 번 검사해 `[\x00-\x08\x0B\x0C\x0E-\x1F]`를 제거한다. 발견 시 `sanitize:` 한 줄(파일별 제거 바이트 수·코드값)을 남긴다. 탭·개행·복귀는 XML 1.0 합법이라 보존한다.
     - **파싱만이 아니라 산출물도 정제해야 한다**: 정제한 트리를 파싱에만 쓰고 `all_files`에 되쓰지 않으면, 재직렬화되지 않는 파트(header.xml·section1.xml·`--add-preview` 산출물)에 불법 바이트가 그대로 남아 `hwpx-validate-package`가 `malformed XML`을 낸다. 그래서 정제는 트리가 아니라 **바이트 딕셔너리(`all_files`)에** 적용한다.
     - **python-hwpx 경로는 별도 처리**: `HwpxDocument.open()`은 자체 파서라 위 경로를 타지 않는다. `sanitized_source()`가 정제 임시본(시스템 temp)을 만들어 넘기고 블록을 벗어날 때(오류·`sys.exit` 포함) 삭제한다.
-    - **`--to-md`는 엔진 소관**: hwpx-tomd 0.2.1 이상이 같은 방어를 갖는다(이슈 hwpx-tomd#1, `requirements.txt` 핀 `>=0.2.1`).
+    - **`--to-md`는 엔진 소관**: hwpx-tomd(`requirements.txt` 핀 `>=0.4.1`)가 같은 방어를 갖는다(이슈 hwpx-tomd#1).
