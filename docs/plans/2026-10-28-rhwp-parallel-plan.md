@@ -127,6 +127,8 @@ git push origin feat/<name>:master && git -C ~/Mac-Projects/hwpx-automation pull
 - M4 통합(d018158, 세션 edit): 단위 98건. `--to-pdf` 모든 OS rhwp 기본, `--pdf-backend com` Windows 폴백. 암호 HWPX의 rhwp PDF 해제는 미실측(M7 인계 목록에 있음).
 - M3 통합(038b798, 세션 sign): 단위 116건. 허용 목록 술어 실측(본문이 안 쓰는 paraPr 안 개요 블록·p id 재부여·shadow NONE 소실만), cross_check BinData 해시 대조, `--backend com`이면 `--pdf-backend com`. sign 창 닫음(08:20).
 - M5 통합(98623cc, 세션 edit): 단위 140건. `--tables`·`--grid-set-cell`·`--fields`·`--fill-fields`·`--to-hwp`. 허용된 손실 줄은 stdout 둘째 줄로 사용자에게 보인다(시험 고정). edit 창 닫음(08:35).
+- 08:55 codex 횡단 리뷰(ee8510e..98623cc, `~/hwpx-automation-wt/coordinator-reports/review-cross-wave1.md`): **block**. high 5(편집 게이트가 allow 콜백·텍스트 대조 생략으로 대상 밖 문단·텍스트 손실을 통과, paraPr 참조 정규식, cross_check의 chart·ole·equation 공백, 봉투 사후조건 전 게시)·medium 4(예외 시 산출물 미보존, 고정 이름 덮어쓰기, engine 줄 불완전, 다른 글꼴 measured). 1·2·3·5번은 코디네이터가 코드로 재확인. 3차 웨이브 `fix` 세션 착수(base 128efce, docs와 병행). 계층 판정(편집 게이트 (a)기대 차분/(b)위치별 대조/(c)둘 다, 강한 디폴트 (b))은 fix가 codex 설계 리뷰 1회로 가른다. 출력 경로 정책(기본 경로 기존 파일 덮지 않음, -o는 덮어씀, .rejected 타임스탬프)·engine 줄 통일·estimated 분류 확대는 코디네이터 결정.
+- M7 통합(29baf69 + AGENTS.md fdbb05f, 세션 docs): SKILL.md 트리·Tier·행동 문장, reference/rhwp.md 신설, CLAUDE.md 함정 절, BACKLOG 재편. code-issues 4건(표기)은 fix에 전달. docs는 이어서 doc-audit.
 
 ## M7 인계 목록 (edit·sign 보고에서 모음, docs 세션이 처리)
 
