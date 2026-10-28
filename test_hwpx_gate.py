@@ -458,6 +458,22 @@ class NormalizationCounterexampleTests(EditCheck, unittest.TestCase):
         changed = {k: v.replace("옛값".encode(), "홍길동".encode()) for k, v in doc("5").items()}
         self.assert_fails(doc("0"), changed, [hwpx_gate.FieldEdit("성명", "홍길동")], "대상 밖")
 
+    def test_in_cell_shape_change_is_reported(self):
+        before = form()
+        after = {k: v.replace(b'<hp:p id="4" paraPrIDRef="0"><hp:run charPrIDRef="0"><hp:t></hp:t>',
+                              '<hp:p id="4" paraPrIDRef="9"><hp:run charPrIDRef="5"><hp:t>홍길동</hp:t>'.encode())
+                 for k, v in before.items()}
+        self.assertNotEqual(after, before)
+        rep = self.check(before, after, self.EDIT)
+        self.assertEqual(rep.status, "passed", rep.messages)
+        self.assertIn("칸 안 문단·글자 모양 변화×4", rep.allowed_line())
+
+    def test_unused_parapr_heading_loss_must_be_outline_collapse(self):
+        ppr = lambda body: f'<hh:paraPr id="16">{body}</hh:paraPr>'
+        diff, known = hwpx_gate.split_rhwp_known("Contents/header.xml", header(ppr('<hh:heading type="NUMBER" level="1"/>')),
+                                                 header(ppr("")), {"0"})
+        self.assertIn("heading", {k[0] for k, (a, b) in diff.items() if b < a})
+
     def test_textdir_rtl_loss_is_rejected(self):
         ppr = lambda d: f'<hh:paraPr id="0"{d}><hh:align horizontal="LEFT"/></hh:paraPr>'
         for value, ok in (("LTR", True), ("AUTO", True), ("RTL", False)):
@@ -534,6 +550,19 @@ class PackageGateTests(unittest.TestCase):
         self.assert_fails("사라진 요소", transform={h: realign})
         rep = self.assert_not_failed(transform={h: lambda d: d.replace(b' textDir="LTR"', b"")})
         self.assertIn("textDir LTR·AUTO 소실×20", rep.allowed_line())
+
+    def test_header_additions_under_existing_items(self):
+        h = "Contents/header.xml"
+        self.assert_fails("아래에 bold 요소가 더해짐",
+                          transform={h: lambda d: re.sub(rb'(<hh:charPr id="0"[^>]*>)', rb"\1<hh:bold/>", d, count=1)})
+        rep = self.assert_not_failed(transform={h: lambda d: re.sub(
+            rb'(<hh:charPr id="0"[^>]*>)', rb'\1<hh:outline type="NONE"/>', d, count=1)})
+        self.assertIn("outline 없음 기본값 채움×1", rep.allowed_line())
+
+    def test_manifest_item_attributes_are_compared(self):
+        hpf = "Contents/content.hpf"
+        self.assert_fails("매니페스트", transform={hpf: lambda d: d.replace(
+            b'media-type="application/xml"', b'media-type="text/xml"', 1)})
 
     def test_master_page_text_is_compared(self):
         self.assert_fails("masterpage0.xml", transform={"Contents/masterpage0.xml": lambda d: d.replace("대외비".encode(), b"")})

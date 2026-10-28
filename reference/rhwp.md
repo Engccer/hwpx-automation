@@ -37,9 +37,9 @@ rhwp 원시 exit code는 `RhwpResult.exit_code`에 그대로 남고 래퍼 오�
 rhwp는 문서를 자기 내부 구조로 읽어 **통째로 다시 써서** 저장한다. 내부 구조가 담지 않는 것은 조용히 사라지고, rhwp 자신의 `--verify`·`hwpx-roundtrip`은 그 손실을 보지 못한다. 그래서 rhwp가 쓴 HWPX는 `hwpx_gate.gate()`를 통과한 뒤에만 결과물이 된다. → 사례
 
 검사 항목:
-- **요소 census**: `Contents/*.xml`에서 (태그, 정렬된 속성 묶음) 단위로 개수를 세어 사라지거나 바뀐 요소를 찾는다. `header.xml`은 키에 id(글꼴 묶음은 lang)를 가진 조상 경로와 요소 글자를 넣어, 글자 모양·테두리 사이에서 자식이 옮겨 가거나 번호 서식(`paraHead`) 글자가 바뀐 것도 잡는다. 목록 머리의 `itemCnt`는 자식에서 나오는 값이라 보지 않는다.
+- **요소 census**: `Contents/*.xml`에서 (태그, 정렬된 속성 묶음) 단위로 개수를 세어 사라지거나 바뀐 요소를 찾는다. `header.xml`은 키에 id(글꼴 묶음은 lang)를 가진 조상 경로와 요소 글자를 넣어, 글자 모양·테두리 사이에서 자식이 옮겨 가거나 번호 서식(`paraHead`) 글자가 바뀐 것도 잡는다. 목록 머리의 `itemCnt`는 자식에서 나오는 값이라 보지 않는다. 편집 대조에서는 원본에 있던 항목(같은 소속 경로) 아래에 새 요소가 붙으면 실패다. rhwp가 글자 모양에 채우는 "없음" 기본값(그림자·밑줄·외곽선 `type="NONE"`, 취소선 `shape="NONE"`)만 허용하고 센다. 새 id 항목(칸 글자용 새 charPr 등)의 추가는 보고만 한다.
 - **편집 대조 (`edits=`)**: rhwp 편집 산출물은 `section*.xml`을 census 대신 문서 순서의 토큰열(시작 태그와 속성, 글자, 끝 태그)로 펴서 원본과 위치별로 대조한다. 대상은 산출물이 아니라 원본 XML과 요청값으로 정한다. `CellEdit(표, 행, 열, 새값, old_text)`는 문서 순서의 최상위 표에서 `cellAddr`가 맞는 칸의 `subList` 안쪽만, `FieldEdit(이름, 값, k)`는 그 CLICK_HERE 누름틀의 fieldBegin을 품은 ctrl 끝부터 fieldEnd를 품은 ctrl 시작까지만, `ImageInsert(구역, 문단)`은 그 최상위 문단에 더해진 그림 하나만 가린다. 가린 자리 밖은 위치·부모·순서·속성·글자가 모두 같아야 하고, 가린 자리 안은 글자 밖 요소가 같고 글자가 요청값과 같아야 한다(칸 안의 중첩 표는 글자까지 같아야 한다). 비교 전에 rhwp가 한컴 문서를 다시 쓸 때 바꾸는 포장(실측)을 정규화한다: run·`<hp:t>` 경계는 보지 않고 글자 모양이 바뀌는 자리와 글자만 보며, 빈 run·빈 t, `\r\n`과 `\n`, 그림(`pic`) 안 자식 순서, 필드 `zorder`·빈 `metaTag`는 같게 본다. 바탕쪽 같은 그 밖의 본문 파트도 같은 토큰열로 완전히 같아야 한다.
-- **패키지 파트 (`edits=`)**: `Contents/*.xml`·`BinData/`·`content.hpf` 밖 파트(`Chart/`·`DocHistory/`·`Scripts/`·`settings.xml` 등)는 이름과 바이트가 같아야 한다. `Preview/`와 `META-INF/container.xml`만 rhwp가 다시 만들어도 된다. `content.hpf`는 메타데이터(제목·작성자·날짜), 매니페스트 항목의 (id, href, 종류), 구역 순서(spine)를 대조한다. 항목 순서·`hashkey`·`linear`는 rhwp가 바꾸므로 보지 않는다. `allow=` 콜백과 `expect_text_change`는 rhwp 편집에 쓰지 않는다.
+- **패키지 파트 (`edits=`)**: `Contents/*.xml`·`BinData/`·`content.hpf` 밖 파트(`Chart/`·`DocHistory/`·`Scripts/`·`settings.xml` 등)는 이름과 바이트가 같아야 한다. `Preview/`와 `META-INF/container.xml`만 rhwp가 다시 만들어도 된다. `content.hpf`는 메타데이터(제목·작성자·날짜), 매니페스트 항목(`hashkey` 밖 속성 전부), 구역 순서(spine)를 대조한다. 항목 순서·`hashkey`·`linear`는 rhwp가 바꾸므로 보지 않는다. `allow=` 콜백과 `expect_text_change`는 rhwp 편집에 쓰지 않는다.
 - **BinData**: 파일 집합과 SHA-256. 그림·OLE·차트 변형을 잡는다. 그림 삽입은 `allow_bindata_added=1`.
 - **글자**: hwpx-tomd로 두 문서의 글자 멀티셋을 비교한다. `edits=`를 주면 위치별 대조가 글자까지 보므로 이 대조는 하지 않는다.
 - **스키마**: `hwpx-validate`.
@@ -55,7 +55,7 @@ rhwp는 문서를 자기 내부 구조로 읽어 **통째로 다시 써서** 저
 
 그 밖의 손실(본문 섹션 요소, 표 셀 속성, 대각선 테두리, 줄 배치 캐시 등)은 모두 실패다. 허용 구역 안에서 늘어난 요소는 `gained`로 보고만 한다.
 
-**보고 줄**: `allowed`가 비어 있지 않으면 `summary()` 둘째 줄과 `describe_lost()` 끝에 `허용된 손실(rhwp 재직렬화): p id 재부여×N, switch×3, …`이 붙는다(따로 쓰려면 `allowed_line()`). 비교에서 정규화로 같게 본 차이도 종류별 건수로 이 줄에 나온다: `run·t 경계 재분할(문단)`, `줄바꿈 \r\n→\n`, `그림 안 자식 순서`, `필드 빈 metaTag`, `fieldBegin zorder`, `paraPr textDir LTR·AUTO 소실`, `content.hpf 항목 순서`·`hashkey`·`linear`, `itemCnt 갱신`. 화면에는 영향이 없는 차이다. 이 줄이 찍히면 완료 보고에 그대로 옮겨 적는다.
+**보고 줄**: `allowed`가 비어 있지 않으면 `summary()` 둘째 줄과 `describe_lost()` 끝에 `허용된 손실(rhwp 재직렬화): p id 재부여×N, switch×3, …`이 붙는다(따로 쓰려면 `allowed_line()`). 비교에서 정규화로 같게 본 차이도 종류별 건수로 이 줄에 나온다: `run·t 경계 재분할(문단)`, `줄바꿈 \r\n→\n`, `그림 안 자식 순서`, `필드 빈 metaTag`, `fieldBegin zorder`, `paraPr textDir LTR·AUTO 소실`, `content.hpf 항목 순서`·`hashkey`·`linear`, `itemCnt 갱신`, `<요소> 없음 기본값 채움`. 대상 칸 안의 문단·글자 모양 변화와 문단 쪼개기는 실패가 아니지만 `칸 안 문단·글자 모양 변화`로 센다. 화면에는 영향이 없는 차이다. 이 줄이 찍히면 완료 보고에 그대로 옮겨 적는다.
 
 **교차 대조 (`cross_check`)**: 원본 XML이 없는 HWP 변환은 같은 HWP를 다른 엔진(JAR)으로 바꾼 HWPX와 대조한다. 글자 멀티셋, 표(`tbl`)·셀(`tc`)·그림(`pic`)·차트(`chart`)·OLE(`ole`)·수식(`equation`) 수, BinData와 `Chart/` 파트의 수와 내용 해시 멀티셋을 본다. HWP 입구 변환과 `--to-hwp` 왕복이 이 함수 하나를 쓴다. JDK가 없어 대조 상대를 못 만들면 `unverified`다.
 

@@ -536,7 +536,7 @@ class FromHwpRoutesToRhwpThenJar(unittest.TestCase):
         self.assertEqual(out.strip().splitlines()[-1], "engine=hwpx-tomd")
         self.assertTrue((self.dest.parent / "doc.md").exists())
 
-    def test_second_run_reuses_conversion_unless_hwp_is_newer(self):
+    def test_second_run_reuses_conversion_only_when_both_hashes_match(self):
         argv = ["hwpx_edit.py", str(self.hwp), "--to-md"]
         with mock.patch.object(hwpx_edit, "find_java", return_value=None), mock.patch.object(sys, "argv", argv):
             self.assertEqual(quiet(hwpx_edit.main)[0], 0)
@@ -545,12 +545,15 @@ class FromHwpRoutesToRhwpThenJar(unittest.TestCase):
             self.assertEqual(code, 0, err)
             self.assertIn("변환물 재사용", out)
             self.assertEqual(len(self.calls()), calls)  # 다시 변환하지 않았다
-            later = os.path.getmtime(self.dest) + 10
-            os.utime(self.hwp, (later, later))
+            self.dest.write_bytes(self.dest.read_bytes() + b"\0")  # 변환물을 고쳤다
             code, _, err = quiet(hwpx_edit.main)
-        self.assertEqual(code, 1)
-        self.assertIn("원본 .hwp가 그 파일보다 새롭습니다", err)
-        self.assertNotIn("변환 실패", err)
+            self.assertEqual(code, 1)
+            self.assertIn("만든 그대로가 아닙니다", err)
+            self.assertNotIn("변환 실패", err)
+            self.dest.write_bytes(self.dest.read_bytes()[:-1])
+            self.assertEqual(quiet(hwpx_edit.main)[0], 0)
+            self.hwp.write_bytes(b"HWP Document File v2")  # 원본이 바뀌었다
+            self.assertEqual(quiet(hwpx_edit.main)[0], 1)
 
     def test_jar_check_error_keeps_rejected_output(self):
         with self.jar_copies(self.good), \

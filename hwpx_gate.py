@@ -110,8 +110,8 @@ def package_diff(src, dst):
 
 
 def _hpf(data):
-    """content.hpf에서 바뀌면 안 되는 것: 메타데이터(태그·속성·글자), 매니페스트 (id, href, 종류),
-    구역 순서(spine). rhwp는 항목 순서·hashkey·linear를 바꾸므로(실측) 그것은 보지 않는다."""
+    """content.hpf에서 바뀌면 안 되는 것: 메타데이터(태그·속성·글자), 매니페스트 항목(hashkey 밖
+    속성 전부), 구역 순서(spine). rhwp는 항목 순서·hashkey·linear를 바꾸므로(실측) 그것은 보지 않는다."""
     root = ET.fromstring(data)
     meta, items, spine = Counter(), set(), []
     for el in root.iter():
@@ -121,7 +121,7 @@ def _hpf(data):
                 if m is not el:
                     meta[census_key(m) + ((m.text or "").strip(),)] += 1
         elif tag == "item":
-            items.add((el.get("id"), el.get("href"), el.get("media-type")))
+            items.add(tuple(sorted((k, v) for k, v in el.attrib.items() if k != "hashkey")))
         elif tag == "itemref":
             spine.append(el.get("idref"))
     return meta, items, spine
@@ -138,7 +138,7 @@ def hpf_diff(src, dst):
     if ma != mb:
         errors.append("content.hpf 메타데이터가 달라짐")
     if ia - ib:
-        errors.append(f"content.hpf 매니페스트 항목 사라짐: {sorted(x[0] or '' for x in ia - ib)[:5]}")
+        errors.append(f"content.hpf 매니페스트 항목 사라지거나 바뀜: {sorted(dict(x).get('id', '') for x in ia - ib)[:5]}")
     if sa != sb:
         errors.append(f"content.hpf 구역 순서가 달라짐: {sa} → {sb}")
     return errors
@@ -172,10 +172,14 @@ def repack_counts(src, dst):
     if "Contents/content.hpf" in src and "Contents/content.hpf" in dst:
         a, b = (ET.fromstring(x["Contents/content.hpf"]) for x in (src, dst))
         items = [[e.get("id") for e in x.iter() if _local(e.tag) == "item"] for x in (a, b)]
-        add("Contents/content.hpf", "content.hpf 항목 순서", int(items[0] != items[1] and set(items[0]) <= set(items[1])))
-        for attr in ("hashkey", "linear"):
-            n = [sum(1 for e in x.iter() if attr in e.attrib) for x in (a, b)]
-            add("Contents/content.hpf", f"content.hpf {attr}", abs(n[0] - n[1]))
+        common = set(items[0]) & set(items[1])
+        add("Contents/content.hpf", "content.hpf 항목 순서",
+            int([i for i in items[0] if i in common] != [i for i in items[1] if i in common]))
+        keys = [{e.get("id"): e.get("hashkey") for e in x.iter() if _local(e.tag) == "item"} for x in (a, b)]
+        add("Contents/content.hpf", "content.hpf hashkey",
+            sum(keys[0][i] != keys[1][i] for i in common if keys[0][i] is not None))
+        n = [sum(1 for e in x.iter() if "linear" in e.attrib) for x in (a, b)]
+        add("Contents/content.hpf", "content.hpf linear", abs(n[0] - n[1]))
     if "Contents/header.xml" in src and "Contents/header.xml" in dst:
         n = [Counter((_local(e.tag), e.get("itemCnt")) for e in ET.fromstring(x["Contents/header.xml"]).iter()
                      if "itemCnt" in e.attrib) for x in (src, dst)]
@@ -289,6 +293,25 @@ def header_census(xml_bytes, in_zone=lambda el: False):
     return rest, zone, ltr
 
 
+NONE_DEFAULTS = {("shadow", "type"), ("underline", "type"), ("outline", "type"), ("strikeout", "shape")}
+
+
+def _header_gains(before, diff, rep):
+    """원본에 있던 항목(같은 소속 조상 경로) 아래에 새로 붙은 요소는 실패다. rhwp가 글자 모양에
+    채우는 "없음" 기본값(그림자·밑줄·외곽선 type=NONE, 취소선 shape=NONE, 실측)만 허용하고 센다."""
+    owners = {dict(k[1]).get("@in") for k in header_census(before)[0]}
+    for key, (a, b) in list(diff.items()):
+        attrs = dict(key[1])
+        if b <= a or attrs.get("@in") not in owners or not attrs.get("@in"):
+            continue
+        del diff[key]
+        if any(attrs.get(attr) == "NONE" for tag, attr in NONE_DEFAULTS if tag == key[0]):
+            k = ("Contents/header.xml", f"{key[0]} 없음 기본값 채움", ())
+            rep.allowed[k] = (rep.allowed.get(k, (0, 0))[0] + b - a, 0)
+        else:
+            rep.fail(f"header.xml: 기존 {attrs['@in']} 아래에 {key[0]} 요소가 더해짐")
+
+
 def split_rhwp_known(name, before, after, used_parapr):
     """(실패로 볼 census 차이, 허용할 손실)로 나눈다. 허용 손실은 lost와 같은 형식."""
     if name == "Contents/header.xml":
@@ -301,7 +324,8 @@ def split_rhwp_known(name, before, after, used_parapr):
         known = {}
         # 미사용 paraPr 안에서는 개요 단계 갈래(switch)가 접히는 감소만 허용한다
         for k, v in compare_census(a_zone, b_zone).items():
-            (known if v[1] < v[0] and k[0] in OUTLINE_COLLAPSE else diff)[k] = v
+            collapse = k[0] in OUTLINE_COLLAPSE and (k[0] != "heading" or dict(k[1]).get("type") in ("OUTLINE", "NONE"))
+            (known if v[1] < v[0] and collapse else diff)[k] = v
         if a_ltr > b_ltr:
             known[("paraPr textDir LTR·AUTO 소실", (("textDir", "LTR|AUTO"),))] = (a_ltr, b_ltr)
         return diff, known
@@ -529,6 +553,8 @@ def _tokens(sec, marks, drop=None):
             spans[el] = (start, len(tokens))
             return
         if tag == "t":
+            if el.attrib:  # 속성 있는 t는 드물다. 있으면 비교한다
+                emit(("<", "t", attrs(el)))
             if el.text:
                 text(el.text)
             for child in el:
@@ -668,6 +694,11 @@ def compare_edit(src_parts, dst_parts, edits, rep):
         for i, e in enumerate(edits_here):
             before, after = a_regions[i], b_regions[i]
             if isinstance(e, CellEdit):
+                shapes = [Counter(t for t in x if t[0] == "<" and t[1] in ("p", "run")) for x in (before, after)]
+                changed = sum(((shapes[0] - shapes[1]) + (shapes[1] - shapes[0])).values())
+                if changed:
+                    k = (s.name, "칸 안 문단·글자 모양 변화", ())
+                    rep.allowed[k] = (rep.allowed.get(k, (0, 0))[0] + changed, 0)
                 if _skeleton(before, FREE_IN_CELL) != _skeleton(after, FREE_IN_CELL):
                     rep.fail(f"{s.name}: 표 {e.table} 칸 ({e.row},{e.col}) 안의 글자 밖 요소가 달라짐 "
                              + _first_diff(_skeleton(before, FREE_IN_CELL), _skeleton(after, FREE_IN_CELL)))
@@ -788,6 +819,8 @@ def gate(original, produced, *, allow=None, allow_bindata_added=0,
             if allow_rhwp:
                 diff, known = split_rhwp_known(name, src[name], dst[name], used)
                 rep.allowed.update({(name,) + k: v for k, v in known.items()})
+                if name == "Contents/header.xml" and edits is not None:
+                    _header_gains(src[name], diff, rep)
             else:
                 diff = compare_census(element_census(src[name]), element_census(dst[name]))
             for key, (a, b) in diff.items():

@@ -1532,8 +1532,9 @@ def hwp_to_hwpx(src, dest=None, *, engine="rhwp", reuse=False):
     """HWP를 HWPX로 변환한다. 정본 형식은 HWPX이고 `.hwp`는 이 입구에서만 만난다.
 
     dest가 None이면 입력 옆 `_work-hwpx-automation/<stem>.hwpx`이고, 그 자리에 파일이 이미
-    있으면 덮지 않는다. reuse=True(다른 명령의 입구 변환)이고 그 파일이 원본보다 나중에 만들어졌으면
-    변환하지 않고 그 파일을 쓴다(status="reused"). 아니면 OutputExistsError(RuntimeError)다.
+    있으면 덮지 않는다. reuse=True(다른 명령의 입구 변환)이고 그 파일이 이 원본에서 만든 그대로면
+    (`<변환물>.source.json`의 원본·변환물 SHA-256이 지금과 같으면) 변환하지 않고 그 파일을
+    쓴다(status="reused"). 아니면 OutputExistsError(RuntimeError)다.
     산출물은 hwpx-validate와 다른 엔진 변환물과의 교차 대조(hwpx_gate.cross_check)를
     통과해야 dest에 놓인다. 대조 불가(JDK·hwpx-tomd 없음)면 status="unverified".
     실패하면 RuntimeError(rhwp_cli.RhwpError 포함)이고 메시지에 폴백 명령이 들어 있다.
@@ -1545,11 +1546,15 @@ def hwp_to_hwpx(src, dest=None, *, engine="rhwp", reuse=False):
     src = os.path.abspath(src)
     if dest is None:
         dest = get_output_path(src, ".hwpx")
-        if reuse and os.path.exists(dest) and os.path.getmtime(dest) >= os.path.getmtime(src):
-            print(f"변환물 재사용: {dest} (원본보다 나중에 만든 파일. 다시 변환하려면 이 파일을 옮긴다)")
+        if reuse and os.path.exists(dest) and _conversion_record(src, dest) == _read_record(dest):
+            print(f"변환물 재사용: {dest} (이 원본에서 만든 그대로. 다시 변환하려면 이 파일을 옮긴다)")
             return ConvertResult(os.path.abspath(dest), engine, "reused", [])
-        refuse_existing_default(dest, ("원본 .hwp가 그 파일보다 새롭습니다. " if reuse else "")
+        refuse_existing_default(dest, ("그 파일은 이 원본에서 만든 그대로가 아닙니다(원본이 바뀌었거나 "
+                                       "변환물을 고쳤다). " if reuse else "")
                                 + "기존 파일을 옮긴 뒤 다시 실행하세요(--from-hwp는 -o로 다른 경로를 줄 수 있다).")
+        record = True
+    else:
+        record = False
     dest = os.path.abspath(dest)
     if not dest.lower().endswith(".hwpx") or os.path.normcase(dest) == os.path.normcase(src):
         raise ValueError(f"변환 출력은 원본과 다른 .hwpx 경로여야 합니다: {dest}")
@@ -1588,11 +1593,32 @@ def hwp_to_hwpx(src, dest=None, *, engine="rhwp", reuse=False):
         raise RuntimeError(f"{exc}\n{convert_fallback_hint(src, dest, engine)}") from exc
 
     status = state.get("status", "unverified")
+    if record:
+        with open(dest + ".source.json", "w", encoding="utf-8") as f:
+            json.dump(_conversion_record(src, dest), f)
     for m in messages:
         print(m)
     print(f"변환: {src} → {dest}")
     print(f"engine={engine} status={status}" + (" reason=사용자 지정" if engine == "jar" else ""))
     return ConvertResult(dest, engine, status, messages)
+
+
+def _sha256(path):
+    import hashlib
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def _conversion_record(src, dest):
+    return {"hwp_sha256": _sha256(src), "hwpx_sha256": _sha256(dest)}
+
+
+def _read_record(dest):
+    try:
+        with open(dest + ".source.json", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
 
 
 def convert_hwp_or_exit(src, dest=None, engine="rhwp", reuse=False):
