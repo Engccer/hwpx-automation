@@ -4,11 +4,12 @@
 
 | 묶음 | 항목 | 자리 | 순서 |
 |---|---|---|---|
-| 게이트 | **cross_check에 chart·ole·equation 수 대조 추가** | 로컬 | 병행 |
+| fix 웨이브 | **codex 횡단 리뷰 block 수정**, **cross_check에 chart·ole·equation 수 대조 추가** | 로컬 | 선행 |
 
 ## 열린 항목
 
-- [ ] **cross_check에 chart·ole·equation 수 대조 추가**: `hwpx_gate.cross_check`는 표·셀·그림·BinData만 센다. `--to-hwp`는 `hwpx_edit._embedded_counts()`로 따로 막았지만 HWP→HWPX 변환의 rhwp·JAR 교차 대조에는 차트·OLE·수식이 빠져도 통과하는 빈틈이 있다. `_embedded_counts()`를 `cross_check`로 옮기고 `--to-hwp`는 그것을 쓰게 한다.
+- [ ] **codex 횡단 리뷰 block 수정**: 1차 웨이브 횡단 리뷰(`~/hwpx-automation-wt/coordinator-reports/review-cross-wave1.md`) 9건. high: 편집 허용 콜백이 대상 밖 문단·구역 손실 통과, 대상 밖 텍스트 소실 미검사, `used_parapr_ids` 표기 의존 오분류, 입구 교차 대조의 수식·차트·OLE 공백(아래 항목), 누름틀 결과를 게시 뒤 검사. medium: 서명 게이트 일반 예외 시 거부 산출물 미보존, 고정 이름 재실행 덮어쓰기, `engine=` 끝줄 계약 불완전, 다른 글꼴 폭을 measured로 인정. fix 세션(브랜치 `feat/fix`)이 수정하고 통합 때 이 항목과 SKILL.md·CLAUDE.md 해당 문장을 닫는다.
+- [ ] **cross_check에 chart·ole·equation 수 대조 추가**: `hwpx_gate.cross_check`는 표·셀·그림·BinData만 센다. `--to-hwp`는 `hwpx_edit._embedded_counts()`로 따로 막았지만 HWP→HWPX 변환의 rhwp·JAR 교차 대조에는 차트·OLE·수식이 빠져도 통과하는 빈틈이 있다. `_embedded_counts()`를 `cross_check`로 옮기고 `Chart/` 파트 내용 해시도 대조해, 입구(`_independent_check`)와 `--to-hwp`가 같은 보존 계약을 쓰게 한다.
 
 ## 감시 항목 (조건이 생기면 처리)
 

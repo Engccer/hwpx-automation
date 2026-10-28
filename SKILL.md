@@ -38,7 +38,7 @@ python <스킬디렉토리>/hwpx_edit.py --check-env
 | 1 (필수) | 읽기·편집: `--to-md`·텍스트 치환·`--set-cell`·행 삭제 | `python-hwpx`·`lxml`·`hwpx-tomd`. `pip install -r requirements.txt` 한 줄 |
 | 2 (기본 엔진) | HWP→HWPX 변환·PDF·이미지(서명)·누름틀·격자 좌표 셀·`--to-hwp` | `rhwp` CLI v0.8.7 이상(모든 OS). PATH에 두거나 `HWPX_RHWP_BIN`으로 경로를 준다. 버전도 표시한다 |
 | 3 | MD/DOCX/HTML→HWPX | `pypandoc-hwpx`(+ Pandoc. 번들 제공될 수 있어 경고만 떠도 동작할 수 있다) |
-| 4 (폴백, 명시할 때만) | `--engine jar`·rhwp 변환물 교차 대조, `--pdf-backend com`·`--backend com`·`hwpx_com.py` | JDK 21 + 번들 JAR, Windows + 한컴오피스 COM(`pywin32`, 선택적 `pyhwpx`) |
+| 4 (폴백, JDK는 있으면 대조에 자동 사용) | `--engine jar`, HWP 변환 교차 대조·`--to-hwp` 왕복 대조(JDK), `--pdf-backend com`·`--backend com`·`hwpx_com.py`(COM) | JDK 21 + 번들 JAR, Windows + 한컴오피스 COM(`pywin32`, 선택적 `pyhwpx`) |
 
 java는 `JAVA_HOME` → (Windows는 Adoptium 표준 설치 →) PATH 순으로 래퍼와 같게 찾는다. JDK가 없으면 HWP 변환은 되지만 교차 대조를 못 해 `unverified`다. COM 상세 진단(보안모듈 DLL·레지스트리·한컴 기동)은 `--diagnose-com`으로 위임한다.
 
@@ -78,7 +78,7 @@ HWP/HWPX 작업 요청
 │   ├── 구조적 편집 (행 추가/복제) → Python + regex (아래 구조적 편집 규칙 필수)
 │   └── 복잡한 편집 → python-hwpx + lxml 직접 사용 (reference/api.md + reference/structural.md 참조)
 │   ※ 편집 후 검증: hwpx-validate + hwpx-page-guard
-│     (PrvText 누락 실패는 --engine jar·래퍼 변환물에만 해당한다. 아래 "HWP → HWPX 변환")
+│     (PrvText 누락 실패는 JAR 래퍼를 직접 부른 변환물에만 해당한다. 아래 "JAR 폴백")
 ├── PDF 만들기 → hwpx_edit.py --to-pdf
 │   (rhwp, 모든 OS. 한컴과 같은 조판은 Windows --pdf-backend com. 아래 "PDF 변환 (rhwp)")
 │   ※ Pandoc(hwpx_convert.py) 변환물의 PDF는 rhwp로 낸다(--pdf-backend com 금지, 아래 줄).
@@ -94,7 +94,7 @@ HWP/HWPX 작업 요청
     │   ⚠ 한컴 13.0.0.3903 PC에서는 HAction.Run이 전부 무시돼 본문이 한 덩어리가 된다
     │     (reference/warnings-com.md 16번). 쓰기 전에 PDF 페이지 이미지로 확인한다
     │   ※ COM은 Pandoc 생성물의 본문을 0자로 읽는다. Pandoc 생성물은 COM으로 처리하지
-    │     않는다(--normalize·--insert-image·--pdf-backend com·hwpx_com.py --to-pdf·hwpx_sign.py 모두. --get-text
+    │     않는다(--normalize·--insert-image·--pdf-backend com·hwpx_com.py --to-pdf·hwpx_sign.py --backend com 모두. --get-text
     │     호환성 점검만 예외, reference/warnings-com.md 4번). COM 생성물은 XML 파이프라인에서
     │     읽고 편집해도 안전하다
     └── 제출 서식(용지·여백·글꼴·줄 간격)이 지정된 원고
@@ -314,7 +314,7 @@ bash convert/hwp2hwpx.sh <입력.hwp> [출력.hwpx]    # macOS/Linux
 ```
 
 - 출력 파일 미지정 시 입력 폴더의 `_work-hwpx-automation/` 하위에 `.hwpx`로 생성(원본 비파괴). HWPX가 이후 단계의 입력일 뿐이면 부산물이므로 거기 두고, HWP→HWPX 변환 자체가 목적이면 작업 폴더로 옮긴다(위 "작업 마무리" 참조). 출력 경로를 직접 지정하려면 두 번째 인자로 명시
-- 서식 100% 보존 (Java 기반, hwplib + hwpxlib)
+- Java 기반(hwplib + hwpxlib). rhwp 변환물의 교차 대조 기준이기도 하다
 - 요구사항: JDK 21. 두 래퍼 모두 `JAVA_HOME` → (Windows는 Adoptium 표준 설치 →) PATH 순으로 java를 자동 탐색
 - **JDK 없는 Windows 폴백**: 한컴오피스가 있으면 `python hwpx_com.py <입력.hwp> --from-hwp [-o 출력.hwpx]`로 COM 변환(변환 후 본문 글자 수 재검증 내장). JDK 설치 전까지의 우회이며, 연속·배치 호출 전에는 잔류 `Hwp.exe`를 정리할 것(`reference/warnings-com.md` 9번)
 - Windows(.bat): 입력 경로에 cp949 외 문자(en-dash, em-dash 등)가 있어도 내부에서 `%TEMP%`로 staging해 처리. macOS/Linux(.sh)는 JVM이 UTF-8 argv를 그대로 받으므로 staging 불필요
@@ -359,7 +359,7 @@ ZIP 내부 구조·네임스페이스가 필요할 때 `reference/format.md`를 
 
 ## 서명/도장 이미지 삽입 (hwpx_sign.py)
 
-서명란에 서명·도장 이미지를 넣을 때 `reference/signing.md`를 읽는다. 기본은 rhwp(모든 OS, "(서명)" 위에 겹쳐 찍기)이고, 표 안 앵커나 게이트 실패 때만 Windows에서 `--backend com`을 쓴다.
+서명란에 서명·도장 이미지를 넣을 때 `reference/signing.md`를 읽는다. 기본은 rhwp(모든 OS, "(서명)" 위에 겹쳐 찍기)이고, 표 안 앵커·앵커 위치 미확정·게이트 실패·앵커 표시를 지우고 넣는 양식일 때만 Windows에서 `--backend com`을 쓴다(`reference/rhwp.md` "폴백 조건").
 
 ## PDF 변환 (rhwp)
 
@@ -390,7 +390,7 @@ Windows + 한컴오피스에서 COM(`hwpx_com.py`·보안모듈·암호 해제·
 | 한컴 COM API 가이드 | `reference/hwp-automation.md` | IHwpObject 전체 API: 프로퍼티, 메서드, 이벤트, ParameterSet 상세 (공식, 2025.04). Gemini 파싱, 다이어그램은 텍스트 설명으로 대체됨 |
 | 한컴 COM 파라미터셋 | `reference/parameterset-table.md` | 149개 ParameterSet 필드/타입/기본값 (공식, 2025.04). Mistral 파싱, 워터마크 환각 잔여 가능, heading이 평문 처리된 경우 있음 |
 
-> 위 표의 마지막 3개 파일(`action-table.md`, `hwp-automation.md`, `parameterset-table.md`)은 한컴 공식 문서의 파싱본이라 저작권 고려로 저장소에 포함하지 않는다. 필요 시 README "참조 문서" 절의 안내에 따라 한컴 개발자 센터 아카이브의 원본 PDF를 내려받아 직접 파싱해 재생성한다.
+> 위 표의 마지막 3개 파일(`action-table.md`, `hwp-automation.md`, `parameterset-table.md`)은 한컴 공식 문서의 파싱본이라 저작권 고려로 저장소에 포함하지 않는다. 필요 시 README "문서" 절의 안내에 따라 한컴 개발자 센터 아카이브의 원본 PDF를 내려받아 직접 파싱해 재생성한다.
 
 ## 주의사항
 

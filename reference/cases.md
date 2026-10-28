@@ -16,6 +16,9 @@
 - [reference/warnings-com.md](#referencewarnings-commd)
 - [reference/warnings-editing.md](#referencewarnings-editingmd)
 - [코드 결함](#코드-결함-2026-09-27-스킬-감사-문서대로-동작하게-고침)
+- [--from-md의 HAction.Run이 전부 False를 돌려주는 환경](#--from-md의-hactionrun이-전부-false를-돌려주는-환경): reference/warnings-com.md 16번
+- [python-hwpx 6.x 파사드가 민팅한 스타일이 저장본에 남지 않는 문제](#python-hwpx-6x-파사드가-민팅한-스타일이-저장본에-남지-않는-문제): reference/build-from-scratch.md 8번
+- [표 쪽 경계: 글자처럼 취급과 부동의 혼용](#표-쪽-경계-글자처럼-취급과-부동의-혼용): reference/build-from-scratch.md 9번
 
 ## SKILL.md
 

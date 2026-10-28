@@ -1,6 +1,6 @@
 # 주의사항: XML 편집 전반
 
-1. **`--find/--replace` 2단계 치환**: (1) python-hwpx로 본문 런 치환 (서식 보존, 런 분할 텍스트 지원) → (2) lxml로 표 셀 내부만 추가 치환. 영역이 분리되어 중복 치환 없음. **주의**: `--find/--replace`는 내부적으로 `HwpxDocument.open()`을 사용하여 구조 검증이 엄격함 (PrvText.txt 필수). `--set-cell`은 lxml 직접 파싱이라 검증 없이 통과. HWP→HWPX 변환 파일은 PrvText 누락으로 `--find/--replace`가 거부되며, 그때 출력하는 두 단계(`--add-preview` 후 보정본으로 재실행)를 따른다(11번)
+1. **`--find/--replace` 2단계 치환**: (1) python-hwpx로 본문 런 치환 (서식 보존, 런 분할 텍스트 지원) → (2) lxml로 표 셀 내부만 추가 치환. 영역이 분리되어 중복 치환 없음. **주의**: `--find/--replace`는 내부적으로 `HwpxDocument.open()`을 사용하여 구조 검증이 엄격함 (PrvText.txt 필수). `--set-cell`은 lxml 직접 파싱이라 검증 없이 통과. JAR 래퍼를 직접 부른 HWP→HWPX 변환물은 PrvText 누락으로 `--find/--replace`가 거부되며, 그때 출력하는 두 단계(`--add-preview` 후 보정본으로 재실행)를 따른다(11번)
 2. **편집 후 검증**: `hwpx-validate`로 무결성 확인, 양식 편집 시 `hwpx-page-guard`로 쪽수 드리프트 감지
 3. **자동 출력 폴더와 `--set-cell` 다중 호출**: `-o` 미지정 시 입력 파일과 같은 디렉터리의 `_work-hwpx-automation/` 폴더에 저장 (원본 비파괴). **주의**: 편집 명령은 매번 입력 파일을 새로 읽는다. 원본을 입력으로 `--set-cell`을 여러 번 부르면(`&&` 체이닝 포함) 같은 출력 자리를 덮어써 **마지막 호출만 남는다**. 두 번째 호출부터는 앞 호출의 결과를 입력으로 준다(입력이 `_work-hwpx-automation/` 안에 있으면 `-o` 없이도 그 파일 자리에 쌓인다). 셀이 많으면 스크립트 한 번으로 처리한다
 4. **서식 보존 원칙**: 가능한 한 `<hp:t>` 요소의 텍스트만 변경하고, XML 구조는 건드리지 않음
@@ -13,7 +13,7 @@
 8. **HWP→HWPX 변환 후 검은 배경**: `--sanitize` 또는 `save_hwpx()` 자동 수정
 9. **HWPML 2016 → 2011**: python-hwpx v2.8+는 네임스페이스 자동 변환 지원
 10. **`--to-md`는 표 밖 본문도 추출한다**: 문서 제목, 지도교사, 머리글 등 표 바깥 텍스트도 나온다(엔진 hwpx-tomd, SKILL.md "`--to-md` 보장과 한계"). 추출 범위 밖은 이미지 속 글자다
-11. **HWP→HWPX 변환 후 `PrvText.txt` 누락**: hwp2hwpx 변환 결과에는 `Preview/PrvText.txt`가 없다(container.xml은 선언). python-hwpx API(`HwpxDocument.open()`)·`hwpx-pack`·`hwpx-validate`가 이 누락으로 실패한다. 한글·`--to-md`·`--set-cell`은 정상이다. 정본·배포·검증 대상이거나 python-hwpx로 열어야 하면 `python hwpx_edit.py <파일.hwpx> --add-preview`로 보정한다(가장 간단하다. 손으로 할 때는 ZIP 안에 `Preview/PrvText.txt`가 들어가야 한다)
+11. **JAR 래퍼 변환물의 `PrvText.txt` 누락**: hwp2hwpx 래퍼를 직접 부른 변환 결과에는 `Preview/PrvText.txt`가 없다(container.xml은 선언). python-hwpx API(`HwpxDocument.open()`)·`hwpx-pack`·`hwpx-validate`가 이 누락으로 실패한다. 한글·`--to-md`·`--set-cell`은 정상이다. 정본·배포·검증 대상이거나 python-hwpx로 열어야 하면 `python hwpx_edit.py <파일.hwpx> --add-preview`로 보정한다(가장 간단하다. 손으로 할 때는 ZIP 안에 `Preview/PrvText.txt`가 들어가야 한다)
 12. **manifest.xml self-closing 태그 주의**: HWP→HWPX 변환 결과의 manifest.xml이 `<odf:manifest .../>` (self-closing) 형태일 수 있음. `replace('</odf:manifest>', ...)` 패턴이 실패하므로, self-closing 여부를 먼저 확인하고 처리
 13. **양식의 "한 줄로 입력" 문단에 긴 텍스트 채우면 글자가 겹쳐 뭉개짐**: 사람이 디자인한 양식의 제목 문단에는 문단 모양 "한 줄로 입력"(`paraPr`의 `<hh:breakSetting ... lineWrap="SQUEEZE"/>`)이 걸려 있는 경우가 있다. 짧은 제목 전제의 디자인이라, 자동화로 **긴 제목·문장을 채우면 한글이 줄바꿈 대신 장평을 무제한 압축**해 글자가 서로 겹쳐 판독 불가가 된다(음수 자간 charPr과 결합하면 더 심함). `hwpx-validate`(XSD)와 `--to-md` recall로는 잡히지 않고 **렌더링(PDF·인쇄)에서만 드러난다**. → 사례
     - **감지(`--list-squeeze`)**: SQUEEZE 문단 중 추정 자연 폭(charPr height·장평·자간 반영 근사)이 컨테이너 가용 폭(셀·글상자·본문)의 1.1배를 넘는 문단만 나열.

@@ -16,7 +16,7 @@ HWP/HWPX 문서 읽기, 변환, 편집을 위한 CLI 도구 + 코딩 에이전�
 
 - Python 3.10+, `pip install -r requirements.txt` (python-hwpx, lxml, hwpx-tomd)
 - [rhwp](https://github.com/edwardkim/rhwp/releases) CLI v0.8.7 이상: 변환·PDF·서명의 기본 엔진. 릴리스 바이너리를 PATH에 둔다
-- 선택: JDK 21(HWP 변환 교차 대조·JAR 폴백), Windows + 한컴오피스 + `pywin32`(한컴 COM 폴백)
+- 선택: JDK 21(HWP 변환 교차 대조·`--to-hwp` 왕복 대조·JAR 폴백), Windows + 한컴오피스 + `pywin32`(한컴 COM 폴백)
 
 ```bash
 python hwpx_edit.py --check-env   # 기능 계층별로 무엇이 바로 되는지 확인 (읽기 전용)

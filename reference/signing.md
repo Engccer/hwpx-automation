@@ -2,7 +2,7 @@
 
 동의서·계약서·서약서 등의 서명란("(서명)" 같은 기준 텍스트)에 자필 서명/도장 이미지를 넣는 작업. 기본 백엔드는 **rhwp**이고 macOS·Linux·Windows 어디서나 돈다(rhwp CLI v0.8.7 이상). 한컴 COM 경로는 `--backend com`으로 고를 때만 쓴다(Windows + 한컴오피스).
 
-결과물은 항상 입력 옆 `<입력>_서명.hwpx`다. `.hwp`를 넣으면 입구에서 `hwpx_edit.hwp_to_hwpx`로 HWPX로 바꾼 뒤 작업한다. 출력 끝줄은 `engine=rhwp` 또는 `engine=com (사용자 지정 --backend com)`이며, 완료 보고에 그대로 적는다.
+결과물은 기본 입력 옆 `<입력>_서명.hwpx`다(`-o`로 다른 `.hwpx` 지정 가능). `.hwp`를 넣으면 입구에서 `hwpx_edit.hwp_to_hwpx`로 HWPX로 바꾼 뒤 작업한다. 출력 끝줄은 `engine=rhwp` 또는 `engine=com (사용자 지정 --backend com)`이며, 완료 보고에 그대로 적는다.
 
 ```bash
 # 기본: "(서명)" 글자 위에 겹쳐 찍기(rhwp, 모든 OS)

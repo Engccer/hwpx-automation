@@ -56,6 +56,8 @@ python-hwpx>=새버전
 | **Canine89/hwpxskill** | 새 검증 패턴, 멀티에이전트 지원 | `gh api repos/Canine89/hwpxskill/commits --jq '.[0:3]\|.[].commit.message'` |
 | **openhwp/openhwp** | HWPX 쓰기/변환 개선, 새 포맷 지원 | `gh api repos/openhwp/openhwp/releases --jq '.[0:3]\|.[].tag_name'` |
 | **jkf87/hwp-mcp** | MCP 패턴 참고 | `gh api repos/jkf87/hwp-mcp/commits --jq '.[0:3]\|.[].commit.message'` |
+| **edwardkim/rhwp** | 기본 엔진(변환·PDF·서명·누름틀·격자 셀·`--to-hwp`). 2~4주 릴리스 | `gh api repos/edwardkim/rhwp/releases --jq '.[0:3]\|.[].tag_name'` |
+| **neolord0/hwp2hwpx** | JAR 폴백·교차 대조 변환기 상류 | `gh api repos/neolord0/hwp2hwpx/commits --jq '.[0:3]\|.[].commit.message'` |
 | **neolord0/hwplib** | hwp2hwpx 변환기 기반 라이브러리 | `gh api repos/neolord0/hwplib/releases --jq '.[0:3]\|.[].tag_name'` |
 
 ### 인사이트 반영 기준
@@ -63,6 +65,10 @@ python-hwpx>=새버전
 - **즉시 반영**: 우리 스킬의 버그를 수정하거나 안정성을 높이는 패턴
 - **검토 후 반영**: 새 기능 추가 (사용자에게 제안 후 결정)
 - **참고만**: 아키텍처 인사이트, 향후 로드맵 참고
+
+## rhwp 판 올리기
+
+새 rhwp 릴리스를 받으면 `RHWP_INTEGRATION=1 python3 -m unittest`가 통과하고 게이트 보고(`허용된 손실` 줄 포함)가 이전 판과 같은지 확인한 뒤에만 `rhwp_cli.TESTED_MAX`를 올린다. 봉투 필드나 exit code가 바뀌었으면 `reference/rhwp.md` "호출 계약"·"명령별 계약"을 함께 고친다.
 
 ## 3단계: hwpx_edit.py 동작 확인
 

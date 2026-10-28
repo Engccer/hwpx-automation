@@ -1,6 +1,6 @@
 # 암호화된 HWPX 처리
 
-비밀번호가 설정된 HWPX는 AES-256-CBC로 `Contents/section0.xml`, `Contents/header.xml`, `settings.xml`, 이미지 파일이 모두 암호화된다. `hwpx_edit.py` 같은 XML 직접 파서는 실패하고, python-hwpx도 마찬가지다. 한컴 COM으로 먼저 암호를 제거해야 한다.
+비밀번호가 설정된 HWPX는 AES-256-CBC로 `Contents/section0.xml`, `Contents/header.xml`, `settings.xml`, 이미지 파일이 모두 암호화된다. `hwpx_edit.py` 같은 XML 직접 파서는 실패하고, python-hwpx도 마찬가지다. 한컴 COM으로 먼저 암호를 제거해야 한다. PDF만 필요하면 `hwpx_edit.py --to-pdf --password`(rhwp, 모든 OS)로 해제 없이 낼 수 있다(암호 HWPX 표본으로는 미실측).
 
 ## 목차
 
@@ -93,7 +93,7 @@ unzip -p output.hwpx META-INF/manifest.xml | grep -c encryption-data
 
 5. **보안 DLL 경로 검증**: 레지스트리에 등록된 DLL 경로에 실제 파일이 없으면 보안 팝업이 매 Open/SaveAs마다 뜬다. 진단: `reference/warnings-com.md` 5번.
 
-6. **HWPX 전용**: `FilePasswordChange`는 HWPX뿐 아니라 HWP에도 동작하지만, 이 스킬의 주 대상은 HWPX다. HWP면 먼저 hwp2hwpx로 변환해도 되지만 변환 자체가 암호 해제 효과도 있는지는 확인되지 않았다.
+6. **HWPX 전용**: `FilePasswordChange`는 HWPX뿐 아니라 HWP에도 동작하지만, 이 스킬의 주 대상은 HWPX다. HWP면 먼저 `hwpx_edit.py --from-hwp`로 변환해도 되지만 변환 자체가 암호 해제 효과도 있는지는 확인되지 않았다.
 
 7. **COM 프로세스 잔류**: 해제 도중 에러 발생 시 `Hwp.exe` 프로세스가 남을 수 있다. 정리 절차(사용자가 연 문서 확인 뒤 강제 종료)는 `reference/warnings-com.md` 9번.
 

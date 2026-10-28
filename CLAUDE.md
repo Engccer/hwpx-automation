@@ -79,7 +79,7 @@ Pandoc 생성 HWPX를 입력으로 넣으면 안 된다(`--get-text` 호환성 �
 ```bash
 python hwpx_com.py --diagnose                              # pyhwpx + COM 진단
 python hwpx_com.py output.hwpx --from-md input.md           # MD → COM 네이티브 HWPX 생성
-python hwpx_com.py <파일.hwp> --from-hwp                    # HWP → HWPX 변환 (JDK 없는 기기 폴백)
+python hwpx_com.py <파일.hwp> --from-hwp                    # HWP → HWPX 변환 (rhwp·JAR 변환이 실패할 때 Windows 한컴 폴백)
 python hwpx_com.py <파일.hwpx> --insert-image img.png       # 문서 끝 이미지 삽입 (별도 파일 저장)
 python hwpx_com.py <파일.hwpx> --normalize                  # 한컴 재저장 정규화 (python-hwpx 산출물, 별도 파일)
 python hwpx_com.py <파일.hwpx> --get-text                   # COM 기준 본문 추출 (호환성 점검)
@@ -92,7 +92,7 @@ python hwpx_com.py <파일.hwpx> --to-pdf                     # PDF 저장
 삽입한다. 기본 백엔드는 rhwp(모든 OS): `search`로 앵커를 찾고 `export-render-tree`의
 글자 상자 중심에 겹쳐 `edit insert-image`로 넣은 뒤, 그림을 앵커 문단 맨 앞·글 앞으로
 옮기고 `hwpx_gate.gate(allow_rhwp=True)`와 앵커 재측정을 통과해야 결과물로 둔다.
-결과는 항상 `<입력>_서명.hwpx`, 출력 끝줄은 `engine=`. 단위 상수(`MM`·`PX`)는 이 파일에 있다.
+결과는 기본 입력 옆 `<입력>_서명.hwpx`(`-o`로 다른 `.hwpx` 지정 가능), 출력 끝줄은 `engine=`. 단위 상수(`MM`·`PX`)는 이 파일에 있다.
 
 `--backend com`(Windows + 한컴오피스)은 COM으로 BinData만 확보한 뒤 XML 후처리로
 floating PAPER 절대좌표 전환·앵커 위 문단 이동·lineseg 제거를 수행한다. 좌표는
@@ -108,7 +108,7 @@ python hwpx_sign.py 동의서.hwpx --image 서명.png --backend com --keep-ancho
 ### convert/hwp2hwpx.bat · hwp2hwpx.sh
 
 HWP(한컴 바이너리) → HWPX(Open XML) JAR 변환. JDK 21 필요. 기본 변환 엔진은 rhwp이고,
-이 래퍼는 `--engine jar` 폴백과 rhwp 변환물의 교차 대조 기준으로 쓴다.
+이 래퍼는 `--engine jar` 폴백, rhwp 변환물의 교차 대조, `--to-hwp` 왕복 대조에 쓴다.
 
 ```bash
 convert/hwp2hwpx.bat input.hwp [output.hwpx]        # Windows
@@ -119,7 +119,7 @@ bash convert/hwp2hwpx.sh input.hwp [output.hwpx]    # macOS/Linux
 
 - **Python**: `python-hwpx` (비상업 라이선스), `lxml` (BSD-3-Clause), 편집 명령에 사용
 - **hwpx-tomd** (MIT): `--to-md` 변환 엔진. `pip install hwpx-tomd` (PyPI·GitHub `Engccer/hwpx-tomd` 공개). 라이브러리로도 직접 사용 가능
-- **Java**: JDK 21 (`--engine jar` 폴백과 rhwp 변환물의 교차 대조에만. 없으면 변환은 `unverified`)
+- **Java**: JDK 21 (`--engine jar` 폴백, HWP 변환 교차 대조, `--to-hwp` 왕복 대조. 없으면 그 결과는 `unverified`)
 - **Windows + 한컴오피스 + pywin32**: `--pdf-backend com`, `hwpx_sign.py --backend com`, `--diagnose-com`, `hwpx_com.py` 등 COM 폴백에 사용
 - **rhwp CLI** (MIT, 별도 설치): HWP→HWPX 변환·`--to-pdf`·서명 삽입·누름틀·격자 셀·`--to-hwp`의 기본 엔진(모든 OS). GitHub Releases 바이너리를 PATH에 두거나 `HWPX_RHWP_BIN`으로 경로를 준다. v0.8.7 미만은 거부하고, `rhwp_cli.TESTED_MAX`보다 새 버전은 경고만 낸다(실측을 마친 버전으로 올린다)
 - **pyhwpx** (선택): `hwpx_com.py` COM 네이티브 파이프라인 전용. `pip install pyhwpx` (1.7.2 검증, 2026-06-10)
@@ -167,6 +167,6 @@ bash convert/hwp2hwpx.sh input.hwp [output.hwpx]    # macOS/Linux
 - **`cross_check`는 차트·OLE·수식을 세지 않는다**: `--to-hwp`는 `_embedded_counts()`로 따로 세지만 HWP→HWPX 변환 대조에는 이 빈틈이 있다
 - **좌표 체계 분리**: `--set-cell`(lxml)은 물리 `hp:tc` 인덱스, `--grid-*`(rhwp)는 병합 반영 격자 좌표다. 한 명령에 섞지 않고, rhwp 격자 명령은 `--grid-` 접두로만 추가한다. 서명 좌표는 HWPUNIT(1/7200인치)이고 render-tree px × 75, 1mm = 283.46(`hwpx_sign.MM`·`PX`)
 - **중첩 표**: rhwp `edit set-cell`은 중첩 표·일부 병합 칸을 거부한다. 메시지를 그대로 전하고 `--set-cell`을 안내한다
-- **python-hwpx 산출물에 rhwp 편집 금지**: python-hwpx로 갓 만든 HWPX에 `--grid-set-cell`·서명 삽입을 하면 본문이 쓰는 paraPr 속성이 사라져 게이트가 거부한다(맞는 판정). 그 문서는 `--set-cell`(lxml)로 채운다
+- **python-hwpx 산출물에 rhwp 편집 금지**: python-hwpx로 갓 만든 HWPX에 `--grid-set-cell`·`--fill-fields`·서명 삽입을 하면 본문이 쓰는 paraPr 속성이 사라져 게이트가 거부한다(맞는 판정). 그 문서는 `--set-cell`(lxml)로 채운다
 - **표본 lineseg**: python-hwpx로 만든 HWPX를 rhwp `convert`로 바꾼 HWP는 lineseg가 없어 `export-hwpx --verify`가 exit 3이다. 시험 표본은 한 번 더 왕복해 만든다(왕복한 HWP는 차이 0)
 - **`--json`이 없는 명령**: `export-render-tree`·`measure-width`는 `--json`을 주면 exit 2다. `rhwp_cli.run(expect_json=False)`로 부른다. 그 밖의 명령별 계약은 `reference/rhwp.md`
