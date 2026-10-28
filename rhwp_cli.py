@@ -106,7 +106,7 @@ def version(rhwp=None):
     rhwp = rhwp or find_rhwp()
     if not rhwp:
         raise RhwpNotInstalled(INSTALL_HINT)
-    r = subprocess.run([rhwp, "--version"], capture_output=True, text=True, timeout=30)
+    r = subprocess.run([rhwp, "--version"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
     ver = parse_version(r.stdout or r.stderr)
     if ver is None:
         raise RhwpVersionError(f"rhwp 버전을 읽을 수 없습니다: {(r.stdout or r.stderr).strip()[:200]}")
@@ -225,7 +225,7 @@ def run(args, *, output=None, password=None, required_fields=(), verify=None,
 
     try:
         r = subprocess.run(cmd, input=f"{password}\n" if password else None,
-                           capture_output=True, text=True, timeout=timeout)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
         envelope = parse_envelope(r.stdout) if expect_json else None
         result = RhwpResult(r.returncode, envelope, r.stdout, r.stderr, warnings=warnings)
         tail = (r.stderr or r.stdout).strip()[-500:]
