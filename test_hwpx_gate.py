@@ -288,8 +288,11 @@ def fields_doc(**kw):
     return {"Contents/section0.xml": f"<hs:sec {SEC}>{field_para(1, **kw)}{rest}</hs:sec>".encode()}
 
 
-class EditCompareTests(unittest.TestCase):
-    """rhwp 편집 산출물의 위치별 대조(edits). 대상 밖은 p id 말고 아무것도 바뀌면 안 된다."""
+class EditCheck:
+    EDIT = [hwpx_gate.CellEdit(0, 0, 1, "홍길동")]
+
+    def after(self, **kw):
+        return form(cells=("성명", "홍길동", "학년", ""), **kw)
 
     def check(self, before, after, edits):
         rep = hwpx_gate.GateReport()
@@ -300,6 +303,10 @@ class EditCompareTests(unittest.TestCase):
         rep = self.check(before, after, edits)
         self.assertEqual(rep.status, "failed", rep.messages)
         self.assertIn(needle, " / ".join(rep.messages))
+
+
+class EditCompareTests(EditCheck, unittest.TestCase):
+    """rhwp 편집 산출물의 위치별 대조(edits). 대상 밖은 p id 말고 아무것도 바뀌면 안 된다."""
 
     def test_cell_edit_with_renumbered_ids_passes(self):
         rep = self.check(form(), form(cells=("성명", "홍길동", "학년", ""), ids=range(7)),
@@ -375,6 +382,161 @@ class EditCompareTests(unittest.TestCase):
         self.assert_fails(before, anchored, [hwpx_gate.ImageInsert(0, 0)], "그림 하나만")
         blanked = {k: v.replace("머리 문단".encode(), b"") for k, v in anchored.items()}
         self.assert_fails(before, blanked, [hwpx_gate.ImageInsert(0, 2)], "그림 하나만")
+
+
+class CanonicalTokenTests(EditCheck, unittest.TestCase):
+    """rhwp가 한컴 문서를 다시 쓸 때 생기는 포장 차이(실측)는 통과하고 글자·모양 차이는 거부한다."""
+
+    def test_run_and_t_boundaries_empty_t_and_crlf_are_ignored(self):
+        before = form(tail_runs=[run("꼬리 문단"), '<hp:run charPrIDRef="0"/>'])
+        split = [run("꼬리"), run(" 문단", extra="<hp:t/>")]
+        rep = self.check(before, self.after(tail_runs=split), self.EDIT)
+        self.assertEqual(rep.status, "passed", rep.messages)
+        crlf = form(tail_runs=[run("가&#13;\n나")])
+        rep = self.check(crlf, form(cells=("성명", "홍길동", "학년", ""), tail_runs=[run("가\n나")]), self.EDIT)
+        self.assertEqual(rep.status, "passed", rep.messages)
+
+    def test_char_shape_change_of_some_letters_is_rejected(self):
+        before = form(tail_runs=[run("꼬리 문단")])
+        self.assert_fails(before, self.after(tail_runs=[run("꼬리"), run(" 문단", "3")]), self.EDIT, "대상 밖")
+
+    def test_picture_child_order_is_ignored(self):
+        pic = lambda a, b: f'<hp:pic id="1">{a}{b}</hp:pic>'
+        img, rect = '<hp:img binaryItemIDRef="image1"/>', '<hp:imgRect/>'
+        before = form(tail_runs=[run("꼬리", extra=pic(img, rect))])
+        rep = self.check(before, self.after(tail_runs=[run("꼬리", extra=pic(rect, img))]), self.EDIT)
+        self.assertEqual(rep.status, "passed", rep.messages)
+        self.assert_fails(before, self.after(tail_runs=[run("꼬리", extra=pic(rect, ""))]), self.EDIT, "대상 밖")
+
+    def test_nested_table_text_inside_target_cell_is_kept(self):
+        nested = '<hp:tbl rowCnt="1" colCnt="1"><hp:tr><hp:tc><hp:subList>' + para(50, run("안쪽")) + \
+                 '</hp:subList><hp:cellAddr colAddr="0" rowAddr="0"/></hp:tc></hp:tr></hp:tbl>'
+        sec = form()["Contents/section0.xml"]
+        mark = b'<hp:cellAddr colAddr="1" rowAddr="0"/>'
+        before = {"Contents/section0.xml": sec.replace(b"</hp:subList>" + mark,
+                                                       para(60, run("", extra=nested)).encode() + b"</hp:subList>" + mark)}
+        self.assertNotEqual(before["Contents/section0.xml"], sec)
+        lost = {k: v.replace(b"<hp:t>\xec\x95\x88\xec\xaa\xbd</hp:t>", b"<hp:t></hp:t>")
+                for k, v in before.items()}
+        filled = {k: v.replace(b'<hp:p id="4" paraPrIDRef="0"><hp:run charPrIDRef="0"><hp:t></hp:t>',
+                               '<hp:p id="4" paraPrIDRef="0"><hp:run charPrIDRef="0"><hp:t>홍길동</hp:t>'.encode())
+                  for k, v in lost.items()}
+        self.assertIn("홍길동".encode(), filled["Contents/section0.xml"])
+        self.assert_fails(before, filled, self.EDIT, "글자 밖 요소")
+
+
+class NormalizationCounterexampleTests(EditCheck, unittest.TestCase):
+    """정규화 항목마다 여전히 실패해야 하는 반례."""
+
+    def test_letters_moved_between_runs_are_rejected(self):
+        before = form(tail_runs=[run("가", "1"), run("나", "2")])
+        self.assert_fails(before, self.after(tail_runs=[run("가나", "1"), run("", "2")]), self.EDIT, "대상 밖")
+
+    def test_field_deletion_is_rejected(self):
+        sec = fields_doc()["Contents/section0.xml"]
+        plain = re.sub(rb"<hp:ctrl>.*?</hp:ctrl>", b"", sec)
+        self.assertNotEqual(plain, sec)
+        self.assert_fails({"Contents/section0.xml": sec}, {"Contents/section0.xml": plain}, [], "대상 밖")
+
+    def test_picture_deletion_is_rejected(self):
+        pic = '<hp:pic id="1"><hp:img binaryItemIDRef="image1"/></hp:pic>'
+        before = form(tail_runs=[run("꼬리", extra=pic)])
+        self.assert_fails(before, self.after(tail_runs=[run("꼬리")]), self.EDIT, "대상 밖")
+
+    def test_char_shape_change_after_field_in_same_run_is_rejected(self):
+        # fieldEnd와 뒤 글자가 한 run에 있을 때 그 run의 모양만 바꿔도 거부한다
+        def doc(cp):
+            begin = ('<hp:ctrl><hp:fieldBegin id="7" type="CLICK_HERE" name="성명" dirty="0" fieldid="70"/>'
+                     '</hp:ctrl>')
+            end = '<hp:ctrl><hp:fieldEnd beginIDRef="7" fieldid="70"/></hp:ctrl>'
+            body = para(1, f'<hp:run charPrIDRef="0"><hp:t>앞 </hp:t>{begin}<hp:t>옛값</hp:t></hp:run>'
+                           f'<hp:run charPrIDRef="{cp}">{end}<hp:t> 뒤</hp:t></hp:run>')
+            return {"Contents/section0.xml": f"<hs:sec {SEC}>{body}</hs:sec>".encode()}
+        same = {k: v.replace("옛값".encode(), "홍길동".encode()) for k, v in doc("0").items()}
+        rep = self.check(doc("0"), same, [hwpx_gate.FieldEdit("성명", "홍길동")])
+        self.assertEqual(rep.status, "passed", rep.messages)
+        changed = {k: v.replace("옛값".encode(), "홍길동".encode()) for k, v in doc("5").items()}
+        self.assert_fails(doc("0"), changed, [hwpx_gate.FieldEdit("성명", "홍길동")], "대상 밖")
+
+    def test_textdir_rtl_loss_is_rejected(self):
+        ppr = lambda d: f'<hh:paraPr id="0"{d}><hh:align horizontal="LEFT"/></hh:paraPr>'
+        for value, ok in (("LTR", True), ("AUTO", True), ("RTL", False)):
+            diff, known = hwpx_gate.split_rhwp_known("Contents/header.xml", header(ppr(f' textDir="{value}"')),
+                                                     header(ppr("")), {"0"})
+            lost = [k for k, (a, b) in diff.items() if b < a]
+            self.assertEqual(not lost, ok, (value, diff))
+
+
+class PackageGateTests(unittest.TestCase):
+    """section 밖 파트: 다른 파트·content.hpf·header·바탕쪽 손실은 편집 대조(edits)에서 거부한다."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.orig = self.dir / "orig.hwpx"
+        make_hwpx(self.orig)
+        rewrite(self.orig, add={"Chart/chart0.xml": b"<c/>", "Contents/masterpage0.xml":
+                                f'<hm:masterPage xmlns:hm="m" {NS}><hp:p id="1"><hp:run charPrIDRef="0">'
+                                '<hp:t>대외비</hp:t></hp:run></hp:p></hm:masterPage>'.encode()})
+        self.prod = self.dir / "prod.hwpx"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def gate(self, **kw):
+        self.prod.write_bytes(self.orig.read_bytes())
+        rewrite(self.prod, **kw)
+        return hwpx_gate.gate(self.orig, self.prod, allow_rhwp=True, edits=[])
+
+    def assert_fails(self, needle, **kw):
+        rep = self.gate(**kw)
+        self.assertEqual(rep.status, "failed", rep.messages)
+        self.assertIn(needle, " / ".join(rep.messages))
+
+    def assert_not_failed(self, **kw):
+        rep = self.gate(**kw)
+        self.assertNotEqual(rep.status, "failed", rep.messages)
+        return rep
+
+    def test_other_parts_must_survive(self):
+        self.assert_fails("파트 사라짐", drop={"Chart/chart0.xml"})
+        self.assert_fails("파트 바뀜", transform={"settings.xml": lambda d: d + b" "})
+        self.assert_not_failed(transform={"Preview/PrvText.txt": lambda d: b"x"},
+                               add={"META-INF/container.rdf.bak": b"x"})
+
+    def test_content_hpf_metadata_manifest_and_spine(self):
+        hpf = "Contents/content.hpf"
+        self.assert_fails("메타데이터", transform={hpf: lambda d: d.replace(b"synthetic-fixture-author", b"")})
+        self.assert_fails("매니페스트", transform={hpf: lambda d: re.sub(rb'<opf:item id="section0"[^>]*/>', b"", d)})
+        two = lambda d: d.replace(b'<opf:itemref idref="section0"', b'<opf:itemref idref="x"/><opf:itemref idref="section0"')
+        rewrite(self.orig, transform={hpf: two})
+        self.assert_fails("구역 순서", transform={hpf: lambda d: d.replace(
+            b'<opf:itemref idref="x"/><opf:itemref idref="section0"', b'<opf:itemref idref="section0"')})
+        # rhwp가 바꾸는 것: 선언 공백·hashkey·linear·항목 순서
+        self.assert_not_failed(transform={hpf: lambda d: d.replace(b'standalone="yes" ?>', b'standalone="yes"?>')
+                                          .replace(b"</opf:manifest>", b'<opf:item id="n" href="BinData/n.png" media-type="image/png"/></opf:manifest>')})
+
+    def test_header_swaps_text_and_unused_parapr_changes(self):
+        h = "Contents/header.xml"
+        def swap_fonts(d):
+            a = re.search(rb'(<hh:charPr id="0".*?)(<hh:fontRef [^>]*/>)', d, re.S)
+            b = re.search(rb'(<hh:charPr id="1".*?)(<hh:fontRef [^>]*/>)', d, re.S)
+            self.assertNotEqual(a.group(2), b.group(2))
+            d = d[:b.start(2)] + a.group(2) + d[b.end(2):]
+            return d[:a.start(2)] + b.group(2) + d[a.end(2):]
+        self.assert_fails("사라진 요소", transform={h: swap_fonts})
+        self.assert_fails("사라진 요소", transform={h: lambda d: re.sub(rb"(<hh:paraHead[^>]*>)[^<]+", rb"\1", d)})
+        # 본문이 쓰지 않는 paraPr라도 개요 갈래 접힘 말고 다른 변화(정렬)는 거부한다
+        def realign(d):
+            ids = re.findall(rb'<hh:paraPr id="(\d+)"', d)
+            last = ids[-1]
+            return re.sub(rb'(<hh:paraPr id="' + last + rb'".*?<hh:align horizontal=")\w+', rb"\1RIGHT", d, count=1, flags=re.S)
+        self.assert_fails("사라진 요소", transform={h: realign})
+        rep = self.assert_not_failed(transform={h: lambda d: d.replace(b' textDir="LTR"', b"")})
+        self.assertIn("textDir LTR·AUTO 소실×20", rep.allowed_line())
+
+    def test_master_page_text_is_compared(self):
+        self.assert_fails("masterpage0.xml", transform={"Contents/masterpage0.xml": lambda d: d.replace("대외비".encode(), b"")})
 
 
 class UsedParaPrTests(unittest.TestCase):

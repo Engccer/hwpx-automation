@@ -90,6 +90,99 @@ def xml_parts(parts):
     return {n: b for n, b in parts.items() if n.startswith("Contents/") and n.endswith(".xml")}
 
 
+MUTABLE_PARTS = ("Preview/", "META-INF/container.xml")  # rhwp가 다시 만들어도 되는 파트(실측)
+
+
+def package_diff(src, dst):
+    """section·header 같은 Contents/*.xml, BinData/, content.hpf 밖 파트(Chart/·DocHistory/·
+    Scripts/·settings.xml 등)의 삭제·변경. MUTABLE_PARTS는 뺀다. (실패 문구 목록, 새 파트)."""
+    def other(n):
+        return not (n in xml_parts({n: 0}) or n.startswith("BinData/") or n == "Contents/content.hpf"
+                    or n.startswith(MUTABLE_PARTS))
+    errors = []
+    removed = sorted(n for n in src if other(n) and n not in dst)
+    changed = sorted(n for n in src if other(n) and n in dst and src[n] != dst[n])
+    if removed:
+        errors.append(f"파트 사라짐: {removed[:5]}")
+    if changed:
+        errors.append(f"파트 바뀜: {changed[:5]}")
+    return errors, sorted(n for n in dst if n not in src)
+
+
+def _hpf(data):
+    """content.hpf에서 바뀌면 안 되는 것: 메타데이터(태그·속성·글자), 매니페스트 (id, href, 종류),
+    구역 순서(spine). rhwp는 항목 순서·hashkey·linear를 바꾸므로(실측) 그것은 보지 않는다."""
+    root = ET.fromstring(data)
+    meta, items, spine = Counter(), set(), []
+    for el in root.iter():
+        tag = _local(el.tag)
+        if tag == "metadata":
+            for m in el.iter():
+                if m is not el:
+                    meta[census_key(m) + ((m.text or "").strip(),)] += 1
+        elif tag == "item":
+            items.add((el.get("id"), el.get("href"), el.get("media-type")))
+        elif tag == "itemref":
+            spine.append(el.get("idref"))
+    return meta, items, spine
+
+
+def hpf_diff(src, dst):
+    a, b = src.get("Contents/content.hpf"), dst.get("Contents/content.hpf")
+    if a is None:
+        return []
+    if b is None:
+        return ["Contents/content.hpf가 산출물에 없음"]
+    (ma, ia, sa), (mb, ib, sb) = _hpf(a), _hpf(b)
+    errors = []
+    if ma != mb:
+        errors.append("content.hpf 메타데이터가 달라짐")
+    if ia - ib:
+        errors.append(f"content.hpf 매니페스트 항목 사라짐: {sorted(x[0] or '' for x in ia - ib)[:5]}")
+    if sa != sb:
+        errors.append(f"content.hpf 구역 순서가 달라짐: {sa} → {sb}")
+    return errors
+
+
+def repack_counts(src, dst):
+    """비교에서 정규화로 삼킨 rhwp 재직렬화 차이를 종류별로 센다(보고용, 판정에는 쓰지 않는다).
+    {(파트, 이름, ()): (건수, 0)} 모양으로 GateReport.allowed에 그대로 넣는다."""
+    out = {}
+
+    def add(part, label, n):
+        if n:
+            out[(part, label, ())] = (n, 0)
+
+    for name in sorted(set(xml_parts(src)) & set(xml_parts(dst)) - {"Contents/header.xml"}):
+        a, b = ET.fromstring(src[name]), ET.fromstring(dst[name])
+
+        def layout(p):
+            return [(r.attrib.get("charPrIDRef"), [(_local(c.tag), bool(c.text) or len(c) > 0) for c in r])
+                    for r in p if _local(r.tag) == "run"]
+
+        paras = [[layout(p) for p in x.iter() if _local(p.tag) == "p"] for x in (a, b)]
+        add(name, "run·t 경계 재분할(문단)", sum(x != y for x, y in zip(*paras)))
+        crlf = [sum((e.text or "").count("\r\n") + (e.tail or "").count("\r\n") for e in x.iter()) for x in (a, b)]
+        add(name, "줄바꿈 \\r\\n→\\n", abs(crlf[0] - crlf[1]))
+        meta = [sum(1 for e in x.iter() if _local(e.tag) == "fieldBegin" and e.get("metaTag") == "")
+                for x in (a, b)]
+        add(name, "필드 빈 metaTag", abs(meta[0] - meta[1]))
+        pics = [[[_local(c.tag) for c in e] for e in x.iter() if _local(e.tag) == "pic"] for x in (a, b)]
+        add(name, "그림 안 자식 순서", sum(x != y for x, y in zip(*pics)))
+    if "Contents/content.hpf" in src and "Contents/content.hpf" in dst:
+        a, b = (ET.fromstring(x["Contents/content.hpf"]) for x in (src, dst))
+        items = [[e.get("id") for e in x.iter() if _local(e.tag) == "item"] for x in (a, b)]
+        add("Contents/content.hpf", "content.hpf 항목 순서", int(items[0] != items[1] and set(items[0]) <= set(items[1])))
+        for attr in ("hashkey", "linear"):
+            n = [sum(1 for e in x.iter() if attr in e.attrib) for x in (a, b)]
+            add("Contents/content.hpf", f"content.hpf {attr}", abs(n[0] - n[1]))
+    if "Contents/header.xml" in src and "Contents/header.xml" in dst:
+        n = [Counter((_local(e.tag), e.get("itemCnt")) for e in ET.fromstring(x["Contents/header.xml"]).iter()
+                     if "itemCnt" in e.attrib) for x in (src, dst)]
+        add("Contents/header.xml", "itemCnt 갱신", sum((n[0] - n[1]).values()))
+    return out
+
+
 def bindata_parts(parts):
     return {n: b for n, b in parts.items() if n.startswith("BinData/")}
 
@@ -112,22 +205,6 @@ def element_census(xml_bytes, ignore=()):
         census[census_key(el, ignore)] += 1
         el.clear()
     return census
-
-
-def zoned_census(xml_bytes, in_zone):
-    """census를 둘로 나눈다: in_zone(el)이 참인 요소와 그 하위(zone), 나머지(rest)."""
-    rest, zone = Counter(), Counter()
-    depth = 0
-    for event, el in ET.iterparse(_bytes_io(xml_bytes), events=("start", "end")):
-        if event == "start":
-            if depth or in_zone(el):
-                depth += 1
-            continue
-        (zone if depth else rest)[census_key(el)] += 1
-        if depth:
-            depth -= 1
-        el.clear()
-    return rest, zone
 
 
 def _bytes_io(b):
@@ -156,6 +233,10 @@ def compare_census(before, after):
 #    쓰지 않으므로 화면에 영향이 없다. 본문이 쓰는 paraPr의 손실은 실패로 둔다.
 #  - 본문 파트: 모든 hp:p의 id를 0부터 다시 매긴다(문단 수·내용은 그대로).
 #  - 본문 파트: 그림의 hp:shadow type="NONE"(그림자 없음 표시)을 지운다.
+# 실측(2026-10-28, 한컴 저장 HWPX 12건 rhwp 왕복·set-cell): paraPr textDir LTR·AUTO 삭제,
+# run·t 경계 재분할, 빈 run·빈 t, \r\n→\n, 그림 안 img·caption 순서, 필드 zorder, content.hpf
+# 항목 순서·hashkey, 새 charPr 추가(itemCnt). 그 밖에 그림 thumbnailBinIDRef 소실, 필드 끝 위치
+# 이동 같은 진짜 변화가 2건에서 나왔고 이것은 거부한다.
 
 def used_parapr_ids(parts):
     """본문 파트(header.xml 밖)의 요소가 참조하는 paraPr id 집합. 파싱하지 못한 파트가
@@ -175,19 +256,54 @@ def used_parapr_ids(parts):
     return used
 
 
+OUTLINE_COLLAPSE = {"switch", "case", "default", "heading"}  # 미사용 paraPr에서 접히는 요소(실측)
+
+
+def header_census(xml_bytes, in_zone=lambda el: False):
+    """header.xml census. 키에 id(글꼴 묶음은 lang)를 가진 조상 경로와 글자를 넣어, 개수가 같아도
+    다른 글자 모양·테두리로 옮겨 가거나 번호 서식 글자가 바뀐 것을 잡는다. paraPr의
+    textDir LTR·AUTO는 rhwp가 지우므로(실측, 한글은 어느 쪽이든 왼쪽부터) 빼고 센다.
+    (rest, zone, 뺀 textDir 수)를 돌려준다."""
+    rest, zone, ltr = Counter(), Counter(), 0
+    stack, depth = [], 0
+    for event, el in ET.iterparse(_bytes_io(xml_bytes), events=("start", "end")):
+        if event == "start":
+            if depth or in_zone(el):
+                depth += 1
+            stack.append(el)
+            continue
+        stack.pop()
+        tag, attrs = census_key(el)
+        attrs = tuple(a for a in attrs if a[0] != "itemCnt")  # 자식 수에서 나오는 값(자식은 따로 센다)
+        if tag == "paraPr" and (("textDir", "LTR") in attrs or ("textDir", "AUTO") in attrs):
+            attrs = tuple(a for a in attrs if a[0] != "textDir")
+            ltr += 1
+        owner = "/".join(f"{_local(a.tag)}#{a.get('id', a.get('lang'))}" for a in stack
+                         if a.get("id") is not None or a.get("lang") is not None)
+        extra = (("@in", owner),) if owner else ()
+        if (el.text or "").strip():
+            extra += (("@text", el.text.strip()),)
+        (zone if depth else rest)[(tag, attrs + extra)] += 1
+        if depth:
+            depth -= 1
+    return rest, zone, ltr
+
+
 def split_rhwp_known(name, before, after, used_parapr):
     """(실패로 볼 census 차이, 허용할 손실)로 나눈다. 허용 손실은 lost와 같은 형식."""
-    if name == "Contents/header.xml" and used_parapr is None:
-        return compare_census(element_census(before), element_census(after)), {}
     if name == "Contents/header.xml":
         def unused_parapr(el):
-            return el.tag.split("}")[-1] == "paraPr" and el.get("id") not in used_parapr
-        a_rest, a_zone = zoned_census(before, unused_parapr)
-        b_rest, b_zone = zoned_census(after, unused_parapr)
-        zone = compare_census(a_zone, b_zone)
-        known = {k: v for k, v in zone.items() if v[1] < v[0]}
+            return used_parapr is not None and _local(el.tag) == "paraPr" \
+                and el.get("id") not in used_parapr
+        a_rest, a_zone, a_ltr = header_census(before, unused_parapr)
+        b_rest, b_zone, b_ltr = header_census(after, unused_parapr)
         diff = compare_census(a_rest, b_rest)
-        diff.update({k: v for k, v in zone.items() if v[1] > v[0]})  # 증가는 gained로 보고만
+        known = {}
+        # 미사용 paraPr 안에서는 개요 단계 갈래(switch)가 접히는 감소만 허용한다
+        for k, v in compare_census(a_zone, b_zone).items():
+            (known if v[1] < v[0] and k[0] in OUTLINE_COLLAPSE else diff)[k] = v
+        if a_ltr > b_ltr:
+            known[("paraPr textDir LTR·AUTO 소실", (("textDir", "LTR|AUTO"),))] = (a_ltr, b_ltr)
         return diff, known
 
     no_pid = {("p", "id")}
@@ -244,7 +360,7 @@ class EditTargetError(ValueError):
 FREE_IN_CELL = {"p", "run", "t", "linesegarray", "lineseg"}  # 칸 내용 교체로 바뀌어도 되는 요소
 FREE_IN_FIELD = {"run", "t"}                                  # 누름틀 값 자리에서 바뀌어도 되는 요소
 FIELD_VOLATILE = {"dirty"}  # rhwp가 채운 누름틀에서 바꾸는 fieldBegin 속성(실측)
-# rhwp 재직렬화가 모든 fieldBegin에서 지우는 zorder="-1"(실측, 채우지 않은 누름틀 포함)
+# rhwp 재직렬화가 모든 fieldBegin에서 지우는 zorder·빈 metaTag(실측, 채우지 않은 누름틀 포함)
 
 
 def _local(tag):
@@ -349,8 +465,8 @@ def _targets(sections, edits):
 def _tokens(sec, marks, drop=None):
     """sec를 (시작 태그+속성 | 글자 | 끝 태그) 토큰열로 편다. marks[i]의 자리는 ("mask", i)
     하나로 바꾸고 원래 토큰열은 regions[i]에 둔다. drop 요소(삽입한 그림)는 통째로 뺀다.
-    rhwp 재직렬화 허용분(p id, shadow type=NONE, fieldBegin zorder="-1")은 여기서 정규화하고
-    shadow·zorder 수를 센다."""
+    rhwp 재직렬화 허용분(p id, shadow type=NONE, fieldBegin zorder·빈 metaTag, run·t 경계, 빈 t,
+    \r\n, 그림 안 자식 순서)은 여기서 정규화하고 shadow·zorder 수를 센다."""
     field_begins = {fb for m in marks if m[0] == "field" for fb in m[1]}
     tokens, spans, seen = [], {}, Counter()
 
@@ -359,13 +475,35 @@ def _tokens(sec, marks, drop=None):
         tag = _local(el.tag)
         if tag == "p":
             a.pop("id", None)
-        if tag == "fieldBegin" and a.get("zorder") == "-1":
+        if tag == "fieldBegin" and "zorder" in a:  # 필드는 그리는 개체가 아니라 쌓임 순서가 뜻이 없다
             del a["zorder"]
             seen["zorder"] += 1
+        if tag == "fieldBegin" and a.get("metaTag") == "":
+            del a["metaTag"]
         if el in field_begins:
             for k in FIELD_VOLATILE:
                 a.pop(k, None)
         return tuple(sorted(a.items()))
+
+    # rhwp는 run·t 경계를 다시 나누고 빈 run·빈 t를 더하거나 뺀다(실측). 그래서 run·t 태그 대신
+    # 글자 모양이 바뀌는 자리에만 run 표시를 두고 이어지는 글자는 합친다. 글자마다 모양과 자리는 그대로 비교된다
+    state = {"run": None, "pending": None}
+
+    def emit(tok):
+        pending = state["pending"]
+        if pending is not None:
+            state["pending"] = None
+            if pending != state["run"]:
+                tokens.append(pending)
+                state["run"] = pending
+        if tok[0] == "txt" and tokens and tokens[-1][0] == "txt":
+            tokens[-1] = ("txt", tokens[-1][1] + tok[1])
+        else:
+            tokens.append(tok)
+
+    def text(x):
+        if x:
+            emit(("txt", x.replace("\r\n", "\n")))
 
     def walk(el, in_t):
         tag = _local(el.tag)
@@ -375,17 +513,52 @@ def _tokens(sec, marks, drop=None):
             seen["shadow"] += 1
             return
         start = len(tokens)
-        tokens.append(("<", tag, attrs(el)))
-        in_t = in_t or tag == "t"
+        if tag == "run":
+            run = ("<", "run", attrs(el))
+            for child in el:
+                state["pending"] = run
+                walk(child, in_t)
+                if child.tail and (in_t or child.tail.strip()):
+                    text(child.tail)
+            state["pending"] = None
+            # 내용 없는 run만 있는 문단(빈 문단)은 그 글자 모양을 남긴다
+            if not any(_has_content(r) for r in parent_of[el] if _local(r.tag) == "run") \
+                    and state["run"] != run:
+                tokens.append(run)
+                state["run"] = run
+            spans[el] = (start, len(tokens))
+            return
+        if tag == "t":
+            if el.text:
+                text(el.text)
+            for child in el:
+                walk(child, True)
+                if child.tail:
+                    text(child.tail)
+            spans[el] = (start, len(tokens))
+            return
+        if tag in ("p", "ctrl"):  # 문단 시작과 컨트롤 앞뒤에서는 run 표시를 새로 둔다
+            state["run"] = None
+        start = len(tokens)
+        emit(("<", tag, attrs(el)))
+        if tag == "ctrl":
+            start = len(tokens) - 1
         if el.text and (in_t or el.text.strip()):
-            tokens.append(("txt", el.text))
-        for child in el:
+            text(el.text)
+        children = list(el)
+        if tag == "pic":  # rhwp는 그림 안 img·caption을 다른 자리에 쓴다(실측). 자식 순서는 보지 않는다
+            children.sort(key=lambda c: _local(c.tag))
+        for child in children:
             walk(child, in_t)
             if child.tail and (in_t or child.tail.strip()):
-                tokens.append(("txt", child.tail))
+                text(child.tail)
+        state["pending"] = None
         tokens.append((">", tag))
+        if tag in ("p", "ctrl"):
+            state["run"] = None
         spans[el] = (start, len(tokens))
 
+    parent_of = sec.parent
     walk(sec.root, False)
     ranges = []
     for i, m in enumerate(marks):
@@ -409,13 +582,29 @@ def _tokens(sec, marks, drop=None):
     return out + tokens[pos:], regions, seen
 
 
+def _outside_tables(tokens):
+    """(토큰, 칸 안 중첩 표 바깥인가). 칸 내용 교체는 칸의 직계 문단만 바꾼다."""
+    depth = 0
+    for t in tokens:
+        if t[0] == "<" and t[1] == "tbl":
+            depth += 1
+        yield t, depth == 0
+        if t[0] == ">" and t[1] == "tbl":
+            depth -= 1
+
+
+def _has_content(run):
+    return any(_local(c.tag) != "t" or c.text or len(c) for c in run)
+
+
 def _text_of(tokens):
-    return "".join(t[1] for t in tokens if t[0] == "txt")
+    return "".join(t[1] for t, top in _outside_tables(tokens) if t[0] == "txt" and top)
 
 
 def _skeleton(tokens, free):
-    """free 태그와 글자를 뺀 구조 골격."""
-    return [t for t in tokens if t[0] != "txt" and t[1] not in free]
+    """free 태그와 글자를 뺀 구조 골격. 중첩 표 안은 글자까지 그대로 남긴다."""
+    return [t for t, top in _outside_tables(tokens)
+            if not top or (t[0] != "txt" and t[1] not in free)]
 
 
 def _marks(targets, number):
@@ -496,7 +685,7 @@ def compare_edit(src_parts, dst_parts, edits, rep):
                     rep.fail(f"{s.name}: 누름틀 {e.name!r} 값이 요청값과 다름"
                              f"({_text_of(after)[:40]!r} ≠ {e.value[:40]!r})")
     for what, key in (("shadow", ("shadow", (("type", "NONE"),))),
-                      ("zorder", ("fieldBegin zorder", (("zorder", "-1"),)))):
+                      ("zorder", ("fieldBegin zorder", (("zorder", "*"),)))):
         n = normalized[what]
         if n > 0:
             rep.allowed[("Contents/section*.xml",) + key] = (n, 0)
@@ -590,6 +779,12 @@ def gate(original, produced, *, allow=None, allow_bindata_added=0,
                 continue
             if edits is not None and section_number(name) is not None:
                 continue  # compare_edit가 위치별로 봤다
+            if edits is not None and name != "Contents/header.xml":
+                # 바탕쪽 같은 그 밖의 본문 파트는 편집 대상이 없으므로 위치별로 완전히 같아야 한다
+                a, b = (_tokens(_Section(name, x[name]), [])[0] for x in (src, dst))
+                if a != b:
+                    rep.fail(f"{name}: 달라짐 " + _first_diff(a, b))
+                continue
             if allow_rhwp:
                 diff, known = split_rhwp_known(name, src[name], dst[name], used)
                 rep.allowed.update({(name,) + k: v for k, v in known.items()})
@@ -607,6 +802,14 @@ def gate(original, produced, *, allow=None, allow_bindata_added=0,
             rep.fail("사라진 요소 " + ", ".join(f"{t}×{n}" for t, n in tags.most_common(8)))
     elif edits is not None:
         rep.fail("편집 대조(edits)는 census 검사와 함께만 쓴다")
+
+    if edits is not None:
+        errors, added = package_diff(src, dst)
+        for e in errors + hpf_diff(src, dst):
+            rep.fail(e)
+        if allow_rhwp:
+            rep.allowed.update(repack_counts(src, dst))
+        rep.gained.update({(n, ()): (0, 1) for n in added})
 
     if require_bindata:
         before, after = bindata_digest(src), bindata_digest(dst)

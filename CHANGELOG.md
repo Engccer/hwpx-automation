@@ -20,7 +20,9 @@ rhwp 중심 재설계. 플랜 `docs/plans/2026-10-28-rhwp-redesign.md`, 병렬 �
   - `rhwp_cli.run`: `verify(staged, envelope)`로 봉투 사후조건을 게시 전에 검사, 어떤 verify 예외·봉투 계약 오류든 산출물을 `<stem>.rejected-<시각>`으로 보존. rhwp 기본 출력(입구 변환물·`_편집`·`--to-hwp`·`_서명`)은 있으면 덮지 않는다. `--to-md`는 `engine=hwpx-tomd`, 명시 폴백은 `reason=사용자 지정`, 서명은 `engine=rhwp status=`.
   - `cross_check`가 chart·ole·equation 수와 `Chart/` 파트 내용 해시를 대조하고 HWP 입구와 `--to-hwp`가 함께 쓴다(`_embedded_counts` 제거). `--check-env` Tier 2·4 머리줄, `rhwp_pdf.py`·`hwpx_sign.py` docstring을 문서와 맞췄다.
   - 서명: run 중간 앵커는 함초롬바탕·자간 0·보통 굵기일 때만 measured(`measure-width --font`는 모르는 글꼴도 대체 폭을 낸다, 실측). 새 게이트가 `float_over_anchor`의 빈 run `<hp:t/>` 무조건 복원을 잡아 원본 모양대로 고쳤다.
-  - 시험: 가짜 rhwp가 실제로 바꾼 산출물을 내고 대상 밖 공백화·문단 삭제·secPr 소실·다른 칸·다른 글꼴을 거부. 누름틀 익명 표본 `tests/fixtures/sample-fields.hwpx`로 실호출 통합 시험(`이름[k]`는 0부터, 실측). 단위·통합 168건.
+  - 최종 검토(fable)가 section 밖 구멍을 찾아 막았다: `Chart/`·`DocHistory/`·`Scripts/` 등 그 밖 파트는 이름·바이트 대조, `content.hpf`는 메타데이터·매니페스트·구역 순서 대조, 바탕쪽은 토큰 대조, header census는 소속 조상·글자를 키에 넣고 미사용 paraPr 허용을 개요 갈래 접힘으로 좁혔다. 칸 안 중첩 표는 글자까지 비교.
+  - 한컴 저장 실문서 12건 rhwp 왕복으로 재측정: 위치별 대조가 run·t 경계 재분할·빈 run·빈 t·`\r\n`·그림 안 자식 순서·필드 zorder 때문에 12건 모두 거부하던 것을 정규화해 10건 통과, 남은 2건은 진짜 변화(그림 thumbnailBinIDRef 소실, 필드 끝 위치 이동). paraPr `textDir` LTR·AUTO 소실 허용으로 python-hwpx 산출물도 rhwp 편집이 된다(함정 항목 삭제).
+  - 시험: 가짜 rhwp가 실제로 바꾼 산출물을 내고 대상 밖 공백화·문단 삭제·secPr 소실·다른 칸·다른 글꼴을 거부. 누름틀 익명 표본 `tests/fixtures/sample-fields.hwpx`로 실호출 통합 시험(`이름[k]`는 0부터, 실측). 리뷰(opus) 반영: 같은 `.hwp` 재실행은 원본보다 새 변환물을 재사용(다시 변환하지 않음), JAR 입구의 검증 예외도 거부 산출물 보존, 누름틀 값은 한 줄 글자·숫자만(쓰기 전 거부). 정규화로 같게 본 차이도 종류별 건수로 허용 줄에 보고하고 항목마다 거부 반례 시험을 둔다. 단위·통합 184건.
 
 ## 2026-10-26
 

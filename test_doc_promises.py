@@ -536,6 +536,30 @@ class FromHwpRoutesToRhwpThenJar(unittest.TestCase):
         self.assertEqual(out.strip().splitlines()[-1], "engine=hwpx-tomd")
         self.assertTrue((self.dest.parent / "doc.md").exists())
 
+    def test_second_run_reuses_conversion_unless_hwp_is_newer(self):
+        argv = ["hwpx_edit.py", str(self.hwp), "--to-md"]
+        with mock.patch.object(hwpx_edit, "find_java", return_value=None), mock.patch.object(sys, "argv", argv):
+            self.assertEqual(quiet(hwpx_edit.main)[0], 0)
+            calls = len(self.calls())
+            code, out, err = quiet(hwpx_edit.main)
+            self.assertEqual(code, 0, err)
+            self.assertIn("변환물 재사용", out)
+            self.assertEqual(len(self.calls()), calls)  # 다시 변환하지 않았다
+            later = os.path.getmtime(self.dest) + 10
+            os.utime(self.hwp, (later, later))
+            code, _, err = quiet(hwpx_edit.main)
+        self.assertEqual(code, 1)
+        self.assertIn("원본 .hwp가 그 파일보다 새롭습니다", err)
+        self.assertNotIn("변환 실패", err)
+
+    def test_jar_check_error_keeps_rejected_output(self):
+        with self.jar_copies(self.good), \
+                mock.patch.object(hwpx_edit, "_independent_check", side_effect=ValueError("깨진 대조")):
+            with self.assertRaisesRegex(RuntimeError, "ValueError: 깨진 대조"):
+                hwpx_edit.hwp_to_hwpx(str(self.hwp), engine="jar")
+        self.assertFalse(self.dest.exists())
+        self.assertEqual(len(list(self.dest.parent.glob("doc.rejected-*.hwpx"))), 1)
+
     def test_cli_failure_exits_1_with_fallback(self):
         os.environ["FAKE_RHWP_MODE"] = "verify"
         with mock.patch.object(sys, "argv", ["hwpx_edit.py", str(self.hwp), "--from-hwp"]):

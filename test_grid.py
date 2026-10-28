@@ -223,6 +223,13 @@ class RhwpGridCommands(unittest.TestCase):
         self.assertIn("거부된 산출물 보존", err)
         self.assertEqual(len(list(self.dir.glob("o.rejected-*.hwpx"))), 1)
 
+    def test_field_values_must_be_one_line_text(self):
+        import hwpx_edit, rhwp_cli
+        for bad in ('{"성명": true}', '{"성명": null}', '{"성명": "가\\n나"}', '{"성명": "가\\t나"}'):
+            with self.assertRaises(rhwp_cli.RhwpUsageError, msg=bad):
+                hwpx_edit._field_edits(bad)
+        self.assertEqual(hwpx_edit._field_edits('{"성명[1]": 3}')[0].value, "3")
+
     def test_fill_fields_refuses_unknown_names_before_writing(self):
         os.environ["FAKE_RHWP_MODE"] = "notfound"
         out_path = self.dir / "o.hwpx"

@@ -130,7 +130,7 @@ HWP/HWPX 작업 요청
 
 **원칙**: 도구는 "원본을 덮어쓰지 않는다"만 책임진다. 무엇이 최종 결과물이고 무엇이 부산물인지는 도구가 알 수 없으므로(같은 `--to-md`도 워크플로우에 따라 결과물이거나 부산물이다), **호출하는 워크플로우가 판단**한다.
 
-- **도구 기본 출력**: `hwpx_edit.py`와 hwp2hwpx 래퍼(`.bat`·`.sh`)는 `-o`(래퍼는 두 번째 인자) 미지정 시 입력 폴더의 `_work-hwpx-automation/`에 저장한다(원본 비파괴). 입력이 이미 `_work-hwpx-automation/` 안에 있으면 같은 폴더의 같은 이름, 즉 그 파일 자리에 쓴다. rhwp 편집(`--grid-set-cell`·`--fill-fields`)은 그 자리 대신 `<이름>_편집.hwpx`에 쓴다. rhwp가 쓰는 기본 출력(`.hwp` 입구 변환물, rhwp 편집, `--to-hwp`, 서명본)은 그 자리에 파일이 이미 있으면 덮지 않고 exit 1로 멈춘다. `-o`로 준 경로는 덮는다.
+- **도구 기본 출력**: `hwpx_edit.py`와 hwp2hwpx 래퍼(`.bat`·`.sh`)는 `-o`(래퍼는 두 번째 인자) 미지정 시 입력 폴더의 `_work-hwpx-automation/`에 저장한다(원본 비파괴). 입력이 이미 `_work-hwpx-automation/` 안에 있으면 같은 폴더의 같은 이름, 즉 그 파일 자리에 쓴다. rhwp 편집(`--grid-set-cell`·`--fill-fields`)은 그 자리 대신 `<이름>_편집.hwpx`에 쓴다. rhwp가 쓰는 기본 출력(`.hwp` 입구 변환물, rhwp 편집, `--to-hwp`, 서명본)은 그 자리에 파일이 이미 있으면 덮지 않고 exit 1로 멈춘다. 단 다른 명령의 `.hwp` 입구 변환은 변환물이 원본보다 나중에 만들어졌으면 다시 변환하지 않고 그 파일을 쓴다("변환물 재사용"). `-o`로 준 경로는 덮는다.
 - **입력 옆에 쓰는 도구**: `hwpx_com.py`는 `<입력>.pdf`·`<입력>_img.hwpx`·`<입력>_norm.hwpx`, `hwpx_com.py --from-hwp`는 `<입력>.hwpx`, `hwpx_sign.py`는 `<입력>_서명.hwpx`를 입력 파일 옆에 만든다. 부산물로 둘 것이면 `-o`로 `_work-hwpx-automation/`을 지정한다.
 - **여러 편집을 이어 할 때**: 편집 명령은 매번 입력 파일을 새로 읽는다. 원본에 `--set-cell` 등을 여러 번 부르면 마지막 호출만 남으므로, 두 번째 호출부터는 앞 호출의 결과(`_work-hwpx-automation/<이름>.hwpx`)를 입력으로 준다. 셀이 많으면 스크립트 한 번으로 처리한다.
 - **작업 마무리**: 작업 종료 시 **최종 결과물은 작업 폴더로** 옮기고(또는 처음부터 `-o`로 작업 폴더를 지정), 그 전까지의 **중간 부산물은 `_work-hwpx-automation/`에 잔류**시킨다. 작업 폴더에는 원본과 최종 결과물만 남아 깔끔하게 유지된다. 최종본 이름이 원본과 같으면 옮길 때 원본을 덮으므로 새 이름을 준다.
@@ -300,7 +300,7 @@ python hwpx_edit.py <입력.hwp> --from-hwp --engine jar         # JAR 폴백 (P
 python hwpx_edit.py <입력.hwp> --to-md                         # 다른 명령에 .hwp를 주면 같은 변환을 먼저 거친다
 ```
 
-- `.hwp`를 `--to-md`·`--info`·`--find/--replace`·`--set-cell` 등에 바로 주면 `_work-hwpx-automation/<이름>.hwpx`로 변환한 뒤 그 HWPX 위에서 동작한다. 편집 결과는 `-o`가 없으면 `<이름>_편집.hwpx`이고, 편집을 이어 할 때는 이 파일을 입력으로 준다(같은 `.hwp`를 다시 주면 변환물이 이미 있어 멈추므로, 변환물 HWPX를 입력으로 준다). `--to-pdf`만 원본을 그대로 렌더링한다. `-o`에 `.hwp`는 줄 수 없다.
+- `.hwp`를 `--to-md`·`--info`·`--find/--replace`·`--set-cell` 등에 바로 주면 `_work-hwpx-automation/<이름>.hwpx`로 변환한 뒤 그 HWPX 위에서 동작한다. 편집 결과는 `-o`가 없으면 `<이름>_편집.hwpx`이고, 편집을 이어 할 때는 이 파일을 입력으로 준다(같은 `.hwp`를 다시 주면 앞서 만든 변환물을 다시 쓴다. 원본 `.hwp`가 더 새로우면 변환물을 옮기라며 멈춘다). `--to-pdf`만 원본을 그대로 렌더링한다. `-o`에 `.hwp`는 줄 수 없다.
 - 변환물은 `hwpx-validate`와 **다른 엔진 변환물과의 교차 대조**(글자, 표·셀·그림·차트·OLE·수식 수, BinData·`Chart/` 파트 수·내용 해시)를 통과해야 결과 자리에 놓인다. JDK가 없어 JAR 대조를 못 하면 `status=unverified`다.
 - rhwp가 실패하거나(자가 검증 exit 3 등) 교차 대조가 어긋나면 exit 1이다. 거부된 산출물은 `<이름>.rejected-<시각>.hwpx`로 남고, stderr에 출력된 JAR 폴백 명령을 따른다.
 

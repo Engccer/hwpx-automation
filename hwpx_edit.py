@@ -1528,11 +1528,12 @@ def _independent_check(staged, src, engine, messages):
     return status if rep.status == "passed" else "unverified"
 
 
-def hwp_to_hwpx(src, dest=None, *, engine="rhwp"):
+def hwp_to_hwpx(src, dest=None, *, engine="rhwp", reuse=False):
     """HWP를 HWPX로 변환한다. 정본 형식은 HWPX이고 `.hwp`는 이 입구에서만 만난다.
 
     dest가 None이면 입력 옆 `_work-hwpx-automation/<stem>.hwpx`이고, 그 자리에 파일이 이미
-    있으면 덮지 않고 OutputExistsError(RuntimeError)다.
+    있으면 덮지 않는다. reuse=True(다른 명령의 입구 변환)이고 그 파일이 원본보다 나중에 만들어졌으면
+    변환하지 않고 그 파일을 쓴다(status="reused"). 아니면 OutputExistsError(RuntimeError)다.
     산출물은 hwpx-validate와 다른 엔진 변환물과의 교차 대조(hwpx_gate.cross_check)를
     통과해야 dest에 놓인다. 대조 불가(JDK·hwpx-tomd 없음)면 status="unverified".
     실패하면 RuntimeError(rhwp_cli.RhwpError 포함)이고 메시지에 폴백 명령이 들어 있다.
@@ -1544,8 +1545,11 @@ def hwp_to_hwpx(src, dest=None, *, engine="rhwp"):
     src = os.path.abspath(src)
     if dest is None:
         dest = get_output_path(src, ".hwpx")
-        refuse_existing_default(dest, "이미 변환한 HWPX를 입력으로 쓰거나, 기존 파일을 옮긴 뒤 다시 "
-                                      "실행하세요(--from-hwp는 -o로 다른 경로를 줄 수 있다).")
+        if reuse and os.path.exists(dest) and os.path.getmtime(dest) >= os.path.getmtime(src):
+            print(f"변환물 재사용: {dest} (원본보다 나중에 만든 파일. 다시 변환하려면 이 파일을 옮긴다)")
+            return ConvertResult(os.path.abspath(dest), engine, "reused", [])
+        refuse_existing_default(dest, ("원본 .hwp가 그 파일보다 새롭습니다. " if reuse else "")
+                                + "기존 파일을 옮긴 뒤 다시 실행하세요(--from-hwp는 -o로 다른 경로를 줄 수 있다).")
     dest = os.path.abspath(dest)
     if not dest.lower().endswith(".hwpx") or os.path.normcase(dest) == os.path.normcase(src):
         raise ValueError(f"변환 출력은 원본과 다른 .hwpx 경로여야 합니다: {dest}")
@@ -1571,9 +1575,14 @@ def hwp_to_hwpx(src, dest=None, *, engine="rhwp"):
                     shutil.copyfile(raw, staged)
                 try:
                     check(staged)
-                except rhwp_cli.RhwpError as exc:
-                    exc.rejected_path = rhwp_cli.preserve_rejected(staged, dest)
-                    raise
+                except Exception as exc:  # rhwp 경로(rhwp_cli.run)와 같이 어떤 예외든 산출물을 남긴다
+                    kept = rhwp_cli.preserve_rejected(staged, dest)
+                    if isinstance(exc, rhwp_cli.RhwpError):
+                        exc.rejected_path = kept
+                        raise
+                    err = rhwp_cli.RhwpVerifyError(f"게시 전 검증 중 오류: {type(exc).__name__}: {exc}")
+                    err.rejected_path = kept
+                    raise err from exc
                 os.replace(staged, dest)
     except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
         raise RuntimeError(f"{exc}\n{convert_fallback_hint(src, dest, engine)}") from exc
@@ -1586,9 +1595,12 @@ def hwp_to_hwpx(src, dest=None, *, engine="rhwp"):
     return ConvertResult(dest, engine, status, messages)
 
 
-def convert_hwp_or_exit(src, dest=None, engine="rhwp"):
+def convert_hwp_or_exit(src, dest=None, engine="rhwp", reuse=False):
     try:
-        return hwp_to_hwpx(src, dest, engine=engine)
+        return hwp_to_hwpx(src, dest, engine=engine, reuse=reuse)
+    except OutputExistsError as exc:
+        print(f"오류: {exc}", file=sys.stderr)
+        sys.exit(1)
     except (RuntimeError, ValueError) as exc:
         print(f"오류: HWP→HWPX 변환 실패 (engine={engine})\n{exc}", file=sys.stderr)
         sys.exit(1)
@@ -1923,6 +1935,10 @@ def _field_edits(data):
         raise rhwp_cli.RhwpUsageError('--fill-fields 값은 {"이름":"값"} 객체여야 합니다.')
     edits = []
     for key, value in values.items():
+        if not isinstance(value, (str, int, float)) or isinstance(value, bool):
+            raise rhwp_cli.RhwpUsageError(f"누름틀 {key!r} 값은 글자나 숫자여야 합니다: {value!r}")
+        if re.search(r"[\r\n\t]", str(value)):
+            raise rhwp_cli.RhwpUsageError(f"누름틀 {key!r} 값에 줄바꿈·탭은 넣을 수 없습니다(누름틀은 한 줄 값).")
         m = re.fullmatch(r"(.*)\[(\d+)\]", key)
         name, k = (m.group(1), int(m.group(2))) if m else (key, None)
         edits.append(hwpx_gate.FieldEdit(name, str(value), k))
@@ -2239,7 +2255,7 @@ def main():
     # 편집 결과는 변환물과 다른 이름(<이름>_편집.hwpx)에 둔다. 같은 자리에 두면 같은
     # .hwp로 다시 부를 때 입구 변환이 편집 결과를 원본 변환물로 덮는다.
     if args.file.lower().endswith('.hwp') and not args.to_pdf:
-        args.file = convert_hwp_or_exit(args.file, engine=args.engine).path
+        args.file = convert_hwp_or_exit(args.file, engine=args.engine, reuse=True).path
         writes_hwpx = not (args.info or args.to_md or args.list_squeeze or args.tables or args.fields)
         if writes_hwpx and not args.output:
             args.output = os.path.splitext(args.file)[0] + "_편집.hwpx"

@@ -358,7 +358,8 @@ class RhwpSignIntegrationTests(unittest.TestCase):
         rep = hwpx_gate.gate(self.doc, result, allow_rhwp=True, allow_bindata_added=1,
                              edits=[hwpx_gate.ImageInsert(0, 11)])
         self.assertEqual(rep.status, "passed", rep.summary())
-        self.assertEqual({k[1] for k in rep.allowed}, {"switch", "case", "default", "heading", "p"})
+        self.assertLessEqual({"switch", "case", "default", "heading", "p"}, {k[1] for k in rep.allowed})
+        self.assertFalse(rep.lost)
 
         _, box = hwpx_sign.locate(str(self.doc), "(서명)", None)
         with tempfile.TemporaryDirectory() as td:

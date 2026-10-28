@@ -135,10 +135,13 @@ class GridIntegration(unittest.TestCase):
         self.assertEqual(first.read_bytes(), before)
 
     def test_gate_rejection_keeps_previous_output_and_evidence(self):
-        # python-hwpx로 갓 만든 HWPX는 rhwp 편집에서 본문이 쓰는 paraPr를 잃어 게이트가 거부한다
+        # rhwp는 paraPr의 textDir를 값과 상관없이 지운다. LTR·AUTO만 허용하므로 RTL 소실은 거부된다
         from test_doc_promises import make_table_hwpx
+        from test_hwpx_gate import rewrite
         doc = self.dir / "fresh.hwpx"
         make_table_hwpx(doc)
+        rewrite(doc, transform={"Contents/header.xml":
+                                lambda d: d.replace(b'textDir="LTR"', b'textDir="RTL"', 1)})
         out = self.dir / "fresh-out.hwpx"
         out.write_bytes(b"previous")
         r = self.cli(doc, "--grid-set-cell", "0,1,1", "x", "-o", out)

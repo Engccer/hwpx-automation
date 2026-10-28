@@ -118,7 +118,7 @@ def _convert_hwp(src: str):
         raise SignError("`.hwp`는 `python hwpx_edit.py --from-hwp <파일.hwp>`로 먼저 HWPX로 "
                         "변환한 뒤 그 HWPX를 넣으세요.")
     try:
-        return hwp_to_hwpx(src)
+        return hwp_to_hwpx(src, reuse=True)
     except (rhwp_cli.RhwpError, RuntimeError) as e:
         raise SignError(f"HWP→HWPX 변환 실패: {e}")
 
