@@ -16,6 +16,11 @@ rhwp 중심 재설계. 플랜 `docs/plans/2026-10-28-rhwp-redesign.md`, 병렬 �
 - M5 누름틀·격자 좌표·역변환: `--tables`·`--grid-set-cell`·`--fields`·`--fill-fields`(없는·모호한·닮은 이름은 dry-run에서 거부)·`--to-hwp`(배포용 HWP, JAR 왕복 `cross_check`와 차트·OLE·수식 수 대조, 실패 시 한컴 다른 이름 저장 안내). 편집 산출물은 `gate(allow=is_text_run_key, allow_rhwp=True, expect_text_change=True)`를 통과해야 놓이고(실패하면 `.rejected.hwpx`) 허용된 손실 줄은 stdout에 보인다. `.hwp` 입력은 변환을 먼저 거친다. 단위 시험 `test_grid.py`.
 - M6: Windows hunyong-samsung에 rhwp v0.8.7(`C:\Users\pc\.local\bin\rhwp.exe`, SHA256 릴리스 대조) 설치. 한컴 2024 호환은 위원장 실사용에서 확인한다.
 - M7 문서 분배: `reference/rhwp-pdf.md`를 `reference/rhwp.md`로 확장(설치·호출 계약·게이트·좌표 단위·명령별 실측 계약·폴백 조건·PDF). SKILL.md 정본 형식 원칙·의사결정 트리·도구 표 엔진 열·Tier 표·완료 보고 문장, CLAUDE.md rhwp 함정 절, README 축약, evals 기대 답 갱신.
+- fix 웨이브(codex 횡단 리뷰 block 9건): 판정 계층을 바꿨다. rhwp 편집 산출물은 census+허용 콜백(`is_text_run_key`, 제거) 대신 `gate(allow_rhwp=True, edits=[...])`로 `section*.xml`을 순서 보존 토큰열로 위치별 대조한다. 대상(`CellEdit`·`FieldEdit`·`ImageInsert`)은 원본 XML과 요청값으로 정하고 칸 안쪽·누름틀 값 자리·삽입 그림만 가린다(codex 적대적 설계 리뷰 반영: 문단 census는 서식 맞바꿈을, 문단 단위 허용은 누름틀 앞뒤 글자 이동을 못 막는다). 허용 목록에 `fieldBegin zorder="-1"` 소실(실측) 추가, paraPr 사용 판정은 XML 속성 파싱.
+  - `rhwp_cli.run`: `verify(staged, envelope)`로 봉투 사후조건을 게시 전에 검사, 어떤 verify 예외·봉투 계약 오류든 산출물을 `<stem>.rejected-<시각>`으로 보존. rhwp 기본 출력(입구 변환물·`_편집`·`--to-hwp`·`_서명`)은 있으면 덮지 않는다. `--to-md`는 `engine=hwpx-tomd`, 명시 폴백은 `reason=사용자 지정`, 서명은 `engine=rhwp status=`.
+  - `cross_check`가 chart·ole·equation 수와 `Chart/` 파트 내용 해시를 대조하고 HWP 입구와 `--to-hwp`가 함께 쓴다(`_embedded_counts` 제거). `--check-env` Tier 2·4 머리줄, `rhwp_pdf.py`·`hwpx_sign.py` docstring을 문서와 맞췄다.
+  - 서명: run 중간 앵커는 함초롬바탕·자간 0·보통 굵기일 때만 measured(`measure-width --font`는 모르는 글꼴도 대체 폭을 낸다, 실측). 새 게이트가 `float_over_anchor`의 빈 run `<hp:t/>` 무조건 복원을 잡아 원본 모양대로 고쳤다.
+  - 시험: 가짜 rhwp가 실제로 바꾼 산출물을 내고 대상 밖 공백화·문단 삭제·secPr 소실·다른 칸·다른 글꼴을 거부. 누름틀 익명 표본 `tests/fixtures/sample-fields.hwpx`로 실호출 통합 시험(`이름[k]`는 0부터, 실측). 단위·통합 168건.
 
 ## 2026-10-26
 

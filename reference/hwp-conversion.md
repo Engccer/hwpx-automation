@@ -10,7 +10,7 @@
 |---|---|
 | 검증·대조 통과 | `engine=rhwp status=passed` |
 | JDK 없음, JAR 변환 실패, hwpx-tomd·hwpx-validate 없음 | 산출물은 놓이고 `status=unverified` |
-| rhwp exit 1·3·4, `hwpx-validate` 실패, 대조 불일치 | exit 1. 산출물은 `<이름>.rejected.hwpx`로 남고 stderr에 JAR 폴백 명령 |
+| rhwp exit 1·3·4, `hwpx-validate` 실패, 대조 불일치 | exit 1. 산출물은 `<이름>.rejected-<시각>.hwpx`로 남고 stderr에 JAR 폴백 명령 |
 
 다른 모듈(예: `hwpx_sign.py`)은 `from hwpx_edit import hwp_to_hwpx`로 같은 입구를 쓴다. 돌려주는 값은 `ConvertResult(path, engine, status, messages)`이고 실패는 `RuntimeError`다.
 

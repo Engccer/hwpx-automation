@@ -2,7 +2,7 @@
 
 동의서·계약서·서약서 등의 서명란("(서명)" 같은 기준 텍스트)에 자필 서명/도장 이미지를 넣는 작업. 기본 백엔드는 **rhwp**이고 macOS·Linux·Windows 어디서나 돈다(rhwp CLI v0.8.7 이상). 한컴 COM 경로는 `--backend com`으로 고를 때만 쓴다(Windows + 한컴오피스).
 
-결과물은 기본 입력 옆 `<입력>_서명.hwpx`다(`-o`로 다른 `.hwpx` 지정 가능). `.hwp`를 넣으면 입구에서 `hwpx_edit.hwp_to_hwpx`로 HWPX로 바꾼 뒤 작업한다. 출력 끝줄은 `engine=rhwp` 또는 `engine=com (사용자 지정 --backend com)`이며, 완료 보고에 그대로 적는다.
+결과물은 기본 입력 옆 `<입력>_서명.hwpx`다(이미 있으면 덮지 않고 exit 1, `-o`로 다른 `.hwpx` 지정 가능). `.hwp`를 넣으면 입구에서 `hwpx_edit.hwp_to_hwpx`로 HWPX로 바꾼 뒤 작업한다. 출력 끝줄은 `engine=rhwp status=<passed|unverified>` 또는 `engine=com reason=사용자 지정`이며, 완료 보고에 그대로 적는다.
 
 ```bash
 # 기본: "(서명)" 글자 위에 겹쳐 찍기(rhwp, 모든 OS)
@@ -23,7 +23,7 @@ python hwpx_sign.py 동의서.hwpx --image 서명.png --gap-mm 7 --pdf
 ## rhwp 경로가 하는 일
 
 1. `rhwp search`로 앵커의 쪽·문단·글자 위치를 찾는다. **0건이나 2건 이상이면 멈춘다**(2건 이상은 `--occurrence`로 고른다). 표 안 앵커는 아직 지원하지 않아 `--backend com`을 안내한다.
-2. `rhwp export-render-tree`에서 같은 문단의 본문 글자 묶음(TextRun) 상자를 읽어 앵커 글자의 화면 상자를 구한다. 앵커가 묶음 중간이면 `rhwp measure-width`로 앞부분 폭을 재고 WARN을 낸다. 폭을 재지 못하면 글자 수 비례로 추정하는데, 이때는 `--allow-estimated` 없이는 넣지 않는다.
+2. `rhwp export-render-tree`에서 같은 문단의 본문 글자 묶음(TextRun) 상자를 읽어 앵커 글자의 화면 상자를 구한다. 앵커가 묶음 중간이면 `rhwp measure-width`로 앞부분 폭을 재고 WARN을 낸다. 그 묶음이 함초롬바탕(장평 고르게, 자간 0, 보통 굵기)이 아니거나 판정하지 못하거나 폭을 재지 못하면 글자 수 비례로 추정하는데(estimated), 이때는 `--allow-estimated` 없이는 넣지 않는다.
 3. 기본 배치는 **앵커 상자 중심에 서명 중심을 겹친다**(한국 결재 관행: "(서명)"·"(인)" 표시를 지우지 않고 그 위에 찍는다. 글자와 서명이 포개져 보이는 것이 정상이며 결함이 아니다. 겹침을 보고 "고칠까요"라고 되묻지 않는다). 세로는 앵커 줄의 중앙이다.
 4. `rhwp edit insert-image`로 넣은 뒤, 그림을 **앵커 문단 맨 앞**으로 옮기고 글 앞으로(`IN_FRONT_OF_TEXT`, 겹침 허용) 놓는다. rhwp는 그림을 그 쪽 첫 문단에 어울림으로 붙이는데, 첫 문단이 빈 문단이면 rhwp 조판이 그 줄을 접어 아래 줄이 모두 올라가 서명이 앵커에서 벗어나고, 어울림은 한컴에서 앵커 줄 글자를 그림 밖으로 밀어낸다.
 5. 산출물은 `hwpx_gate`(rhwp 허용 목록 포함)를 통과하고, **앵커를 다시 재서 넣기 전과 같은 자리(0.5px 이내)일 때만** 결과물이 된다. 실패하면 산출물을 `_work-hwpx-automation/`에 남기고 `--backend com`을 안내한다. 조용히 COM으로 넘어가지 않는다.

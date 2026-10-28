@@ -42,7 +42,7 @@ skill-audit 6·8단계 전후 시험용. 시험자에게는 "시나리오" 절�
 ### T2 (8)
 1. 변환: `python hwpx_edit.py "D:\업무\2026 신청서.hwp" --from-hwp`(또는 `.hwp`를 편집 명령에 바로 준다). Python 진입이라 Git Bash에서도 된다. 래퍼 `.bat`를 Git Bash에서 직접 부르지 않는다.
 2. 출력 끝줄 `engine=rhwp status=<passed|unverified>`를 완료 보고에 옮긴다. `unverified`를 "검증됨"이라 하지 않는다.
-3. rhwp 실패(exit 1)면 `.rejected.hwpx`가 남고 stderr의 JAR 폴백(`--engine jar`)을 따른다. 폴백으로 전환했으면 완료 보고에 엔진과 사유를 쓴다. 조용히 다른 도구로 넘어가지 않는다.
+3. rhwp 실패(exit 1)면 `.rejected-<시각>.hwpx`가 남고 stderr의 JAR 폴백(`--engine jar`)을 따른다. 폴백으로 전환했으면 완료 보고에 엔진과 사유를 쓴다. 조용히 다른 도구로 넘어가지 않는다.
 4. PrvText 누락은 JAR 변환물의 알려진 무해 결함으로 판단하고, 정본·배포·검증 대상이면 `--add-preview`로 보정한다(`--engine jar`는 보정을 포함한다. 수동 `touch Preview/PrvText.txt`·XML 직접 편집+`hwpx-pack` 우회는 낡은 조치).
 5. 래퍼를 Git Bash에서 굳이 부른다면 PowerShell을 거치거나 ASCII 임시 경로 복사 뒤 `java -cp`를 직접 부르고, 실제 JAR 이름 `hwp2hwpx-1.0.0-edc0527p1.jar`(또는 와일드카드)를 쓴다. 언급이 없으면 0, `hwp2hwpx-1.0.0.jar`를 쓰면 오답.
 6. 세 칸: `--set-cell`을 원본에 반복 호출하면 마지막만 남는다 → 두 번째부터 앞 결과를 입력으로 쓰거나 스크립트 한 번으로 채운다.
@@ -61,7 +61,7 @@ skill-audit 6·8단계 전후 시험용. 시험자에게는 "시나리오" 절�
 2. 명령: `python hwpx_sign.py 동의서.hwpx --image 서명.png --anchor "(서명)" --pdf`. 겹쳐 찍기가 rhwp 경로의 기본이라 `--keep-anchor`가 필요 없다(붙여도 무해).
 3. 선행 공백 50칸은 사전 신호 → 삽입 전에 `hwpx_edit.py`로 공백을 줄여 이름을 왼쪽으로 당긴다(선제 적용).
 4. `--pdf`로 검증 PDF를 만들고 서명 구역을 확대해 렌더 이미지를 육안 확인한다(텍스트 추출로 판단하지 않는다). 맥 PDF는 rhwp 조판이라 한컴과 다를 수 있음을 안다.
-5. 결과 HWPX 기본 위치는 입력 옆 `동의서_서명.hwpx`(`_work-hwpx-automation/` 아님). 완료 보고에 출력 끝줄의 `engine=rhwp`를 적는다.
+5. 결과 HWPX 기본 위치는 입력 옆 `동의서_서명.hwpx`(`_work-hwpx-automation/` 아님). 완료 보고에 출력 끝줄의 `engine=rhwp status=<passed|unverified>`를 적는다.
 6. 게이트 실패면 산출물이 `_work-hwpx-automation/`에 남고, 표 안 앵커는 삽입 전에 멈춘다. 그때만 Windows에서 `--backend com`(SSH면 `schtasks /IT`)으로 넣는다. 조용히 다른 엔진으로 넘어가지 않는다.
 7. "허용된 손실(rhwp 재직렬화)" 줄을 실패로 오해하지 않고, 완료 보고에 그 줄을 그대로 옮긴다.
 8. 겹침을 결함으로 보고 "고칠까요"라고 되묻지 않는다.

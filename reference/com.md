@@ -67,7 +67,7 @@ python hwpx_com.py doc.hwpx --to-pdf [-o out.pdf] [--password "암호"]
 # pywin32, 보안 모듈 레지스트리, HWPFrame.HwpObject 생성 가능 여부 확인
 python hwpx_edit.py --diagnose-com
 
-# 한컴 PDF는 --pdf-backend com을 명시한다(빼면 rhwp로 렌더링한다. 마지막 줄 engine=com 확인)
+# 한컴 PDF는 --pdf-backend com을 명시한다(빼면 rhwp로 렌더링한다. 마지막 줄 engine=com reason=사용자 지정 확인)
 # 기본 출력: 원본 폴더의 _work-hwpx-automation/<파일명>.pdf (원본 비파괴)
 # PDF가 최종 결과물이면 작업 폴더로 옮기거나 -o로 작업 폴더를 직접 지정
 python hwpx_edit.py <파일.hwpx> --to-pdf --pdf-backend com
