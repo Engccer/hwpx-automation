@@ -1,6 +1,6 @@
 # rhwp 재설계 M2~M7 병렬 세션 계획
 
-> 1차 웨이브 종료(2026-10-28 08:35): edit M2 718bc46 · M4 d018158 · M5 98623cc, sign M3 038b798, 코디네이터 M6 9b7e7d7. 단위·통합 140건 통과. 2차 웨이브 docs(M7 + doc-audit) 착수. 남은 위원장 판정: 없음(한컴 2024 실사용 확인은 위원장 몫).
+> 전 웨이브 종료(2026-10-28 12:40): edit M2 718bc46 · M4 d018158 · M5 98623cc, sign M3 038b798, 코디네이터 M6 9b7e7d7, docs M7 29baf69 + doc-audit bd1ae68, fix(횡단 리뷰 block 해소) 0b4d47e. 단위·통합 189건 통과. 남은 위원장 판정: 없음. 위원장 실사용 확인(한컴 2024) 대기는 PROGRESS.md.
 
 기준 플랜: `docs/plans/2026-10-28-rhwp-redesign.md`. M1은 cc08c7e로 끝났다. 코디네이터는 이 문서를 쓴 세션이며 코드를 만지지 않는다.
 
@@ -129,6 +129,9 @@ git push origin feat/<name>:master && git -C ~/Mac-Projects/hwpx-automation pull
 - M5 통합(98623cc, 세션 edit): 단위 140건. `--tables`·`--grid-set-cell`·`--fields`·`--fill-fields`·`--to-hwp`. 허용된 손실 줄은 stdout 둘째 줄로 사용자에게 보인다(시험 고정). edit 창 닫음(08:35).
 - 08:55 codex 횡단 리뷰(ee8510e..98623cc, `~/hwpx-automation-wt/coordinator-reports/review-cross-wave1.md`): **block**. high 5(편집 게이트가 allow 콜백·텍스트 대조 생략으로 대상 밖 문단·텍스트 손실을 통과, paraPr 참조 정규식, cross_check의 chart·ole·equation 공백, 봉투 사후조건 전 게시)·medium 4(예외 시 산출물 미보존, 고정 이름 덮어쓰기, engine 줄 불완전, 다른 글꼴 measured). 1·2·3·5번은 코디네이터가 코드로 재확인. 3차 웨이브 `fix` 세션 착수(base 128efce, docs와 병행). 계층 판정(편집 게이트 (a)기대 차분/(b)위치별 대조/(c)둘 다, 강한 디폴트 (b))은 fix가 codex 설계 리뷰 1회로 가른다. 출력 경로 정책(기본 경로 기존 파일 덮지 않음, -o는 덮어씀, .rejected 타임스탬프)·engine 줄 통일·estimated 분류 확대는 코디네이터 결정.
 - M7 통합(29baf69 + AGENTS.md fdbb05f, 세션 docs): SKILL.md 트리·Tier·행동 문장, reference/rhwp.md 신설, CLAUDE.md 함정 절, BACKLOG 재편. code-issues 4건(표기)은 fix에 전달. docs는 이어서 doc-audit.
+- doc-audit 완료(9c6ce25·bd1ae68, 세션 docs): 린트 신호 0, 감사 22건 중 21건 반영·1건 기각(version 유지). docs 창 닫음(10:15). fix 통합 때 닫을 자리: BACKLOG "codex 횡단 리뷰 block 수정"·cross_check 항목·착수 표 행, PROGRESS block 한 줄, code-issues 5건, "--check-env 머리줄" 항목.
+- 12:05 판정(fix judgment-202610281158): 위치별 대조가 한컴 저장 실문서 12건을 전부 거부해(run·t 경계 재분할, \r\n→\n, pic 자식 순서, fieldBegin zorder·빈 metaTag, textDir LTR·AUTO 소실, content.hpf 순서) 포장 차이 정규화를 승인. 조건: 정규화 건수도 허용 줄에 보고, 항목별 실패 반례 시험, 거부된 2건(thumbnailBinIDRef 소실·필드 끝 이동)은 rhwp 한계로 문서·감시 항목.
+- fix 통합(0b4d47e, 세션 fix): 편집 게이트를 위치별 토큰 대조로, 어댑터 게시 전 봉투 검사·모든 예외에서 .rejected-<시각> 보존, 기본 출력 비덮어쓰기·변환물 해시 재사용, engine 줄 통일, estimated 조건 확대, cross_check 공용화. 한컴 실문서 12건 중 10건 통과·2건 거부(rhwp 한계로 감시). fable 최종 검토·opus 2차 리뷰 통과. fix 창 닫음(12:40). AGENTS.md는 코디네이터가 재생성.
 
 ## M7 인계 목록 (edit·sign 보고에서 모음, docs 세션이 처리)
 

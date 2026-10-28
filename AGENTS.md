@@ -16,7 +16,7 @@ hwpx-automation/
 ├── hwpx_com.py           # 한컴 COM 네이티브 파이프라인 CLI (pyhwpx, Windows 전용)
 ├── hwpx_sign.py          # 서명란에 서명/도장 이미지 삽입 (기본 rhwp 모든 OS, --backend com은 COM 삽입 + XML floating 후처리)
 ├── rhwp_cli.py           # rhwp 호출의 유일한 입구 (탐색·버전·JSON 봉투·exit code·임시 폴더→검증→교체)
-├── hwpx_gate.py          # rhwp 산출물 독립 손실 게이트 (요소 census·BinData 해시·글자 대조·hwpx-validate)
+├── hwpx_gate.py          # rhwp 산출물 독립 손실 게이트 (요소 census·편집 대상 밖 위치별 대조·BinData 해시·글자 대조·hwpx-validate)
 ├── rhwp_pdf.py           # --to-pdf 기본 백엔드, 모든 OS (rhwp_cli 위에서 빈 네모 문자 검출)
 ├── pdf_export.py         # Windows 한컴 PDF 공통 (--pdf-backend com·hwpx_com.py --to-pdf, 변경 추적 경고 자동 응답)
 ├── test_*.py             # 단위 시험 (가짜 rhwp 기반. 문서가 약속한 동작: test_doc_promises), RHWP_INTEGRATION=1이면 test_rhwp_integration이 실제 rhwp로 돈다
@@ -97,8 +97,8 @@ python hwpx_com.py <파일.hwpx> --to-pdf                     # PDF 저장
 동의서·계약서 등의 서명란(기준 텍스트 `(서명)`·`(인)`)에 자필 서명/도장 이미지를
 삽입한다. 기본 백엔드는 rhwp(모든 OS): `search`로 앵커를 찾고 `export-render-tree`의
 글자 상자 중심에 겹쳐 `edit insert-image`로 넣은 뒤, 그림을 앵커 문단 맨 앞·글 앞으로
-옮기고 `hwpx_gate.gate(allow_rhwp=True)`와 앵커 재측정을 통과해야 결과물로 둔다.
-결과는 기본 입력 옆 `<입력>_서명.hwpx`(`-o`로 다른 `.hwpx` 지정 가능), 출력 끝줄은 `engine=`. 단위 상수(`MM`·`PX`)는 이 파일에 있다.
+옮기고 `hwpx_gate.gate(allow_rhwp=True, edits=[ImageInsert(...)])`(앵커 문단에 그림 하나만 더해졌는지)와 앵커 재측정을 통과해야 결과물로 둔다.
+결과는 기본 입력 옆 `<입력>_서명.hwpx`(이미 있으면 덮지 않고 중단, `-o`로 다른 `.hwpx` 지정 가능), 출력 끝줄은 `engine=rhwp status=…` 또는 `engine=com reason=사용자 지정`. 단위 상수(`MM`·`PX`)는 이 파일에 있다.
 
 `--backend com`(Windows + 한컴오피스)은 COM으로 BinData만 확보한 뒤 XML 후처리로
 floating PAPER 절대좌표 전환·앵커 위 문단 이동·lineseg 제거를 수행한다. 좌표는
@@ -162,17 +162,15 @@ bash convert/hwp2hwpx.sh input.hwp [output.hwpx]    # macOS/Linux
 - 편집 기능은 반드시 `save_hwpx()` 함수를 통해 저장 (sanitize 자동 적용). 저장 경로에 조건을 걸지 않는다
 - HWPX를 쓰는 새 경로는 `zipfile.ZipFile(..., 'w')`를 직접 쓰지 말고 `write_hwpx_zip()`을, XML 직렬화는 `serialize_xml()`을 쓴다. HWPX를 읽는 새 경로는 `zipfile`로 읽은 직후 `sanitize_xml_parts()`를 태운다(`reference/warnings-editing.md` 15·18번)
 - 구조적 편집(raw XML) 후에는 `lineseg` 수동 제거 필수
-- rhwp는 `rhwp_cli.run()`으로만 부른다(명령 문자열 직접 조립 금지). 산출 파일 자리는 `rhwp_cli.OUTPUT` 자리표로 적고, 게시 전 검증은 `verify=` 콜백으로 끼운다. 봉투 필드명은 `output`·`format`·`pageCount`·`verify`(실측 v0.8.7)
-- `hwpx_edit.py`의 변환·편집·PDF 명령과 `hwpx_sign.py`는 stdout 마지막 줄에 `engine=<rhwp|jar|com|lxml>`을 찍는다(`hwpx_edit.py`의 변환·rhwp 편집·`--to-hwp`는 `status=`까지). 폴백은 자동 전환하지 않고 stderr에 명령을 안내한다
+- rhwp는 `rhwp_cli.run()`으로만 부른다(명령 문자열 직접 조립 금지). 산출 파일 자리는 `rhwp_cli.OUTPUT` 자리표로 적고, 게시 전 검증은 `verify=` 콜백(`verify(staged, envelope)`, 봉투 사후조건도 여기서)으로 끼운다. verify가 어떤 예외를 내든 어댑터가 산출물을 `<stem>.rejected-<시각>`으로 남긴다. 봉투 필드명은 `output`·`format`·`pageCount`·`verify`(실측 v0.8.7)
+- `hwpx_edit.py`의 변환·편집·PDF 명령과 `hwpx_sign.py`는 stdout 마지막 줄에 `engine=<rhwp|jar|com|lxml|hwpx-tomd>`를 찍는다(rhwp 산출물은 `status=`까지, 사용자가 고른 폴백은 `reason=사용자 지정`). 폴백은 자동 전환하지 않고 stderr에 명령을 안내한다
 - 정본 형식은 HWPX다. `.hwp`는 입구에서 변환하고 결과물은 HWPX로 저장한다. `.hwp`를 `.hwp`로 저장하는 편집 경로는 만들지 않는다(역방향은 배포용 `--to-hwp` 하나)
 
 ## 함정 (rhwp)
 
-- **전체 재직렬화**: rhwp가 쓴 HWPX는 문서 전체를 다시 쓴 것이라 원본에 없던 차이가 생긴다(문단 id 재부여, `shadow type="NONE"` 소실, 본문이 안 쓰는 paraPr의 개요 8~10단계 `hp:switch` 접힘은 허용 목록, 그 밖은 실패). 산출물은 `hwpx_gate.gate(allow_rhwp=True)`를 통과한 뒤에만 결과물로 삼고, 허용 목록을 넓히려면 실측 표본을 먼저 남긴다. 원본 XML이 없는 HWP 변환은 JAR 변환물과 `cross_check()`로 대조한다
+- **전체 재직렬화**: rhwp가 쓴 HWPX는 문서 전체를 다시 쓴 것이라 원본에 없던 차이가 생긴다(문단 id 재부여, `shadow type="NONE"` 소실, paraPr `textDir` LTR·AUTO 소실, 본문이 안 쓰는 paraPr의 개요 8~10단계 `hp:switch` 접힘은 허용 목록이고, run·`<hp:t>` 경계 재분할·빈 run·빈 t·`\r\n`·그림 안 자식 순서·필드 `zorder`·`content.hpf` 항목 순서와 `hashkey`는 비교에서 정규화한다. 그 밖은 실패). 산출물은 `hwpx_gate.gate(allow_rhwp=True, edits=[...])`를 통과한 뒤에만 결과물로 삼고, 허용 목록·정규화를 넓히려면 한컴 저장 실문서로 실측을 먼저 한다(rhwp가 저장한 표본은 재직렬화 차이가 0이라 판정 근거가 못 된다). 원본 XML이 없는 HWP 변환은 JAR 변환물과 `cross_check()`로 대조한다
 - **자가 검증 한계**: rhwp `--verify`·`hwpx-roundtrip`은 자기 내부 구조 밖의 손실을 못 본다(차이 0으로 PASS인데 header.xml 요소가 줄어 있다). rhwp 산출물의 판정은 늘 `hwpx_gate`로 한다
-- **`cross_check`는 차트·OLE·수식을 세지 않는다**: `--to-hwp`는 `_embedded_counts()`로 따로 세지만 HWP→HWPX 변환 대조에는 이 빈틈이 있다
 - **좌표 체계 분리**: `--set-cell`(lxml)은 물리 `hp:tc` 인덱스, `--grid-*`(rhwp)는 병합 반영 격자 좌표다. 한 명령에 섞지 않고, rhwp 격자 명령은 `--grid-` 접두로만 추가한다. 서명 좌표는 HWPUNIT(1/7200인치)이고 render-tree px × 75, 1mm = 283.46(`hwpx_sign.MM`·`PX`)
 - **중첩 표**: rhwp `edit set-cell`은 중첩 표·일부 병합 칸을 거부한다. 메시지를 그대로 전하고 `--set-cell`을 안내한다
-- **python-hwpx 산출물에 rhwp 편집 금지**: python-hwpx로 갓 만든 HWPX에 `--grid-set-cell`·`--fill-fields`·서명 삽입을 하면 본문이 쓰는 paraPr 속성이 사라져 게이트가 거부한다(맞는 판정). 그 문서는 `--set-cell`(lxml)로 채운다
 - **표본 lineseg**: python-hwpx로 만든 HWPX를 rhwp `convert`로 바꾼 HWP는 lineseg가 없어 `export-hwpx --verify`가 exit 3이다. 시험 표본은 한 번 더 왕복해 만든다(왕복한 HWP는 차이 0)
 - **`--json`이 없는 명령**: `export-render-tree`·`measure-width`는 `--json`을 주면 exit 2다. `rhwp_cli.run(expect_json=False)`로 부른다. 그 밖의 명령별 계약은 `reference/rhwp.md`
