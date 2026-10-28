@@ -157,7 +157,7 @@ bash convert/hwp2hwpx.sh input.hwp [output.hwpx]    # macOS/Linux
 - HWPX를 쓰는 새 경로는 `zipfile.ZipFile(..., 'w')`를 직접 쓰지 말고 `write_hwpx_zip()`을, XML 직렬화는 `serialize_xml()`을 쓴다. HWPX를 읽는 새 경로는 `zipfile`로 읽은 직후 `sanitize_xml_parts()`를 태운다(`reference/warnings-editing.md` 15·18번)
 - 구조적 편집(raw XML) 후에는 `lineseg` 수동 제거 필수
 - rhwp는 `rhwp_cli.run()`으로만 부른다(명령 문자열 직접 조립 금지). 산출 파일 자리는 `rhwp_cli.OUTPUT` 자리표로 적고, 게시 전 검증은 `verify=` 콜백으로 끼운다. 봉투 필드명은 `output`·`format`·`pageCount`·`verify`(실측 v0.8.7)
-- 산출물을 내는 명령은 stdout 마지막 줄에 `engine=<rhwp|jar|com|lxml>`을 찍는다(변환·rhwp 편집은 `status=`까지). 폴백은 자동 전환하지 않고 stderr에 명령을 안내한다
+- `hwpx_edit.py`의 변환·편집·PDF 명령과 `hwpx_sign.py`는 stdout 마지막 줄에 `engine=<rhwp|jar|com|lxml>`을 찍는다(`hwpx_edit.py`의 변환·rhwp 편집·`--to-hwp`는 `status=`까지). 폴백은 자동 전환하지 않고 stderr에 명령을 안내한다
 - 정본 형식은 HWPX다. `.hwp`는 입구에서 변환하고 결과물은 HWPX로 저장한다. `.hwp`를 `.hwp`로 저장하는 편집 경로는 만들지 않는다(역방향은 배포용 `--to-hwp` 하나)
 
 ## 함정 (rhwp)

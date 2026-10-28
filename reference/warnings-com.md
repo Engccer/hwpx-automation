@@ -2,7 +2,7 @@
 
 1. **HWPX 이미지 삽입은 XML 직접 편집 불가**: `<hp:pic>` 요소를 XML로 직접 구성하면 `hc:` 네임스페이스 참조 불일치로 **문서 손상** (한글에서 "손상된 파일" 오류). XSD 검증을 통과해도 한글이 열 때 실패함. 반드시 **한컴 COM `hwp.InsertPicture()`로 삽입** → XML 후처리로 위치/배치 조정
 2. **양식 채우기 + 이미지 삽입 워크플로우**: (1) hwpx_edit.py로 셀 채우기 (2) XML 직접 편집으로 날짜/텍스트 수정 (3) COM으로 이미지 삽입 → HWPX 저장 (4) XML 후처리로 이미지 위치 조정 (5) COM으로 PDF 저장. 3~5단계를 **별도 Python 스크립트**로 분리 (COM segfault 방지)
-3. **HWPX→PDF 변환**: `simple-hwp2pdf`는 실제로 MS Word COM 기반이라 HWPX 미지원. 한컴오피스 COM `hwp.SaveAs(path, 'PDF', '')`가 가장 확실
+3. **HWPX→PDF 변환**: `simple-hwp2pdf`는 실제로 MS Word COM 기반이라 HWPX 미지원. COM으로 PDF를 낼 때는 `hwp.SaveAs(path, 'PDF', '')`를 쓴다(기본 PDF는 rhwp, `reference/rhwp.md`)
 4. **COM은 Pandoc 생성 HWPX 본문을 인식하지 못함**: `hwpx_convert.py`(Pandoc)로 생성한 HWPX를 COM으로 열면 **본문 내용이 0자**로 읽힘. 같은 파일에 저장하면 빈 문서로 덮어씌워 내용 전체 소실. 그래서 Pandoc 생성물은 COM으로 처리하지 않는다(`--get-text` 점검만 예외, `reference/com.md` "두 파이프라인 분리 원칙"). `Visible=False`와 무관하며 사용자 개입과도 무관한 근본적 호환성 문제임.
    - **머리글(헤더) 편집 불가**: COM이 Pandoc HWPX의 secPr/header 구조를 인식 못해 `InsertHeaderFooter` 액션이 빈 머리글만 생성
    - **같은 파일에 SaveAs 금지**: COM이 Pandoc 내용을 덮어쓴다. 별도 파일에 저장했을 때 내용이 남은 관찰은 사례 문서에 있다(도구 경로로는 검증되지 않음)

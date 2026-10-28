@@ -1,7 +1,7 @@
 # 한컴 COM 자동화 (Windows 전용, 한컴오피스 필수)
 
 한컴오피스가 설치된 Windows 환경에서 `HWPFrame.HwpObject` COM을 통해 HWPX를 조작할 수 있다.
-XML 직접 편집으로 불가능한 작업(이미지 삽입, PDF 변환)과 COM 네이티브 문서 생성에 사용. 함정 목록은 `reference/warnings-com.md`.
+한컴과 같은 조판의 PDF, 한컴 재저장 정규화, 암호 해제, COM 네이티브 문서 생성처럼 한컴이 필요한 작업과 명시 폴백(`--pdf-backend com`·`hwpx_sign.py --backend com`)에 사용. 기본 PDF·서명은 rhwp(`reference/rhwp.md`). 함정 목록은 `reference/warnings-com.md`.
 
 ## 목차
 

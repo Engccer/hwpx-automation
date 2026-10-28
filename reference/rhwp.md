@@ -30,7 +30,7 @@ rhwp는 `rhwp_cli.run()`으로만 부른다. 명령 문자열을 직접 조립�
 
 rhwp 원시 exit code는 `RhwpResult.exit_code`에 그대로 남고 래퍼 오류와 섞이지 않는다.
 
-명령별 필수 봉투 필드(v0.8.7 실측): `export-hwpx`·`convert`는 `output, format, verify`, `export-pdf`는 `output, format, pageCount`, `edit set-cell`은 `oldText, newText, output`, `edit fill-fields`는 `filledCount, notFound, ambiguous`(쓰기는 `output` 추가), `export-tables`는 `tables`, `fields`는 `fields`, `edit insert-image`는 `output, page, overflow`.
+명령별 필수 봉투 필드(v0.8.7 실측): `export-hwpx`·`convert`는 `output, format, verify`, `export-pdf`는 `output, format, pageCount`, `edit set-cell`은 `oldText, newText, output`, `edit fill-fields`는 `filledCount, notFound, ambiguous`(쓰기는 `output` 추가), `export-tables`는 `tables`, `fields`는 `fields`, `edit insert-image`는 `output, page, overflow`, `search`는 `matches, totalMatchCount`, `export-svg`는 `pages`.
 
 ## 독립 손실 게이트 (`hwpx_gate.py`)
 
