@@ -2,16 +2,19 @@
 """hwpx_sign.py: HWPX 문서 서명란에 서명/도장 이미지를 삽입한다.
 
 백엔드 두 개. 기본은 모든 OS에서 rhwp, 한컴 COM은 ``--backend com``으로 고를 때만.
-결과물은 항상 ``<입력>_서명.hwpx``이고 ``.hwp`` 입력은 입구에서 HWPX로 변환한다.
+결과물은 ``-o``가 없으면 ``<입력>_서명.hwpx``(이미 있으면 덮지 않고 중단)이고 ``.hwp`` 입력은
+입구에서 HWPX로 변환한다.
 
 rhwp 경로 (``rhwp_sign``):
   1) ``rhwp search``로 앵커의 쪽·문단·글자 위치를 찾는다(0건·2건 이상은 중단,
      ``--occurrence``로 지정). 표 안 앵커는 COM 경로로 안내한다.
   2) ``rhwp export-render-tree``에서 같은 문단의 본문 TextRun 상자(px)를 읽는다.
-     앵커가 run 중간이면 ``rhwp measure-width``로 앞부분 폭을 재고, 못 재면 글자 수
-     비례 추정(``--allow-estimated`` 없으면 중단).
+     앵커가 run 중간이면 ``rhwp measure-width``로 앞부분 폭을 잰다(measured). 그 글자
+     묶음이 rhwp 기본 글꼴(함초롬바탕, 장평 고르게, 자간 0, 보통 굵기)이 아니거나 판정하지
+     못하면, 또는 폭을 못 재면 글자 수 비례 추정(estimated, ``--allow-estimated`` 없으면 중단).
   3) 앵커 상자 중심에 겹쳐 찍는 좌표를 HWPUNIT으로 계산해 ``rhwp edit insert-image``.
-  4) 산출물은 ``hwpx_gate``(rhwp 허용 목록 포함)를 통과해야 결과물이 된다.
+  4) 산출물은 ``hwpx_gate``(rhwp 허용 목록 + 앵커 문단에 그림 하나만 더해졌는지 위치별
+     대조)를 통과해야 결과물이 된다. 거부 산출물은 ``_work-hwpx-automation/``에 시각을 붙여 남는다.
 
 COM 경로 (단순 InsertPicture로 안 되는 이유):
   1) 한컴 COM ``InsertPicture``는 그림을 floating(textWrap=TOP_AND_BOTTOM) +
@@ -194,8 +197,56 @@ def measure_widths(texts: list) -> list | None:
         return None
 
 
+MEASURE_FONT = "함초롬바탕"  # rhwp measure-width의 기본 글꼴. 이 글꼴일 때만 잰 폭을 믿는다
+HH = "{http://www.hancom.co.kr/hwpml/2011/head}"
+
+
+def default_font_spans(doc: str, section: int, paragraph: int, text: str, spans: list) -> bool:
+    """문단 글자열 text의 [시작, 끝) 구간들이 모두 measure-width가 재는 조건(함초롬바탕, 장평이
+    언어 사이에 같음, 자간 0, 굵게 아님)의 글자 묶음인지. 판정하지 못하면 False."""
+    import xml.etree.ElementTree as ET
+    try:
+        with zipfile.ZipFile(doc) as z:
+            head = ET.fromstring(z.read("Contents/header.xml"))
+            sec = ET.fromstring(z.read(f"Contents/section{section}.xml"))
+    except (OSError, KeyError, zipfile.BadZipFile, ET.ParseError):
+        return False
+    faces = {(ff.get("lang"), f.get("id")): f.get("face")
+             for ff in head.iter(HH + "fontface") for f in ff.iter(HH + "font")}
+    char_prs = {c.get("id"): c for c in head.iter(HH + "charPr")}
+    top = sec.findall(HP + "p")
+    if paragraph >= len(top):
+        return False
+    pieces, pos = [], 0
+    for run in top[paragraph].findall(HP + "run"):
+        t = "".join("".join(x.itertext()) for x in run.iter(HP + "t"))
+        pieces.append((pos, pos + len(t), run.get("charPrIDRef")))
+        pos += len(t)
+    if "".join("".join(x.itertext()) for r in top[paragraph].findall(HP + "run")
+               for x in r.iter(HP + "t")) != text:
+        return False  # 화면 글자열과 XML 글자열이 다르면 글자 묶음을 대응시킬 수 없다
+
+    def plain(cp_id):
+        cp = char_prs.get(cp_id)
+        if cp is None or cp.find(HH + "bold") is not None:
+            return False
+        ref, ratio, spacing = (cp.find(HH + t) for t in ("fontRef", "ratio", "spacing"))
+        if ref is None:
+            return False
+        langs = [k for k in ref.attrib]
+        if any(faces.get((lang.upper(), ref.get(lang))) != MEASURE_FONT for lang in langs):
+            return False
+        if ratio is not None and len({ratio.get(k) for k in langs}) != 1:
+            return False
+        return spacing is None or all(spacing.get(k, "0") == "0" for k in langs)
+
+    return all(plain(cp) for a, b in spans for s, e, cp in pieces if s < b and a < e)
+
+
 def anchor_box(runs: list, body: dict, page: int, anchor: str, char_offset: int,
-               rank: int, n_same: int) -> AnchorBox:
+               rank: int, n_same: int, font_ok=None) -> AnchorBox:
+    """font_ok: callable([(시작, 끝)]) -> bool. 잘리는 글자 묶음이 measure-width 조건의 글꼴인지.
+    없거나 False면 run 중간 앵커는 estimated."""
     text = "".join(r.get("text", "") for r in runs)
     if text[char_offset:char_offset + len(anchor)] == anchor:
         start = char_offset
@@ -223,7 +274,14 @@ def anchor_box(runs: list, body: dict, page: int, anchor: str, char_offset: int,
     inner = [(r, k) for r, k in cuts if 0 < k < len(r["text"])]
     method = "measured" if inner else "run"
     widths = {}
-    if inner:
+    starts, pos = {}, 0
+    for r in runs:
+        starts[id(r)] = pos
+        pos += len(r.get("text", ""))
+    cut_spans = [(starts[id(r)], starts[id(r)] + len(r["text"])) for r, _ in inner]
+    if inner and (font_ok is None or not font_ok(cut_spans)):
+        method = "estimated"
+    elif inner:
         texts = []
         for r, k in inner:
             texts += [r["text"][:k], r["text"]]
@@ -266,13 +324,31 @@ def locate(doc: str, anchor: str, occurrence: int | None) -> tuple:
     """(search 매치, 앵커 상자)."""
     m, rank, n_same = find_anchor(doc, anchor, occurrence)
     runs, body = render_runs(doc, m["page"], m["paragraph"])
-    return m, anchor_box(runs, body, m["page"], anchor, m["charOffset"], rank, n_same)
+    text = "".join(r.get("text", "") for r in runs)
+    return m, anchor_box(runs, body, m["page"], anchor, m["charOffset"], rank, n_same,
+                         font_ok=lambda spans: default_font_spans(doc, m["section"], m["paragraph"],
+                                                                  text, spans))
 
 
 HP = "{http://www.hancom.co.kr/hwpml/2011/paragraph}"
 
 
-def float_over_anchor(path: str, section: int, paragraph: int, x: int, y: int) -> None:
+def _run_had_text(original: str | None, name: str, p_index: int, r_index: int) -> bool:
+    """원본의 같은 최상위 문단·같은 순번 run에 <hp:t>가 있었는지(없거나 못 읽으면 True)."""
+    from lxml import etree
+    if original is None:
+        return True
+    try:
+        with zipfile.ZipFile(original) as z:
+            root = etree.fromstring(z.read(name))
+        run = root.findall(HP + "p")[p_index].findall(HP + "run")[r_index]
+    except (OSError, KeyError, IndexError, zipfile.BadZipFile, etree.XMLSyntaxError):
+        return True
+    return run.find(HP + "t") is not None
+
+
+def float_over_anchor(path: str, section: int, paragraph: int, x: int, y: int,
+                      original: str | None = None) -> None:
     """rhwp가 넣은 그림을 앵커 문단 맨 앞으로 옮기고 글 앞으로(겹침 허용)놓는다.
 
     rhwp insert-image는 그림을 그 쪽 첫 문단에 어울림(SQUARE)으로 붙인다. 첫 문단이
@@ -301,8 +377,12 @@ def float_over_anchor(path: str, section: int, paragraph: int, x: int, y: int) -
     left = pic.getparent()
     left.remove(pic)
     if left.tag == HP + "run" and len(left) == 0:
-        # rhwp는 빈 run의 <hp:t/>를 그림으로 바꿔 쓴다. 떼어 낸 자리를 원래 모양으로 되돌린다.
-        etree.SubElement(left, HP + "t")
+        # rhwp는 빈 run의 <hp:t/>를 그림으로 바꿔 쓴다. 떼어 낸 자리를 원본과 같은 모양으로 되돌린다
+        # (원본 run에 <hp:t/>가 없었으면 빈 run 그대로).
+        p = left.getparent()
+        top_level = p is not None and p.getparent() is root
+        if not top_level or _run_had_text(original, name, top.index(p), p.findall(HP + "run").index(left)):
+            etree.SubElement(left, HP + "t")
     run = top[paragraph].find(HP + "run")
     if run is None:
         raise SignError("앵커 문단에 글자 묶음(run)이 없습니다.")
@@ -323,8 +403,8 @@ def rhwp_sign(doc: str, img: str, out: str, *, anchor: str, occurrence: int | No
         print("[WARN] 앵커가 글자 묶음(run) 중간에 있어 rhwp measure-width로 앞부분 폭을 재서 "
               "가로 위치를 구했습니다. --pdf로 확인하세요.", file=sys.stderr)
     if box.method == "estimated":
-        msg = ("앵커가 글자 묶음(run) 중간인데 rhwp measure-width로 폭을 재지 못해 글자 수 "
-               "비례로 추정했습니다(estimated).")
+        msg = ("앵커가 글자 묶음(run) 중간인데 그 글꼴이 rhwp measure-width가 재는 조건(함초롬바탕, "
+               "자간 0, 보통 굵기)이 아니거나 폭을 재지 못해 글자 수 비례로 추정했습니다(estimated).")
         if not allow_estimated:
             raise SignError(msg + " 추정 좌표로 넣으려면 --allow-estimated를 붙이고 --pdf로 확인하세요.")
         print("[WARN] " + msg, file=sys.stderr)
@@ -332,42 +412,32 @@ def rhwp_sign(doc: str, img: str, out: str, *, anchor: str, occurrence: int | No
 
     gated = {}
 
-    class Rejected(SignError):
-        pass
-
-    def reject(staged, why):
-        keep = os.path.join(os.path.dirname(os.path.abspath(out)), BYPRODUCT_DIR,
-                            os.path.basename(out))
-        os.makedirs(os.path.dirname(keep), exist_ok=True)
-        shutil.copyfile(staged, keep)
-        raise Rejected(f"{why}\n  통과하지 못한 산출물: {keep}\n" + COM_HINT)
-
     def verify(staged):
         try:
             check(staged)
-        except Rejected:
-            raise
-        except (SignError, rhwp_cli.RhwpError) as e:
-            reject(staged, str(e))
+        except SignError as e:
+            raise rhwp_cli.RhwpVerifyError(str(e)) from e
 
     def check(staged):
-        float_over_anchor(staged, m["section"], m["paragraph"], x, y)
-        rep = hwpx_gate.gate(doc, staged, allow_rhwp=True, allow_bindata_added=1)
+        float_over_anchor(staged, m["section"], m["paragraph"], x, y, original=doc)
+        rep = hwpx_gate.gate(doc, staged, allow_rhwp=True, allow_bindata_added=1,
+                             edits=[hwpx_gate.ImageInsert(m["section"], m["paragraph"])])
         gated["report"] = rep
         if rep.status == "failed":
-            reject(staged, f"{rep.summary()}\n{hwpx_gate.describe_lost(rep)}")
+            raise SignError(f"{rep.summary()}\n{hwpx_gate.describe_lost(rep)}")
         # 서명을 넣은 뒤에도 앵커가 같은 자리에 그려지는지(조판이 밀리지 않았는지) 다시 잰다.
         _, after = locate(staged, anchor, occurrence)
         moved = max(abs(a - b) for a, b in ((box.x, after.x), (box.y, after.y),
                                             (box.w, after.w), (box.h, after.h)))
         if after.page != box.page or moved > 0.5:
-            reject(staged, f"서명을 넣은 뒤 앵커 자리가 바뀌었습니다({box.page + 1}쪽 → "
-                           f"{after.page + 1}쪽, 최대 {moved:.1f}px). 조판이 밀린 문서입니다.")
+            raise SignError(f"서명을 넣은 뒤 앵커 자리가 바뀌었습니다({box.page + 1}쪽 → "
+                            f"{after.page + 1}쪽, 최대 {moved:.1f}px). 조판이 밀린 문서입니다.")
 
     r = rhwp_cli.run(["edit", "insert-image", doc, "--image", img, "--page", str(m["page"]),
                       "--x", str(x), "--y", str(y), "--width", str(w_hu), "--height", str(h_hu),
                       "-o", rhwp_cli.OUTPUT],
-                     output=out, required_fields=("output", "page", "overflow"), verify=verify)
+                     output=out, required_fields=("output", "page", "overflow"), verify=verify,
+                     rejected_dir=os.path.join(os.path.dirname(os.path.abspath(out)), BYPRODUCT_DIR))
     return dict(page=m["page"], x=x, y=y, box=box, gate=gated["report"],
                 overflow=r.envelope["overflow"], warnings=r.warnings)
 
@@ -826,6 +896,10 @@ def main(argv=None) -> int:
     out = args.output or os.path.splitext(args.doc)[0] + "_서명.hwpx"
     if not out.lower().endswith(".hwpx"):
         print(f"[ERROR] 결과물은 HWPX로만 저장합니다: {out}", file=sys.stderr); return 1
+    if args.output is None and os.path.exists(out):
+        print(f"[ERROR] 기본 출력 경로에 이미 파일이 있어 덮지 않습니다: {out}\n"
+              "  -o로 경로를 지정하거나 기존 파일을 옮긴 뒤 다시 실행하세요.", file=sys.stderr)
+        return 1
 
     doc = args.doc
     try:
@@ -835,9 +909,10 @@ def main(argv=None) -> int:
                 print(f"     {line}")
             doc = conv.path
         if args.backend == "com":
-            rc, svg_check = com_sign(doc, out, args, h_mm), None
+            rc, svg_check, status = com_sign(doc, out, args, h_mm), None, None
         else:
-            rc, svg_check = 0, (doc, rhwp_main(doc, out, args, h_mm))
+            page, status = rhwp_main(doc, out, args, h_mm)
+            rc, svg_check = 0, (doc, page)
     except SignError as e:
         print(f"[ERROR] {e}", file=sys.stderr)
         return 1
@@ -850,14 +925,14 @@ def main(argv=None) -> int:
     if args.pdf:
         rc = make_pdf(out, svg_check, pdf_backend=args.backend)
     if args.backend == "com":
-        print("engine=com (사용자 지정 --backend com)")
+        print("engine=com reason=사용자 지정")
     else:
-        print("engine=rhwp")
+        print(f"engine=rhwp status={status}")
     return rc
 
 
 def rhwp_main(doc: str, out: str, args, h_mm: float) -> int:
-    """rhwp 경로를 돌리고 결과를 출력한다. 서명이 들어간 쪽(0부터)을 돌려준다."""
+    """rhwp 경로를 돌리고 결과를 출력한다. (서명이 들어간 쪽(0부터), 게이트 상태)를 돌려준다."""
     w_hu, h_hu = mm2hu(args.width_mm), mm2hu(h_mm)
     res = rhwp_sign(doc, args.image, out, anchor=args.anchor, occurrence=args.occurrence,
                     w_hu=w_hu, h_hu=h_hu, horz_offset=args.horz_offset,
@@ -875,7 +950,7 @@ def rhwp_main(doc: str, out: str, args, h_mm: float) -> int:
           f"w={box.w * PX:.0f} h={box.h * PX:.0f} ({box.method})")
     print("     " + res["gate"].summary().replace("\n", "\n     "))
     print("     위치가 어긋나면 --horz-offset / --vert-adjust 로 재실행하세요.")
-    return res["page"]
+    return res["page"], "passed" if res["gate"].passed else "unverified"
 
 
 def com_sign(doc: str, out: str, args, h_mm: float) -> int:

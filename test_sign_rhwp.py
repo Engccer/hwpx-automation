@@ -40,8 +40,26 @@ elif cmd == "measure-width":
         w = plan["widths"].get(t, len(t) * 10.0)
         print("%s\\t%d\\t%.3f\\t%.4f" % (t, len(t), w, w / max(len(t), 1)))
 elif cmd == "edit":
+    # rhwp insert-image처럼: 그 쪽 첫 문단 첫 run에 어울림 그림을 붙이고 BinData를 더한다
+    import re, zipfile
     out = args[args.index("-o") + 1]
-    open(out, "wb").write(b"PK-fake")
+    x, y = args[args.index("--x") + 1], args[args.index("--y") + 1]
+    pic = ('<hp:pic id="99" textWrap="SQUARE"><hp:pos horzOffset="%s" vertOffset="%s"/>'
+           '<hp:img binaryItemIDRef="image99"/></hp:pic>' % (x, y))
+    mode = plan.get("mode", "ok")
+    with zipfile.ZipFile(args[2]) as zin, zipfile.ZipFile(out, "w") as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == "Contents/section0.xml":
+                text = data.decode("utf-8")
+                n = iter(range(10 ** 6))
+                text = re.sub(r'(<hp:p\\b[^>]*?\\bid=")\\d+(")', lambda m: m.group(1) + str(next(n)) + m.group(2), text)
+                text = re.sub(r'(<hp:run\\b[^>]*>)', lambda m: m.group(1) + pic, text, count=1)
+                if mode == "blank_other":
+                    text = text.replace("2026년 10월 28일", "", 1)
+                data = text.encode("utf-8")
+            zout.writestr(item, data)
+        zout.writestr("BinData/image99.png", b"PNG-sig")
     print(json.dumps({"schemaVersion": "1.0", "output": out, "outputFormat": "hwpx",
                       "page": int(args[args.index("--page") + 1]), "overflow": [], "binDataId": 1}))
 """
@@ -79,14 +97,13 @@ class RhwpSignTests(unittest.TestCase):
         self.log = self.dir / "argv.log"
         self.plan_path = self.dir / "plan.json"
         self.doc = self.dir / "동의서.hwpx"
-        self.doc.write_bytes(b"PK-doc")
+        make_consent_hwpx(self.doc)
         self.img = self.dir / "sig.png"
         self.img.write_bytes(b"\x89PNG")
         env = {"HWPX_RHWP_BIN": str(fake), "FAKE_SIGN_PLAN": str(self.plan_path)}
         patches = [mock.patch.dict(os.environ, env),
-                   # 산출물 후처리·게이트는 실제 HWPX가 필요하다. 여기서는 좌표·거부 판단만 본다.
-                   mock.patch.object(hwpx_sign, "float_over_anchor"),
-                   mock.patch.object(hwpx_sign.hwpx_gate, "gate", return_value=hwpx_gate.GateReport())]
+                   # 가짜 rhwp가 실제로 그림을 넣은 HWPX를 내고, 후처리·게이트는 진짜로 돈다
+                   mock.patch.object(hwpx_gate, "validate", return_value=(True, "ok"))]
         for p in patches:
             p.start()
             self.addCleanup(p.stop)
@@ -96,8 +113,8 @@ class RhwpSignTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def plan(self, *, search, runs, widths=None, tree_name=None):
-        plan = {"log": str(self.log), "tree": tree(runs),
+    def plan(self, *, search, runs, widths=None, tree_name=None, mode="ok"):
+        plan = {"log": str(self.log), "tree": tree(runs), "mode": mode,
                 "search": {"matches": search, "matchCount": len(search), "totalMatchCount": len(search)}}
         if widths is not None:
             plan["widths"] = widths
@@ -129,7 +146,7 @@ class RhwpSignTests(unittest.TestCase):
             "--x": round((209.0 + 34.4 / 2) * 75 - w / 2),
             "--y": round((366.9 + 13.3 / 2) * 75 - h / 2)})
         self.assertIn("measure-width", err)
-        self.assertEqual(out.strip().splitlines()[-1], "engine=rhwp")
+        self.assertEqual(out.strip().splitlines()[-1], "engine=rhwp status=passed")
         self.assertTrue((self.dir / "동의서_서명.hwpx").exists())
 
     def test_whole_run_anchor_needs_no_measurement(self):
@@ -214,9 +231,42 @@ class RhwpSignTests(unittest.TestCase):
             rc, out, err = self.sign()
         self.assertEqual(rc, 1)
         self.assertIn("--backend com", err)
-        self.assertTrue((self.dir / "_work-hwpx-automation" / "동의서_서명.hwpx").exists())
+        kept = list((self.dir / "_work-hwpx-automation").glob("동의서_서명.rejected-*.hwpx"))
+        self.assertEqual(len(kept), 1)
+        self.assertIn(str(kept[0]), err)
         self.assertFalse((self.dir / "동의서_서명.hwpx").exists())
         self.assertNotIn("engine=", out)
+
+    def test_text_blanked_outside_anchor_is_rejected(self):
+        self.plan(search=[match()], runs=[(11, ANCHOR_LINE, 113.4, 366.9, 130.0, 13.3)],
+                  widths={"성 명 : 홍길동 ": 95.6, ANCHOR_LINE: 130.0}, mode="blank_other")
+        rc, _, err = self.sign()
+        self.assertEqual(rc, 1)
+        self.assertIn("그림 하나만", err)
+        self.assertFalse((self.dir / "동의서_서명.hwpx").exists())
+
+    def test_other_font_run_is_estimated_not_measured(self):
+        def to_dotum(data):  # 본문 글자 모양(charPr 0)을 함초롬돋움(font 0)으로
+            return re.sub(rb'(<hh:charPr id="0".*?<hh:fontRef )[^/]*/>',
+                          rb'\1hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>',
+                          data, count=1, flags=re.S)
+        rewrite_part(self.doc, "Contents/header.xml", to_dotum)
+        rc, _, err = self.sign()
+        self.assertEqual(rc, 1)
+        self.assertIn("estimated", err)
+        self.assertFalse(self.calls("measure-width"))
+        self.assertFalse(self.calls("edit"))
+
+    def test_existing_default_output_is_not_overwritten(self):
+        target = self.dir / "동의서_서명.hwpx"
+        target.write_bytes(b"earlier")
+        rc, _, err = self.sign()
+        self.assertEqual(rc, 1)
+        self.assertIn("-o로 경로를 지정", err)
+        self.assertEqual(target.read_bytes(), b"earlier")
+        rc, _, err = self.sign("-o", str(target))
+        self.assertEqual(rc, 0, err)
+        self.assertNotEqual(target.read_bytes(), b"earlier")
 
     def test_hwp_input_without_converter_exits_1(self):
         hwp = self.dir / "동의서.hwp"
@@ -250,6 +300,15 @@ class RhwpSignTests(unittest.TestCase):
             with self.assertRaises(hwpx_sign.SignError) as cm:
                 hwpx_sign._convert_hwp(str(self.dir / "a.hwp"))
         self.assertIn("--from-hwp", str(cm.exception))
+
+
+def rewrite_part(path, name, fn):
+    tmp = str(path) + ".tmp"
+    with zipfile.ZipFile(path) as zin, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            zout.writestr(item, fn(data) if item.filename == name else data)
+    os.replace(tmp, path)
 
 
 def make_consent_hwpx(path):
@@ -296,7 +355,8 @@ class RhwpSignIntegrationTests(unittest.TestCase):
         self.assertEqual(rc, 0, err.getvalue())
         result = self.dir / "consent-sign_서명.hwpx"
         self.assertIn("허용된 손실(rhwp 재직렬화)", out.getvalue())
-        rep = hwpx_gate.gate(self.doc, result, allow_rhwp=True, allow_bindata_added=1)
+        rep = hwpx_gate.gate(self.doc, result, allow_rhwp=True, allow_bindata_added=1,
+                             edits=[hwpx_gate.ImageInsert(0, 11)])
         self.assertEqual(rep.status, "passed", rep.summary())
         self.assertEqual({k[1] for k in rep.allowed}, {"switch", "case", "default", "heading", "p"})
 
@@ -320,7 +380,7 @@ class RhwpSignIntegrationTests(unittest.TestCase):
             rc = hwpx_sign.main([str(hwp), "--image", str(self.dir / "sig.png"), "--anchor", "작성일"])
         self.assertEqual(rc, 0, err.getvalue())
         self.assertTrue((self.dir / "sample-form_서명.hwpx").exists())
-        self.assertEqual(out.getvalue().strip().splitlines()[-1], "engine=rhwp")
+        self.assertEqual(out.getvalue().strip().splitlines()[-1], "engine=rhwp status=passed")
 
 if __name__ == "__main__":
     unittest.main()

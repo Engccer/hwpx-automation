@@ -113,6 +113,42 @@ class GridIntegration(unittest.TestCase):
         r = self.cli(out, "--tables")
         self.assertIn("[0,1,1] 김철수", r.stdout)
 
+    def test_fill_fields_on_field_sample_passes_gate(self):
+        src = self.dir / "fields.hwpx"
+        shutil.copyfile(FIXTURES / "sample-fields.hwpx", src)
+        out = self.dir / "filled-fields.hwpx"
+        r = self.cli(src, "--fill-fields", '{"성명[1]":"김철수"}', "-o", out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip().splitlines()[-1], "engine=rhwp status=passed")
+        r = self.cli(out, "--fields")
+        self.assertIn("성명 = '값2'", r.stdout)
+        self.assertIn("성명 = '김철수'", r.stdout)
+
+    def test_rerun_does_not_overwrite_default_output(self):
+        r = self.cli(self.hwpx, "--grid-set-cell", "0,1,1", "김철수")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        first = Path(self.hwpx).with_name(Path(self.hwpx).stem + "_편집.hwpx")
+        before = first.read_bytes()
+        r = self.cli(self.hwpx, "--grid-set-cell", "0,1,1", "이영희")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("덮지 않습니다", r.stderr)
+        self.assertEqual(first.read_bytes(), before)
+
+    def test_gate_rejection_keeps_previous_output_and_evidence(self):
+        # python-hwpx로 갓 만든 HWPX는 rhwp 편집에서 본문이 쓰는 paraPr를 잃어 게이트가 거부한다
+        from test_doc_promises import make_table_hwpx
+        doc = self.dir / "fresh.hwpx"
+        make_table_hwpx(doc)
+        out = self.dir / "fresh-out.hwpx"
+        out.write_bytes(b"previous")
+        r = self.cli(doc, "--grid-set-cell", "0,1,1", "x", "-o", out)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("paraPr", r.stderr)
+        self.assertEqual(out.read_bytes(), b"previous")
+        kept = list(self.dir.glob("fresh-out.rejected-*.hwpx"))
+        self.assertEqual(len(kept), 1)
+        self.assertIn(str(kept[0]), r.stderr)
+
     def test_to_hwp_round_trips_through_jar(self):
         out = self.dir / "dist.hwp"
         r = self.cli(self.hwpx, "--to-hwp", "-o", out)

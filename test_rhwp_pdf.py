@@ -133,12 +133,14 @@ class NonWindowsTests(unittest.TestCase):
         original = rhwp_pdf.missing_glyphs
         rhwp_pdf.missing_glyphs = lambda pdf: (_ for _ in ()).throw(ValueError("bad cmap"))
         try:
-            with self.assertRaises(ValueError):
+            with self.assertRaisesRegex(RuntimeError, "bad cmap"):
                 save_pdf(self.src, self.out)
         finally:
             rhwp_pdf.missing_glyphs = original
         self.assertEqual(self.out.read_bytes(), b"old PDF")
-        self.assertEqual(list(self.out.parent.iterdir()), [self.out])
+        rest = sorted(p.name for p in self.out.parent.iterdir() if p != self.out)
+        self.assertEqual(len(rest), 1)
+        self.assertRegex(rest[0], r"^result\.rejected-\d{14}\.pdf$")
 
     def test_non_pdf_output_is_rejected(self):
         os.environ["FAKE_RHWP_MODE"] = "nonpdf"

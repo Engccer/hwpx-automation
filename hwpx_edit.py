@@ -24,6 +24,7 @@ hwpx_edit.py - HWPX 파일 편집 유틸리티
 import argparse
 import contextlib
 import copy
+import json
 import os
 import re
 import shutil
@@ -81,6 +82,20 @@ def get_output_path(filepath, ext=None):
         return os.path.join(output_dir, f"{base}{ext}")
     else:
         return os.path.join(output_dir, os.path.basename(filepath))
+
+
+DEFAULT_EXISTS_HINT = "-o로 경로를 지정하거나 기존 파일을 옮긴 뒤 다시 실행하세요."
+
+
+class OutputExistsError(RuntimeError):
+    """기본 출력 경로에 파일이 이미 있다. rhwp 산출물은 기본 경로의 기존 파일을 덮지 않는다."""
+
+
+def refuse_existing_default(path, hint=DEFAULT_EXISTS_HINT):
+    """rhwp 경로의 기본 출력이 이미 있으면 OutputExistsError(재실행이 앞선 결과를 덮지 않게).
+    사용자가 -o로 준 경로는 이 검사를 거치지 않고 덮는다."""
+    if os.path.exists(path):
+        raise OutputExistsError(f"기본 출력 경로에 이미 파일이 있어 덮지 않습니다: {path}\n  {hint}")
 
 
 def is_encrypted_hwpx(filepath):
@@ -1477,7 +1492,7 @@ def convert_fallback_hint(src, dest, failed_engine):
 
 def _independent_check(staged, src, engine, messages):
     """다른 엔진 변환물과 교차 대조하고 hwpx-validate를 돌린다.
-    불일치·검증 실패는 RuntimeError, 대조 불가는 "unverified"를 돌려준다."""
+    불일치·검증 실패는 RhwpVerifyError, 대조 불가는 "unverified"를 돌려준다."""
     import hwpx_gate
 
     status = "passed"
@@ -1486,7 +1501,7 @@ def _independent_check(staged, src, engine, messages):
         status = "unverified"
         messages.append(out)
     elif not ok:
-        raise RuntimeError("hwpx-validate 실패: " + out.splitlines()[-1][:160])
+        raise rhwp_cli.RhwpVerifyError("hwpx-validate 실패: " + out.splitlines()[-1][:160])
 
     other = "jar" if engine == "rhwp" else "rhwp"
     with tempfile.TemporaryDirectory(prefix="hwp-ref-") as td:
@@ -1505,9 +1520,10 @@ def _independent_check(staged, src, engine, messages):
         try:
             rep = hwpx_gate.cross_check(staged, ref)
         except Exception as exc:  # 깨진 zip·XML: 산출물을 믿을 근거가 없으니 거부
-            raise RuntimeError(f"교차 대조 중 산출물을 읽지 못함: {type(exc).__name__}: {exc}") from exc
+            raise rhwp_cli.RhwpVerifyError(
+                f"교차 대조 중 산출물을 읽지 못함: {type(exc).__name__}: {exc}") from exc
     if rep.status == "failed":
-        raise RuntimeError(f"{engine}·{other} 교차 대조 실패: {rep.summary()}")
+        raise rhwp_cli.RhwpVerifyError(f"{engine}·{other} 교차 대조 실패: {rep.summary()}")
     messages.append(f"교차 대조({other}): {rep.summary()}")
     return status if rep.status == "passed" else "unverified"
 
@@ -1515,17 +1531,22 @@ def _independent_check(staged, src, engine, messages):
 def hwp_to_hwpx(src, dest=None, *, engine="rhwp"):
     """HWP를 HWPX로 변환한다. 정본 형식은 HWPX이고 `.hwp`는 이 입구에서만 만난다.
 
-    dest가 None이면 입력 옆 `_work-hwpx-automation/<stem>.hwpx`.
+    dest가 None이면 입력 옆 `_work-hwpx-automation/<stem>.hwpx`이고, 그 자리에 파일이 이미
+    있으면 덮지 않고 OutputExistsError(RuntimeError)다.
     산출물은 hwpx-validate와 다른 엔진 변환물과의 교차 대조(hwpx_gate.cross_check)를
     통과해야 dest에 놓인다. 대조 불가(JDK·hwpx-tomd 없음)면 status="unverified".
     실패하면 RuntimeError(rhwp_cli.RhwpError 포함)이고 메시지에 폴백 명령이 들어 있다.
-    거부된 산출물은 `<dest stem>.rejected.hwpx`로 남는다.
+    거부된 산출물은 `<dest stem>.rejected-<시각>.hwpx`로 남는다(rhwp_cli.rejected_path_for).
     stdout 마지막에 `engine=<rhwp|jar> status=<passed|unverified>`를 찍는다.
     """
     if engine not in HWP_ENGINES:
         raise ValueError(f"engine은 {HWP_ENGINES} 중 하나: {engine!r}")
     src = os.path.abspath(src)
-    dest = os.path.abspath(dest or get_output_path(src, ".hwpx"))
+    if dest is None:
+        dest = get_output_path(src, ".hwpx")
+        refuse_existing_default(dest, "이미 변환한 HWPX를 입력으로 쓰거나, 기존 파일을 옮긴 뒤 다시 "
+                                      "실행하세요(--from-hwp는 -o로 다른 경로를 줄 수 있다).")
+    dest = os.path.abspath(dest)
     if not dest.lower().endswith(".hwpx") or os.path.normcase(dest) == os.path.normcase(src):
         raise ValueError(f"변환 출력은 원본과 다른 .hwpx 경로여야 합니다: {dest}")
     os.makedirs(os.path.dirname(dest), exist_ok=True)
@@ -1533,13 +1554,7 @@ def hwp_to_hwpx(src, dest=None, *, engine="rhwp"):
     state = {}
 
     def check(staged):
-        try:
-            state["status"] = _independent_check(staged, src, engine, messages)
-        except RuntimeError:
-            root, ext = os.path.splitext(dest)
-            shutil.copyfile(staged, f"{root}.rejected{ext}")
-            messages.append(f"거부된 산출물 보존: {root}.rejected{ext}")
-            raise
+        state["status"] = _independent_check(staged, src, engine, messages)
 
     try:
         if engine == "rhwp":
@@ -1554,20 +1569,20 @@ def hwp_to_hwpx(src, dest=None, *, engine="rhwp"):
                     messages.append("JAR 산출물에 Preview/PrvText.txt 보정(--add-preview)")
                 else:
                     shutil.copyfile(raw, staged)
-                check(staged)
+                try:
+                    check(staged)
+                except rhwp_cli.RhwpError as exc:
+                    exc.rejected_path = rhwp_cli.preserve_rejected(staged, dest)
+                    raise
                 os.replace(staged, dest)
     except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
-        detail = [str(exc)] + [m for m in messages if m.startswith("거부된")]
-        rejected = getattr(exc, "rejected_path", None)
-        if rejected:
-            detail.append(f"거부된 산출물 보존: {rejected}")
-        raise RuntimeError("\n".join(detail) + "\n" + convert_fallback_hint(src, dest, engine)) from exc
+        raise RuntimeError(f"{exc}\n{convert_fallback_hint(src, dest, engine)}") from exc
 
     status = state.get("status", "unverified")
     for m in messages:
         print(m)
     print(f"변환: {src} → {dest}")
-    print(f"engine={engine} status={status}")
+    print(f"engine={engine} status={status}" + (" reason=사용자 지정" if engine == "jar" else ""))
     return ConvertResult(dest, engine, status, messages)
 
 
@@ -1626,8 +1641,8 @@ def cmd_check_env():
     if t1_ok:
         ready.append("읽기·편집")
 
-    # Tier 2: HWP→HWPX 변환·PDF·이미지 (rhwp, 모든 OS 기본 엔진)
-    print("\n[Tier 2] HWP→HWPX 변환·PDF·이미지 (rhwp · 모든 OS 기본 엔진)")
+    # Tier 2: rhwp 축(모든 OS 기본 엔진)
+    print("\n[Tier 2] HWP→HWPX 변환·PDF·이미지(서명)·누름틀·격자 좌표 셀·--to-hwp (rhwp · 모든 OS 기본 엔진)")
     rhwp = rhwp_cli.find_rhwp()
     if rhwp:
         try:
@@ -1659,8 +1674,8 @@ def cmd_check_env():
     if t3_ok:
         ready.append("MD→HWPX 변환")
 
-    # Tier 4: 폴백 (JDK 21 + 번들 JAR, Windows 한컴 COM). 사용자가 고를 때만 쓴다.
-    print("\n[Tier 4] 폴백 (JDK 21 + 번들 JAR · Windows 한컴 COM, 명시할 때만)")
+    # Tier 4: 폴백 (JDK 21 + 번들 JAR, Windows 한컴 COM). 엔진으로는 사용자가 고를 때만, JDK는 있으면 대조에 자동 사용.
+    print("\n[Tier 4] 폴백 (JDK 21 + 번들 JAR · Windows 한컴 COM, 엔진은 명시할 때만 · JDK는 있으면 대조에 자동 사용)")
     jar_ok = True
 
     def java_version(exe):
@@ -1759,7 +1774,7 @@ def cmd_to_pdf(filepath, output=None, password=None, backend="rhwp"):
         sys.exit(1)
 
     print(f"PDF 저장: {abs_output}")
-    print("engine=com")
+    print("engine=com reason=사용자 지정")
 
 
 def cmd_to_pdf_rhwp(filepath, output, password=None):
@@ -1796,51 +1811,52 @@ TO_HWP_COM_HINT = "그림·차트가 빠졌으면 Windows 한컴오피스에서 
 def _rhwp_or_exit(fn, *args, **kwargs):
     try:
         return fn(*args, **kwargs)
-    except rhwp_cli.RhwpError as exc:
+    except (rhwp_cli.RhwpError, OutputExistsError) as exc:
         print(f"오류: {exc}", file=sys.stderr)
         sys.exit(1)
 
 
-def _keep_rejected(staged, output):
-    root, ext = os.path.splitext(output)
-    rejected = f"{root}.rejected{ext}"
-    shutil.copyfile(staged, rejected)
-    return rejected
-
-
 def _rhwp_edit_output(filepath, output):
-    """rhwp 편집의 기본 출력. 입력과 같은 자리가 되면(_work 안 입력) _편집을 붙여
-    다음 실행의 비교 기준(원본)을 지키고, 결과는 항상 .hwpx다."""
-    output = os.path.abspath(output or get_output_path(filepath))
+    """rhwp 편집의 출력. 기본 경로는 입력과 같은 자리가 되면(_work 안 입력) _편집을 붙여
+    다음 실행의 비교 기준(원본)을 지키고, 이미 파일이 있으면 덮지 않는다. 결과는 항상 .hwpx다."""
+    if output:
+        return os.path.abspath(output)
+    output = os.path.abspath(get_output_path(filepath))
     if os.path.normcase(output) == os.path.normcase(os.path.abspath(filepath)):
         output = os.path.splitext(output)[0] + "_편집.hwpx"
+    refuse_existing_default(output)
     return output
 
 
-def _gated(src, output, report):
-    """rhwp 편집 산출물의 게시 전 검증. 게이트 실패·검사 오류면 .rejected로 남기고 예외."""
+def _gated(src, report, edits, check_envelope=None):
+    """rhwp 편집 산출물의 게시 전 검증(rhwp_cli.run의 verify). 봉투 사후조건을 먼저 보고,
+    산출물은 hwpx_gate.gate(allow_rhwp=True, edits=...)로 대상 밖 위치별 동일·대상 기대값을
+    대조한다. 실패하면 예외를 올리고, 어댑터가 산출물을 .rejected-<시각>으로 남긴다.
+
+    edits: callable(envelope) -> 편집 대상 목록(hwpx_gate.CellEdit·FieldEdit).
+    check_envelope: callable(envelope). 봉투가 사전 점검·요청과 어긋나면 예외.
+    """
     import inspect
     import hwpx_gate
 
-    params = inspect.signature(hwpx_gate.gate).parameters.values()
-    if not any(p.name == "allow_rhwp" or p.kind is p.VAR_KEYWORD for p in params):
-        raise rhwp_cli.RhwpError("이 hwpx_gate.py에는 rhwp 재직렬화 허용 목록(allow_rhwp)이 없어 "
-                                 "rhwp 편집 산출물을 판정할 수 없습니다. 저장소를 최신으로 받으세요.")
+    params = inspect.signature(hwpx_gate.gate).parameters
+    if not ({"edits", "allow_rhwp"} <= set(params)
+            or any(p.kind is p.VAR_KEYWORD for p in params.values())):
+        raise rhwp_cli.RhwpError("이 hwpx_gate.py에는 편집 대조(edits)·rhwp 재직렬화 허용 목록(allow_rhwp)이 "
+                                 "없어 rhwp 편집 산출물을 판정할 수 없습니다. 저장소를 최신으로 받으세요.")
 
-    def verify(staged):
+    def verify(staged, envelope):
+        if check_envelope:
+            check_envelope(envelope)
         try:
-            rep = hwpx_gate.gate(src, staged, allow=hwpx_gate.is_text_run_key, allow_rhwp=True,
-                                 expect_text_change=True)
+            rep = hwpx_gate.gate(src, staged, allow_rhwp=True, edits=edits(envelope))
         except Exception as exc:
-            rejected = _keep_rejected(staged, output)
-            raise rhwp_cli.RhwpError(f"게이트 검사 중 오류: {type(exc).__name__}: {exc}\n"
-                                     f"거부된 산출물 보존: {rejected}") from exc
+            raise rhwp_cli.RhwpVerifyError(f"게이트 검사 중 오류: {type(exc).__name__}: {exc}") from exc
         report["gate"] = rep
         if rep.status == "failed":
-            rejected = _keep_rejected(staged, output)
-            detail = hwpx_gate.describe_lost(rep)
             head = rep.summary().splitlines()[0]  # 허용된 손실 줄은 describe_lost 끝에 이미 있다
-            raise rhwp_cli.RhwpError(f"{head}\n{detail}\n거부된 산출물 보존: {rejected}")
+            detail = hwpx_gate.describe_lost(rep)
+            raise rhwp_cli.RhwpVerifyError(head + ("\n" + detail if detail else ""))
     return verify
 
 
@@ -1893,10 +1909,30 @@ def cmd_fields(filepath):
               "rhwp fields <파일> --json으로 확인하세요.", file=sys.stderr)
 
 
+def _field_edits(data):
+    """--fill-fields 값(JSON 또는 @파일)을 게이트의 FieldEdit 목록으로. "이름[k]"는 k번째(0부터)."""
+    import hwpx_gate
+    if data.startswith("@"):
+        with open(data[1:], encoding="utf-8") as f:
+            data = f.read()
+    try:
+        values = json.loads(data)
+    except json.JSONDecodeError as exc:
+        raise rhwp_cli.RhwpUsageError(f"--fill-fields 값이 JSON이 아닙니다: {exc}") from exc
+    if not isinstance(values, dict):
+        raise rhwp_cli.RhwpUsageError('--fill-fields 값은 {"이름":"값"} 객체여야 합니다.')
+    edits = []
+    for key, value in values.items():
+        m = re.fullmatch(r"(.*)\[(\d+)\]", key)
+        name, k = (m.group(1), int(m.group(2))) if m else (key, None)
+        edits.append(hwpx_gate.FieldEdit(name, str(value), k))
+    return edits
+
+
 def cmd_fill_fields(filepath, data, output=None):
     """rhwp edit fill-fields. 없는·모호한·닮은 이름이 있으면 쓰지 않는다(exit 0이어도 거짓 성공 금지)."""
     src = os.path.abspath(filepath)
-    output = _rhwp_edit_output(filepath, output)
+    edits = _rhwp_or_exit(_field_edits, data)
     args = ["edit", "fill-fields", src, "--data", data]
     keys = ("filledCount", "notFound", "ambiguous")
     plan = _rhwp_or_exit(rhwp_cli.run, args + ["--dry-run"], required_fields=keys)
@@ -1908,32 +1944,44 @@ def cmd_fill_fields(filepath, data, output=None):
         env = plan.envelope
         print(f"오류: 누름틀을 채우지 않았습니다. 없는 이름 {env['notFound']}, 모호한 이름 {env['ambiguous']}, "
               f"닮은 이름 {env.get('confusable') or []}. 이름은 --fields로 확인하고, 같은 이름은 "
-              "\"이름[k]\"로 지목한다.", file=sys.stderr)
+              "\"이름[k]\"(0부터)로 지목한다.", file=sys.stderr)
         sys.exit(1)
+
+    def same_as_plan(env):
+        if refused(env) or env["filledCount"] != plan.envelope["filledCount"]:
+            raise rhwp_cli.RhwpContractError(
+                f"쓰기 결과가 사전 점검과 다릅니다(채운 수 {env['filledCount']} ≠ "
+                f"{plan.envelope['filledCount']}, 없는 이름 {env['notFound']}, 모호한 이름 {env['ambiguous']}).")
+
+    output = _rhwp_or_exit(_rhwp_edit_output, filepath, output)
     report = {}
     r = _rhwp_or_exit(rhwp_cli.run, args + ["-o", rhwp_cli.OUTPUT], output=output,
-                      required_fields=keys + ("output",), verify=_gated(src, output, report))
-    if refused(r.envelope) or r.envelope["filledCount"] != plan.envelope["filledCount"]:
-        root, ext = os.path.splitext(output)
-        os.replace(output, f"{root}.rejected{ext}")
-        print(f"오류: 쓰기 결과가 사전 점검과 다릅니다. 산출물을 {root}.rejected{ext}로 옮겼습니다.",
-              file=sys.stderr)
-        sys.exit(1)
+                      required_fields=keys + ("output",),
+                      verify=_gated(src, report, lambda env: edits, check_envelope=same_as_plan))
     print(f"누름틀 {r.envelope['filledCount']}개 채움 → {output}")
     _print_gate(report)
 
 
 def cmd_grid_set_cell(filepath, table_idx, row_idx, col_idx, text, output=None):
     """rhwp edit set-cell(격자 좌표). 중첩 표·병합 칸 오류는 rhwp 메시지를 그대로 전한다."""
+    import hwpx_gate
     src = os.path.abspath(filepath)
-    output = _rhwp_edit_output(filepath, output)
     report = {}
+
+    def same_text(env):
+        if env["newText"] != text:
+            raise rhwp_cli.RhwpContractError(f"rhwp가 쓴 값이 요청과 다릅니다: {_one_line(env['newText'])!r}")
+
+    def edits(env):
+        return [hwpx_gate.CellEdit(table_idx, row_idx, col_idx, text, old_text=env.get("oldText"))]
+
     try:
+        output = _rhwp_edit_output(filepath, output)
         r = rhwp_cli.run(["edit", "set-cell", src, "--table", str(table_idx), "--row", str(row_idx),
                           "--col", str(col_idx), "--text", text, "-o", rhwp_cli.OUTPUT],
                          output=output, required_fields=("oldText", "newText", "output"),
-                         verify=_gated(src, output, report))
-    except rhwp_cli.RhwpError as exc:
+                         verify=_gated(src, report, edits, check_envelope=same_text))
+    except (rhwp_cli.RhwpError, OutputExistsError) as exc:
         print(f"오류: {exc}\n  {GRID_HINT}", file=sys.stderr)
         sys.exit(1)
     old = _one_line(rhwp_cli.untrusted(r.envelope, "oldText"))
@@ -1943,34 +1991,23 @@ def cmd_grid_set_cell(filepath, table_idx, row_idx, col_idx, text, output=None):
     _print_gate(report)
 
 
-def _embedded_counts(path):
-    """cross_check가 세지 않는 차트·OLE·수식 수와 Chart/ 파트 수."""
-    import hwpx_gate
-    parts = hwpx_gate.read_parts(path)
-    counts = Counter()
-    for b in hwpx_gate.xml_parts(parts).values():
-        census = hwpx_gate.tag_census(b)
-        for tag in ("chart", "ole", "equation"):
-            counts[tag] += census.get(tag, 0)
-    counts["Chart/ 파트"] = sum(1 for n in parts if n.startswith("Chart/"))
-    return counts
-
-
 def cmd_to_hwp(filepath, output=None):
     """배포용 HWPX → HWP 내보내기. 정본은 HWPX이며 이 경로로 편집하지 않는다.
     산출 .hwp를 JAR로 다시 HWPX로 바꿔 원본과 대조한다(JDK 없으면 unverified)."""
     import hwpx_gate
 
     src = os.path.abspath(filepath)
-    output = os.path.abspath(output or get_output_path(filepath, ".hwp"))
+    if output is None:
+        output = get_output_path(filepath, ".hwp")
+        _rhwp_or_exit(refuse_existing_default, output)
+    output = os.path.abspath(output)
     if not output.lower().endswith(".hwp"):
         print(f"오류: --to-hwp 출력은 .hwp여야 합니다: {output}", file=sys.stderr)
         sys.exit(1)
     state = {"status": "unverified", "messages": []}
 
     def reject(staged, reason):
-        rejected = _keep_rejected(staged, output)
-        raise rhwp_cli.RhwpError(f"JAR 왕복 대조 실패: {reason}\n거부된 산출물 보존: {rejected}\n  {TO_HWP_COM_HINT}")
+        raise rhwp_cli.RhwpVerifyError(f"JAR 왕복 대조 실패: {reason}")
 
     def verify(staged):
         if not find_java():
@@ -1981,12 +2018,10 @@ def cmd_to_hwp(filepath, output=None):
             try:
                 _run_jar(staged, back)  # JDK가 있는데 못 읽으면 독립 파서가 거부한 HWP다
                 rep = hwpx_gate.cross_check(src, back)
-                before, after = _embedded_counts(src), _embedded_counts(back)
             except Exception as exc:
                 reject(staged, f"{type(exc).__name__}: {exc}")
-        lost = [f"{k} {before[k]}→{after[k]}" for k in before if after[k] < before[k]]
-        if rep.status == "failed" or lost:
-            reject(staged, " / ".join(([rep.summary()] if rep.status == "failed" else []) + lost))
+        if rep.status == "failed":
+            reject(staged, rep.summary())
         state["status"] = rep.status
         state["messages"].append(f"JAR 왕복 대조: {rep.summary()}")
 
@@ -2208,6 +2243,8 @@ def main():
         writes_hwpx = not (args.info or args.to_md or args.list_squeeze or args.tables or args.fields)
         if writes_hwpx and not args.output:
             args.output = os.path.splitext(args.file)[0] + "_편집.hwpx"
+            if args.fill_fields is not None or args.grid_set_cell:  # rhwp 산출물은 기본 경로를 덮지 않는다
+                _rhwp_or_exit(refuse_existing_default, args.output)
 
     if args.info:
         cmd_info(args.file)
@@ -2266,7 +2303,9 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    if not (args.info or args.to_md or args.to_pdf or args.list_squeeze):
+    if args.to_md:
+        print("engine=hwpx-tomd")
+    elif not (args.info or args.to_pdf or args.list_squeeze):
         print("engine=lxml")
 
 

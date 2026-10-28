@@ -95,8 +95,19 @@ class RunTests(unittest.TestCase):
         with self.assertRaises(RhwpVerifyError) as cm:
             run(["export-hwpx", "in.hwp", OUTPUT, "--verify"], output=self.out)
         self.assertFalse(self.out.exists())
-        self.assertTrue(cm.exception.rejected_path.endswith("result.rejected.hwpx"))
+        self.assertRegex(cm.exception.rejected_path, r"result\.rejected-\d{14}\.hwpx$")
         self.assertEqual(Path(cm.exception.rejected_path).read_bytes(), b"PK-bad")
+        self.assertIn(cm.exception.rejected_path, str(cm.exception))
+
+    def test_rerun_rejections_do_not_overwrite_each_other(self):
+        os.environ["FAKE_RHWP_MODE"] = "verify"
+        paths = []
+        for _ in range(2):
+            with self.assertRaises(RhwpVerifyError) as cm:
+                run(["export-hwpx", "in.hwp", OUTPUT, "--verify"], output=self.out)
+            paths.append(cm.exception.rejected_path)
+        self.assertNotEqual(paths[0], paths[1])
+        self.assertTrue(all(Path(p).exists() for p in paths))
 
     def test_pages_mismatch_is_verify_error(self):
         os.environ["FAKE_RHWP_MODE"] = "pages"
@@ -111,8 +122,10 @@ class RunTests(unittest.TestCase):
 
     def test_schema_mismatch_is_contract_error(self):
         os.environ["FAKE_RHWP_MODE"] = "oldschema"
-        with self.assertRaisesRegex(RhwpContractError, "schemaVersion"):
+        with self.assertRaisesRegex(RhwpContractError, "schemaVersion") as cm:
             run(["export-hwpx", "in.hwp", OUTPUT], output=self.out)
+        self.assertFalse(self.out.exists())
+        self.assertEqual(Path(cm.exception.rejected_path).read_bytes(), b"PK")
 
     def test_missing_required_field_is_contract_error(self):
         with self.assertRaisesRegex(RhwpContractError, "필수 필드"):
@@ -126,8 +139,34 @@ class RunTests(unittest.TestCase):
     def test_verify_callback_blocks_publication(self):
         def reject(path):
             raise ValueError("게이트 실패")
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(RhwpVerifyError, "ValueError: 게이트 실패") as cm:
             run(["export-hwpx", "in.hwp", OUTPUT], output=self.out, verify=reject)
+        self.assertFalse(self.out.exists())
+        self.assertIsInstance(cm.exception.__cause__, ValueError)
+        self.assertEqual(Path(cm.exception.rejected_path).read_bytes(), b"PK-ok")
+
+    def test_any_verify_exception_keeps_rejected_and_old_output(self):
+        import subprocess
+        import zipfile
+        self.out.parent.mkdir()
+        self.out.write_bytes(b"old")
+        for exc in (zipfile.BadZipFile("x"), subprocess.TimeoutExpired("rhwp", 1),
+                    RhwpRuntimeError("게이트")):
+            def boom(path, exc=exc):
+                raise exc
+            with self.assertRaises(rhwp_cli.RhwpError) as cm:
+                run(["export-hwpx", "in.hwp", OUTPUT], output=self.out, verify=boom)
+            self.assertTrue(Path(cm.exception.rejected_path).exists(), type(exc))
+            self.assertEqual(self.out.read_bytes(), b"old")
+
+    def test_verify_receives_envelope_before_publication(self):
+        seen = {}
+        def check(path, envelope):
+            seen["changed"] = envelope["changedPages"]
+            raise RhwpContractError("채운 수가 사전 점검과 다름")
+        with self.assertRaises(RhwpContractError):
+            run(["export-hwpx", "in.hwp", OUTPUT], output=self.out, verify=check)
+        self.assertEqual(seen["changed"], [0])
         self.assertFalse(self.out.exists())
 
     def test_password_goes_through_stdin(self):

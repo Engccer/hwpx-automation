@@ -115,7 +115,7 @@ class PdfBackendRouting(unittest.TestCase):
         self.assertEqual(code, 0)
         com.assert_called_once()
         rhwp.assert_not_called()
-        self.assertEqual(out.strip().splitlines()[-1], "engine=com")
+        self.assertEqual(out.strip().splitlines()[-1], "engine=com reason=사용자 지정")
 
     def test_com_backend_off_windows_is_refused(self):
         code, rhwp, com, _, err = self.run_pdf("darwin", "com")

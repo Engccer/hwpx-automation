@@ -519,13 +519,13 @@ class FromHwpRoutesToRhwpThenJar(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "교차 대조 실패"):
                 hwpx_edit.hwp_to_hwpx(str(self.hwp))
         self.assertFalse(self.dest.exists())
-        self.assertTrue((self.dest.parent / "doc.rejected.hwpx").exists())
+        self.assertEqual(len(list(self.dest.parent.glob("doc.rejected-*.hwpx"))), 1)
 
     def test_engine_jar_is_cross_checked_with_rhwp(self):
         with self.jar_copies(self.good):
             res, out = self.convert(engine="jar")
         self.assertEqual((res.engine, res.status), ("jar", "passed"))
-        self.assertEqual(out.strip().splitlines()[-1], "engine=jar status=passed")
+        self.assertEqual(out.strip().splitlines()[-1], "engine=jar status=passed reason=사용자 지정")
 
     def test_hwp_input_is_converted_before_to_md(self):
         with mock.patch.object(hwpx_edit, "find_java", return_value=None), \
@@ -533,6 +533,7 @@ class FromHwpRoutesToRhwpThenJar(unittest.TestCase):
             code, out, err = quiet(hwpx_edit.main)
         self.assertEqual(code, 0, err)
         self.assertIn("engine=rhwp status=unverified", out)
+        self.assertEqual(out.strip().splitlines()[-1], "engine=hwpx-tomd")
         self.assertTrue((self.dest.parent / "doc.md").exists())
 
     def test_cli_failure_exits_1_with_fallback(self):
@@ -549,7 +550,7 @@ class FromHwpRoutesToRhwpThenJar(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "hwpx-validate 실패"):
                 hwpx_edit.hwp_to_hwpx(str(self.hwp))
         self.assertFalse(self.dest.exists())
-        self.assertTrue((self.dest.parent / "doc.rejected.hwpx").exists())
+        self.assertEqual(len(list(self.dest.parent.glob("doc.rejected-*.hwpx"))), 1)
 
     def test_jar_reference_failure_is_unverified(self):
         with mock.patch.object(hwpx_edit, "_run_jar", side_effect=RuntimeError("JAR 변환 실패(exit 1)")), \

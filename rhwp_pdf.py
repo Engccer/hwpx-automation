@@ -1,4 +1,4 @@
-"""rhwp PDF 내보내기: 한컴 COM이 없는 macOS·Linux에서 HWP/HWPX → PDF.
+"""rhwp PDF 내보내기: `--to-pdf`의 기본 백엔드(모든 OS). HWP/HWPX → PDF.
 
 rhwp(https://github.com/edwardkim/rhwp)는 한컴 없이 HWP/HWPX를 조판·렌더링하는
 오픈소스 엔진이다. 결과는 한컴 PDF와 쪽수·줄 나눔이 거의 같지만 글꼴은 이 컴퓨터에

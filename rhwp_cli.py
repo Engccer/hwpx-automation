@@ -14,12 +14,14 @@ stdout에 내고, exit 0 성공 · 1 런타임 실패 · 2 사용법 오류 · 3
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import re
 import shutil
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass, field
 
 MIN_VERSION = (0, 8, 7)  # export-hwpx 위치 인자·edit insert-image·--json 봉투를 실측한 버전
@@ -33,7 +35,16 @@ INSTALL_HINT = ("rhwp CLI가 필요합니다. https://github.com/edwardkim/rhwp/
 
 
 class RhwpError(RuntimeError):
-    """rhwp 호출 실패의 공통 부모."""
+    """rhwp 호출 실패의 공통 부모. 게시하지 않은 산출물을 보존했으면 rejected_path에 경로가 있고
+    메시지 끝에 그 경로가 붙는다."""
+
+    rejected_path = None
+
+    def __str__(self):
+        text = super().__str__()
+        if self.rejected_path and self.rejected_path not in text:
+            text += f"\n거부된 산출물 보존: {self.rejected_path}"
+        return text
 
 
 class RhwpNotInstalled(RhwpError):
@@ -53,7 +64,7 @@ class RhwpRuntimeError(RhwpError):
 
 
 class RhwpVerifyError(RhwpError):
-    """exit 3·4. rhwp 자가 검증이 저장본 불일치·쪽수 불일치를 보고했다."""
+    """exit 3·4(rhwp 자가 검증의 저장본·쪽수 불일치), 또는 게시 전 검증(verify) 중 난 예외."""
 
     def __init__(self, message, rejected_path=None):
         super().__init__(message)
@@ -137,8 +148,44 @@ def parse_envelope(stdout):
         return None
 
 
+def rejected_path_for(output, folder=None):
+    """거부 산출물 경로 `<stem>.rejected-<YYYYmmddHHMMSS><ext>`. 재실행이 앞선 증거를 덮지 않게
+    같은 초에 겹치면 `-2`, `-3`을 붙인다."""
+    root, ext = os.path.splitext(output)
+    if folder:
+        root = os.path.join(folder, os.path.basename(root))
+    base = f"{root}.rejected-{time.strftime('%Y%m%d%H%M%S')}"
+    path, n = base + ext, 1
+    while os.path.exists(path):
+        n += 1
+        path = f"{base}-{n}{ext}"
+    return path
+
+
+def preserve_rejected(staged, output, folder=None):
+    """게시하지 않을 산출물을 거부 경로로 옮겨 남긴다. 옮길 파일이 없으면 None."""
+    if not staged or not os.path.exists(staged) or os.path.getsize(staged) == 0:
+        return None
+    path = rejected_path_for(output, folder)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    shutil.copyfile(staged, path)
+    return path
+
+
+def _call_verify(verify, staged, envelope):
+    """verify(staged, envelope)를 부른다. 인자 하나만 받는 옛 콜백도 그대로 받는다."""
+    try:
+        params = [p for p in inspect.signature(verify).parameters.values()
+                  if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD, p.VAR_POSITIONAL)]
+    except (TypeError, ValueError):
+        params = [None, None]
+    if len(params) >= 2 or any(p is not None and p.kind is p.VAR_POSITIONAL for p in params):
+        return verify(staged, envelope)
+    return verify(staged)
+
+
 def run(args, *, output=None, password=None, required_fields=(), verify=None,
-        timeout=300, expect_json=True, keep_rejected=True):
+        timeout=300, expect_json=True, keep_rejected=True, rejected_dir=None):
     """rhwp를 한 번 실행한다.
 
     args: rhwp 뒤에 붙는 인자 목록. 산출 파일 자리는 OUTPUT 자리표로 적는다.
@@ -147,8 +194,12 @@ def run(args, *, output=None, password=None, required_fields=(), verify=None,
             모두 통과한 뒤 os.replace로 옮긴다. 실패하면 기존 output은 건드리지 않는다.
     password: 암호 문서. `--password-stdin`으로 넘긴다(프로세스 목록 노출 방지).
     required_fields: exit 0 봉투에 반드시 있어야 하는 키. 없으면 RhwpContractError.
-    verify: callable(staged_path) -> None. 예외를 던지면 산출물을 게시하지 않고 그대로 전파한다.
-    keep_rejected: exit 3·4 산출물을 `<output>.rejected<ext>`로 남겨 원인 조사에 쓴다.
+    verify: callable(staged_path, envelope) -> None(인자 하나짜리 옛 콜백도 받는다). 봉투 사후조건
+            (채운 수·거부 목록 등)도 여기서 검사한다. 예외를 던지면 산출물을 게시하지 않는다.
+            RhwpError는 그대로, 그 밖의 예외는 RhwpVerifyError로 감싸 올린다.
+    keep_rejected: 게시하지 않은 산출물(exit 3·4, 봉투 계약 오류, verify 예외)을
+            rejected_path_for 이름으로 남기고 예외의 rejected_path에 적는다.
+    rejected_dir: 거부 산출물을 둘 폴더(기본: output 옆).
     """
     rhwp = find_rhwp()
     if not rhwp:
@@ -181,32 +232,38 @@ def run(args, *, output=None, password=None, required_fields=(), verify=None,
 
         if r.returncode == 2:
             raise RhwpUsageError(f"rhwp 사용법 오류(exit 2): {tail}")
+        def reject(exc):
+            if keep_rejected and getattr(exc, "rejected_path", None) is None:
+                exc.rejected_path = preserve_rejected(staged, output, rejected_dir)
+            return exc
+
         if r.returncode in (3, 4):
-            rejected = None
-            if staged and keep_rejected and os.path.exists(staged):
-                root, ext = os.path.splitext(output)
-                rejected = f"{root}.rejected{ext}"
-                os.replace(staged, rejected)
             what = "저장본 불일치(--verify)" if r.returncode == 3 else "쪽수 불일치(--verify-pages)"
-            raise RhwpVerifyError(f"rhwp 자가 검증 실패, {what}: {tail}", rejected_path=rejected)
+            raise reject(RhwpVerifyError(f"rhwp 자가 검증 실패, {what}: {tail}"))
         if r.returncode != 0:
             raise RhwpRuntimeError(f"rhwp 실패(exit {r.returncode}): {tail}")
 
         if expect_json:
             if envelope is None:
-                raise RhwpContractError(f"rhwp가 exit 0인데 JSON 봉투를 내지 않았습니다: {tail}")
+                raise reject(RhwpContractError(f"rhwp가 exit 0인데 JSON 봉투를 내지 않았습니다: {tail}"))
             if envelope.get("schemaVersion") != SCHEMA_VERSION:
-                raise RhwpContractError(
+                raise reject(RhwpContractError(
                     f"rhwp 봉투 schemaVersion이 {envelope.get('schemaVersion')!r}입니다. "
-                    f"{SCHEMA_VERSION!r}만 지원합니다.")
+                    f"{SCHEMA_VERSION!r}만 지원합니다."))
             missing = [k for k in required_fields if k not in envelope]
             if missing:
-                raise RhwpContractError(f"rhwp 봉투에 필수 필드가 없습니다: {missing}")
+                raise reject(RhwpContractError(f"rhwp 봉투에 필수 필드가 없습니다: {missing}"))
         if staged is not None:
             if not os.path.exists(staged) or os.path.getsize(staged) == 0:
                 raise RhwpContractError("rhwp가 exit 0인데 산출 파일을 만들지 않았습니다.")
             if verify is not None:
-                verify(staged)
+                try:
+                    _call_verify(verify, staged, envelope)
+                except RhwpError as exc:
+                    raise reject(exc)
+                except Exception as exc:  # 검사 도구의 오류도 산출물을 믿을 근거가 없다는 뜻이다
+                    raise reject(RhwpVerifyError(
+                        f"게시 전 검증 중 오류: {type(exc).__name__}: {exc}")) from exc
             os.replace(staged, output)
             result.output = output
         return result

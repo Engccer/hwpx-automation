@@ -70,7 +70,7 @@ class GateTests(unittest.TestCase):
         def drop_lineseg(data):
             return re.sub(rb"<hp:linesegarray>.*?</hp:linesegarray>", b"", data, count=1, flags=re.S)
         rewrite(self.prod, transform={self.section_name(): drop_lineseg})
-        rep = hwpx_gate.gate(self.orig, self.prod, allow=hwpx_gate.is_text_run_key)
+        rep = hwpx_gate.gate(self.orig, self.prod, allow=lambda k: k[0] in ("lineseg", "linesegarray"))
         self.assertNotIn("사라진 요소", " ".join(rep.messages))
 
     def test_attribute_change_is_detected(self):
@@ -180,6 +180,24 @@ class GateTests(unittest.TestCase):
         self.assertEqual(rep.status, "failed")
         self.assertTrue(any("해시 불일치 1건" in m for m in rep.messages), rep.messages)
 
+    def test_cross_check_counts_embedded_objects_and_chart_parts(self):
+        def add(tag):
+            return lambda d: d.replace(b"</hp:run>", f"<hp:{tag}/></hp:run>".encode(), 1)
+        for tag in ("chart", "ole", "equation"):
+            with self.subTest(tag=tag):
+                other = self.dir / f"{tag}.hwpx"
+                other.write_bytes(self.orig.read_bytes())
+                rewrite(other, transform={self.section_name(): add(tag)})
+                rep = hwpx_gate.cross_check(other, self.orig)
+                self.assertEqual(rep.status, "failed")
+                self.assertIn(f"{tag} 1→0", " ".join(rep.messages))
+        a, b = self.dir / "a.hwpx", self.dir / "b.hwpx"
+        for path, data in ((a, b"<c:chart>1</c:chart>"), (b, b"<c:chart>2</c:chart>")):
+            path.write_bytes(self.orig.read_bytes())
+            rewrite(path, add={"Chart/chart1.xml": data})
+        rep = hwpx_gate.cross_check(a, b)
+        self.assertTrue(any("Chart/ 파트 해시 불일치" in m for m in rep.messages), rep.messages)
+
 
 NS = 'xmlns:hh="h" xmlns:hp="p"'
 
@@ -227,6 +245,151 @@ class SplitRhwpKnownTests(unittest.TestCase):
         diff, known = hwpx_gate.split_rhwp_known("Contents/section0.xml", before,
                                                  sec([("77", 0), ("91", 1)], '<hp:shadow type="DROP" alpha="0"/>'), set())
         self.assertIn("shadow", {k[0] for k, (a, b) in diff.items() if b < a})
+        self.assertFalse(known)
+
+
+SEC = 'xmlns:hs="s" xmlns:hp="p"'
+
+
+def run(text, cp="0", extra=""):
+    return f'<hp:run charPrIDRef="{cp}">{extra}<hp:t>{text}</hp:t></hp:run>'
+
+
+def para(pid, *runs, ppr="0"):
+    return f'<hp:p id="{pid}" paraPrIDRef="{ppr}">{"".join(runs)}<hp:linesegarray><hp:lineseg vertpos="0"/></hp:linesegarray></hp:p>'
+
+
+def cell(r, c, text, pid):
+    return (f'<hp:tc><hp:subList id="" vertAlign="CENTER">{para(pid, run(text))}</hp:subList>'
+            f'<hp:cellAddr colAddr="{c}" rowAddr="{r}"/><hp:cellSz width="100" height="10"/></hp:tc>')
+
+
+def form(cells=("성명", "", "학년", ""), head="머리 문단", tail="꼬리 문단", ids=(1, 2, 3, 4, 5, 6, 7),
+         sec_pr='<hp:secPr textDirection="HORIZONTAL"/>', tail_runs=None):
+    """머리 문단(secPr) · 2×2 표 · 꼬리 문단."""
+    tbl = ('<hp:tbl rowCnt="2" colCnt="2">' + "".join(
+        f'<hp:tr>{cell(r, 0, cells[2 * r], ids[2 + 2 * r])}{cell(r, 1, cells[2 * r + 1], ids[3 + 2 * r])}</hp:tr>'
+        for r in range(2)) + "</hp:tbl>")
+    body = (para(ids[0], run(head, extra=sec_pr)) + para(ids[1], f'<hp:run charPrIDRef="0">{tbl}<hp:t/></hp:run>')
+            + para(ids[6], *(tail_runs or [run(tail)])))
+    return {"Contents/section0.xml": f"<hs:sec {SEC}>{body}</hs:sec>".encode()}
+
+
+def field_para(pid, before="앞 ", value="옛값", after=" 뒤", name="성명", fid="7", other=""):
+    begin = (f'<hp:ctrl><hp:fieldBegin id="{fid}" type="CLICK_HERE" name="{name}" editable="1" dirty="0" '
+             f'zorder="-1" fieldid="{fid}0"/></hp:ctrl>')
+    end = f'<hp:ctrl><hp:fieldEnd beginIDRef="{fid}" fieldid="{fid}0"/></hp:ctrl>'
+    return para(pid, f'<hp:run charPrIDRef="0"><hp:t>{before}</hp:t>{begin}<hp:t>{value}</hp:t>{end}'
+                     f'<hp:t>{after}</hp:t></hp:run>' + other)
+
+
+def fields_doc(**kw):
+    rest = para(9, run("다른 문단"))
+    return {"Contents/section0.xml": f"<hs:sec {SEC}>{field_para(1, **kw)}{rest}</hs:sec>".encode()}
+
+
+class EditCompareTests(unittest.TestCase):
+    """rhwp 편집 산출물의 위치별 대조(edits). 대상 밖은 p id 말고 아무것도 바뀌면 안 된다."""
+
+    def check(self, before, after, edits):
+        rep = hwpx_gate.GateReport()
+        hwpx_gate.compare_edit(before, after, edits, rep)
+        return rep
+
+    def assert_fails(self, before, after, edits, needle):
+        rep = self.check(before, after, edits)
+        self.assertEqual(rep.status, "failed", rep.messages)
+        self.assertIn(needle, " / ".join(rep.messages))
+
+    def test_cell_edit_with_renumbered_ids_passes(self):
+        rep = self.check(form(), form(cells=("성명", "홍길동", "학년", ""), ids=range(7)),
+                         [hwpx_gate.CellEdit(0, 0, 1, "홍길동", old_text="")])
+        self.assertEqual(rep.status, "passed", rep.messages)
+        self.assertEqual({k[1] for k in rep.allowed}, {"p"})
+
+    def test_cell_edit_rejects_blanked_text_outside_target(self):
+        self.assert_fails(form(), form(cells=("", "홍길동", "학년", "")),
+                          [hwpx_gate.CellEdit(0, 0, 1, "홍길동")], "대상 밖")
+        self.assert_fails(form(), form(cells=("성명", "홍길동", "학년", ""), tail=""),
+                          [hwpx_gate.CellEdit(0, 0, 1, "홍길동")], "대상 밖")
+
+    def test_cell_edit_rejects_paragraph_loss_and_secpr_change(self):
+        after = form(cells=("성명", "홍길동", "학년", ""))
+        dropped = {k: v.replace(para(7, run("꼬리 문단")).encode(), b"") for k, v in after.items()}
+        self.assert_fails(form(), dropped, [hwpx_gate.CellEdit(0, 0, 1, "홍길동")], "대상 밖")
+        self.assert_fails(form(), form(cells=("성명", "홍길동", "학년", ""), sec_pr='<hp:secPr/>'),
+                          [hwpx_gate.CellEdit(0, 0, 1, "홍길동")], "대상 밖")
+
+    def test_cell_edit_rejects_swapped_char_shapes_outside_target(self):
+        before = form(tail_runs=[run("가", "1"), run("나", "2")])
+        after = form(cells=("성명", "홍길동", "학년", ""), tail_runs=[run("가", "2"), run("나", "1")])
+        self.assert_fails(before, after, [hwpx_gate.CellEdit(0, 0, 1, "홍길동")], "대상 밖")
+
+    def test_cell_edit_landing_in_another_empty_cell_is_rejected(self):
+        # 요청은 (0,1)인데 rhwp가 같은 빈 칸 (1,1)에 썼다: 대상 칸 글자 불일치 + 대상 밖 변화
+        rep = self.check(form(), form(cells=("성명", "", "학년", "홍길동")),
+                         [hwpx_gate.CellEdit(0, 0, 1, "홍길동", old_text="")])
+        self.assertEqual(rep.status, "failed")
+
+    def test_cell_edit_checks_old_text_and_inner_objects(self):
+        self.assert_fails(form(), form(cells=("성명", "홍길동", "학년", "")),
+                          [hwpx_gate.CellEdit(0, 0, 1, "홍길동", old_text="다른 글자")], "옛 글자")
+        pic = '<hp:pic id="1"><hp:img binaryItemIDRef="image1"/></hp:pic>'
+        sec = form()["Contents/section0.xml"]
+        before = {"Contents/section0.xml": sec.replace(b'<hp:p id="4" paraPrIDRef="0"><hp:run charPrIDRef="0">',
+                                                       f'<hp:p id="4" paraPrIDRef="0"><hp:run charPrIDRef="0">{pic}'.encode())}
+        self.assertIn(b"hp:pic", before["Contents/section0.xml"])
+        self.assert_fails(before, form(cells=("성명", "홍길동", "학년", "")),
+                          [hwpx_gate.CellEdit(0, 0, 1, "홍길동")], "글자 밖 요소")
+
+    def test_missing_target_is_refused(self):
+        self.assert_fails(form(), form(), [hwpx_gate.CellEdit(3, 0, 0, "x")], "대상 확정 실패")
+        self.assert_fails(form(), form(), [hwpx_gate.CellEdit(0, 5, 0, "x")], "대상 확정 실패")
+
+    def test_field_fill_passes_and_ignores_dirty_flag(self):
+        after = {k: v.replace(b'dirty="0" zorder="-1" ', b'dirty="1" ') for k, v in fields_doc(value="홍길동").items()}
+        rep = self.check(fields_doc(), after, [hwpx_gate.FieldEdit("성명", "홍길동")])
+        self.assertEqual(rep.status, "passed", rep.messages)
+
+    def test_field_fill_rejects_text_moved_into_field(self):
+        # 앞뒤 글자를 비우고 값 자리에 몰아 넣으면 문단 글자열은 같아도 거부한다
+        self.assert_fails(fields_doc(before="앞", value="옛", after="뒤"),
+                          fields_doc(before="", value="앞새뒤", after=""),
+                          [hwpx_gate.FieldEdit("성명", "앞새뒤")], "대상 밖")
+
+    def test_field_fill_rejects_wrong_value_and_other_paragraph_change(self):
+        self.assert_fails(fields_doc(), fields_doc(value="김철수"), [hwpx_gate.FieldEdit("성명", "홍길동")], "요청값")
+        after = {k: v.replace("다른 문단".encode(), b"") for k, v in fields_doc(value="홍길동").items()}
+        self.assert_fails(fields_doc(), after, [hwpx_gate.FieldEdit("성명", "홍길동")], "대상 밖")
+        self.assert_fails(fields_doc(), fields_doc(), [hwpx_gate.FieldEdit("학교", "x")], "대상 확정 실패")
+
+    def test_image_insert_allows_exactly_one_picture_in_anchor_paragraph(self):
+        pic = '<hp:pic id="9"><hp:pos horzOffset="1"/><hp:img binaryItemIDRef="image9"/></hp:pic>'
+        before = form()
+        sec = before["Contents/section0.xml"]
+        anchored = {"Contents/section0.xml": sec.replace(b'<hp:run charPrIDRef="0"><hp:t>\xea\xbc\xac',
+                                                          f'<hp:run charPrIDRef="0">{pic}<hp:t>꼬'.encode())}
+        self.assertNotEqual(anchored["Contents/section0.xml"], sec)
+        ok = self.check(before, anchored, [hwpx_gate.ImageInsert(0, 2)])
+        self.assertEqual(ok.status, "passed", ok.messages)
+        self.assert_fails(before, anchored, [hwpx_gate.ImageInsert(0, 0)], "그림 하나만")
+        blanked = {k: v.replace("머리 문단".encode(), b"") for k, v in anchored.items()}
+        self.assert_fails(before, blanked, [hwpx_gate.ImageInsert(0, 2)], "그림 하나만")
+
+
+class UsedParaPrTests(unittest.TestCase):
+    def test_single_quotes_and_spaces_count_as_used(self):
+        parts = {"Contents/section0.xml": f"<hs:sec {SEC}><hp:p paraPrIDRef = '7'/></hs:sec>".encode(),
+                 "Contents/header.xml": b"<h/>"}
+        self.assertEqual(hwpx_gate.used_parapr_ids(parts), {"7"})
+
+    def test_unparsable_part_means_unknown_and_no_allowance(self):
+        parts = {"Contents/section0.xml": b"<broken", "Contents/header.xml": b"<h/>"}
+        self.assertIsNone(hwpx_gate.used_parapr_ids(parts))
+        before = header(outline_para_pr(16))
+        after = header(outline_para_pr(16, collapsed=True))
+        diff, known = hwpx_gate.split_rhwp_known("Contents/header.xml", before, after, None)
+        self.assertIn("switch", {k[0] for k, (a, b) in diff.items() if b < a})
         self.assertFalse(known)
 
 
