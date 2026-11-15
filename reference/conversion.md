@@ -319,7 +319,7 @@ def wrap_chapter_headings(section_xml, chapter_bf_id, chapter_char_id,
     return pattern.sub(repl, section_xml)
 ```
 
-검증 경로: `hwpx-validate` 통과 + 한컴 COM `Open()` 통과 + 한글 수동 오픈 정상. → 사례
+검증: `hwpx-validate` 통과 + 한글에서 직접 열어 확인(Pandoc 생성물이라 COM으로 처리하지 않는다). → 사례
 
 ### 표 헤더/합계 행 스타일링
 
@@ -458,7 +458,7 @@ def apply_column_widths(section_xml: str, widths_by_table: dict,
 1. **열의 합은 `TABLE_TOTAL_W`(45000)**. 분모 유지 안 하면 `<hp:sz>` 와 불일치해 한글이 재계산.
 2. **모든 행의 cellSz를 같은 colAddr끼리 일치시킬 것**. 일부 행만 바꾸면 한글이 첫 행 기준으로 표시해 나머지 행이 찌그러짐.
 3. **1열 박스 표(장 제목)는 건드리지 않음**. `skip_single_col=True` 기본값 유지.
-4. **검증**: 적용 후 `hwpx-validate` 통과 + COM `Open/SaveAs` 왕복 확인.
+4. **검증**: 적용 후 `hwpx-validate` 통과 + rhwp PDF(`hwpx_edit.py --to-pdf`) 또는 한글에서 직접 열어 확인. Pandoc 생성물이라 COM 왕복은 쓰지 않는다(COM은 본문을 0자로 읽는다, `reference/warnings-com.md` 4번). COM 왕복은 COM으로 만든 문서에만 쓴다.
 
 **적용 사례**: 설문조사 요약 HWPX (표 4개, 2·3열 혼재). 조사 개요 30:70, 8대 지표 70:30, TOP 5 13:67:20, 주제별 언급 70:30 적용 후 가독성 확인.
 
