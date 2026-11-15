@@ -7,7 +7,7 @@ Windows 한컴 이슈(#12·#14·#15·#16)와 hwpx-tomd 0.5.0 밑줄 연결. 버�
 - #15 Windows 실측: `convert/hwp2hwpx.bat`의 두 번째 인자가 기존 폴더(끝 `\` 있음·없음, 한글·공백 경로)면 그 안에 `<입력 이름>.hwpx`, 파일이면 그 이름, 생략이면 `_work-hwpx-automation/`에 생기고 `Done!`·exit 0을 PowerShell·cmd.exe에서 확인해 이슈를 닫았다.
 - #12: 익명 표본 2건을 채워 `--to-hwp`로 만든 HWP를 한컴 2024 COM으로 열어 쪽수·표 수·본문이 원본 HWPX와 같음을 확인했다(실제 회신 양식 확인은 PROGRESS 실기 확인 대기).
 - #14 `hwpx_com.py --append`: 첫 문서 끝에 나머지를 `InsertFile`(`KeepSection=1`)로 붙여 HWPX 한 파일로 저장한다. `BreakPage`를 넣지 않고 커서는 `MovePos(3)`로 옮긴다. 합본을 다시 열어 쪽수·표·그림/그리기 개체 수와 본문 순서를 원본과 대조하고 어긋나면 `.rejected.hwpx`, exit 1. 같은 그림은 한컴이 BinData 하나로 합쳐 저장한다(실측, `reference/warnings-com.md` 17번). 시험 `test_hwpx_com.py`.
-- #16 `hwpx_com.py --print`: `--printer`·`--copies`·`--duplex long|short|none`·`--dry`·`--print-to-file`. 실행 전 계획 한 줄, 드라이버 양면 설정 변경·복원, ASCII 임시 경로로 열기, 대기열 TotalPages 대조(자기 작업만, 스풀 중 관측 제외, 한 부 쪽수만 보이면 unverified, 감시 시간 초과도 결과 줄), 인쇄 직전 프린터 이름 재확인, `PrintToFile=0` 명시, Windows가 바꾼 기본 프린터 복원(실측). SKILL.md "종이 인쇄" 절에 `--dry` 보고 뒤 실행 규칙. 종이 실출력 확인은 BACKLOG.
+- #16 `hwpx_com.py --print`: `--printer`·`--copies`·`--duplex long|short|none`·`--dry`·`--print-to-file`. 실행 전 계획 한 줄, 드라이버 양면 설정 변경·복원, ASCII 임시 경로로 열기, 대기열 TotalPages 대조(자기 작업만, 스풀 중 관측 제외, 한 부 쪽수만 보이면 unverified, 감시 시간 초과도 결과 줄), 인쇄 직전 프린터 이름 재확인, `PrintToFile=0` 명시, Windows가 바꾼 기본 프린터 복원(실측). SKILL.md "종이 인쇄" 절에 `--dry` 보고 뒤 실행 규칙. 종이 프린터 실출력은 위원장이 학교 프린터로 확인한 것으로 판정해 이슈를 닫았다.
 - `--to-md --underline`: hwpx-tomd 0.5.0의 밑줄 표시(`<u>글</u>`, 밑줄 빈칸 `\_`)를 넘긴다. 기본 출력은 그대로. hwpx-tomd 하한 `>=0.5.0`. 시험 `test_to_md_underline.py`.
 - `test_rhwp_integration.py`: CLI 출력을 UTF-8로 읽게 고쳐 Windows에서 cp949 디코딩 오류로 5건이 실패하던 것을 없앴다.
 
