@@ -24,6 +24,7 @@ hwpx_edit.py - HWPX 파일 편집 유틸리티
 import argparse
 import contextlib
 import copy
+import inspect
 import json
 import os
 import re
@@ -511,8 +512,64 @@ def sanitized_source(filepath):
             shutil.rmtree(os.path.dirname(tmp), ignore_errors=True)
 
 
-def cmd_find_replace(filepath, find_text, replace_text, output=None):
-    """텍스트 치환: python-hwpx(본문 런, 서식 보존) + lxml(표 셀 등 누락분 보완)"""
+def _section_parts(path):
+    """HWPX의 section XML들을 (이름, etree) 목록으로 읽는다(진단용, 파싱 실패 구역은 건너뛴다)."""
+    parts = []
+    with zipfile.ZipFile(path) as zf:
+        names = sorted(n for n in zf.namelist()
+                       if re.fullmatch(r'Contents/section\d+\.xml', n))
+        data = {n: zf.read(n) for n in names}
+    sanitize_xml_parts(data)
+    for name in sorted(names, key=lambda n: int(re.search(r'(\d+)', n).group(1))):
+        try:
+            parts.append((name, etree.fromstring(data[name])))
+        except etree.XMLSyntaxError:
+            continue
+    return parts
+
+
+def _diagnose_unmatched(parts, find_text):
+    """0건 치환일 때 원인을 사람이 읽을 줄로 돌려준다.
+
+    문단마다 바로 아래 run들의 글을 이어 붙여 다시 찾는다. 찾히면 run 경계에 걸친 것이므로
+    위치(구역·문단 번호·run 범위·charPrIDRef)를 알려 주고 --cross-run을 안내한다.
+    """
+    hits = []
+    for name, root in parts:
+        for p_no, p in enumerate(root.iter(f'{{{NS["hp"]}}}p'), start=1):
+            runs = p.findall('hp:run', NS)
+            texts = [''.join(''.join(t.itertext()) for t in r.findall('hp:t', NS)) for r in runs]
+            joined = ''.join(texts)
+            start = joined.find(find_text)
+            if start < 0:
+                continue
+            end = start + len(find_text)
+            pos, covered = 0, []
+            for k, text in enumerate(texts):
+                if pos < end and pos + len(text) > start:
+                    covered.append(k)
+                pos += len(text)
+            refs = '/'.join(dict.fromkeys(runs[k].get('charPrIDRef', '?') for k in covered))
+            where = ' (표 칸 안)' if any(a.tag == f'{{{NS["hp"]}}}tc' for a in p.iterancestors()) else ''
+            hits.append(f"{name} {p_no}번째 문단{where}: run {covered[0] + 1}~{covered[-1] + 1}에 걸쳐 있음"
+                        f" (charPrIDRef {refs})")
+    if not hits:
+        return ["문서에서 찾지 못했습니다(탭·줄 바꿈·개체를 사이에 둔 글이거나 머리말·글상자 안 글일 수 있습니다)."]
+    lines = ["run 경계에 걸쳐 있어 기본 치환이 찾지 못했습니다(기본은 run 하나 안의 글만 바꿉니다)."]
+    lines += hits[:10]
+    if len(hits) > 10:
+        lines.append(f"... 외 {len(hits) - 10}곳")
+    lines.append("--cross-run을 붙이면 걸친 말도 바꿉니다(바꾼 글은 첫 run 서식을 따르고 그 문단의 lineseg를 지웁니다).")
+    return lines
+
+
+def cmd_find_replace(filepath, find_text, replace_text, output=None, *,
+                     allow_zero=False, cross_run=False):
+    """텍스트 치환: python-hwpx(본문 런, 서식 보존) + lxml(표 셀 등 누락분 보완).
+
+    0건이면 경고·진단을 stderr에 내고 출력 파일 없이 exit 1(allow_zero면 저장하고 0으로 끝낸다).
+    cross_run이면 python-hwpx everywhere 치환으로 글자 모양이 다른 run에 걸친 말도 바꾼다.
+    """
     from hwpx.document import HwpxDocument
 
     # 암호화 문서는 여기서 막는다. 2차 패스가 부르는 open_hwpx도 같은 검사를 하지만,
@@ -522,7 +579,10 @@ def cmd_find_replace(filepath, find_text, replace_text, output=None):
         print(f"오류: {ENCRYPTION_HINT}", file=sys.stderr)
         sys.exit(1)
 
-    # 1차: python-hwpx (본문 런 대상, 서식 보존, 런 분할 텍스트도 처리)
+    # 1차: python-hwpx (본문 런 대상, 서식 보존). 기본은 run 하나 안의 글만 바꾼다.
+    # 글자 모양이 같아도 run이 나뉘면 걸친 말은 못 찾는다(→ 0건이면 아래 진단).
+    # cross_run이면 everywhere=True: 표·머리말 등까지, run 경계에 걸친 말도 바꾸고
+    # 바꾼 글은 같은 자리의 첫 run 서식을 따르며 바뀐 문단의 lineseg를 지운다(6.9.0 실측).
     #
     # API 이력: 6.0에서 replace_text_in_runs → doc.text.replace로 이동(7.0 제거 예정),
     # save → save_to_path로 개명(6.x에 save 자체가 없음). 구 API를 그대로 쓰면
@@ -553,38 +613,71 @@ def cmd_find_replace(filepath, find_text, replace_text, output=None):
         # isinstance(str) 배제: 구버전에서 doc.text가 본문 문자열이면 str.replace가
         # 잡혀 문서를 고치지 않고 문자열만 반환하는 조용한 실패가 된다.
         text_ns = getattr(doc, 'text', None)
-        if not isinstance(text_ns, str) and hasattr(text_ns, 'replace'):
+        has_ns = not isinstance(text_ns, str) and hasattr(text_ns, 'replace')
+        if cross_run:
+            if not (has_ns and 'everywhere' in inspect.signature(text_ns.replace).parameters):
+                print("오류: --cross-run은 doc.text.replace(everywhere=True)를 지원하는 python-hwpx가 "
+                      "필요합니다(6.9.0에서 확인). pip install -U python-hwpx", file=sys.stderr)
+                sys.exit(1)
+            count_runs = text_ns.replace(find_text, replace_text, everywhere=True)
+        elif has_ns:
             count_runs = text_ns.replace(find_text, replace_text)
         else:
             count_runs = doc.replace_text_in_runs(find_text, replace_text)
         save_path = output if output else get_output_path(filepath)
+        # 1차 결과는 임시 파일에 둔다. 최종 건수가 0이면 출력 파일을 만들지 않기 위해서다.
+        diag_src_parts = _section_parts(src)
+        work_dir = tempfile.mkdtemp(prefix='hwpx_find_')
+        stage = os.path.join(work_dir, 'stage.hwpx')
         save_doc = getattr(doc, 'save_to_path', None) or getattr(doc, 'save')
-        save_doc(save_path)
+        try:
+            save_doc(stage)
+        except BaseException:
+            shutil.rmtree(work_dir, ignore_errors=True)
+            raise
 
     # 2차: lxml으로 1차에서 누락된 <hp:t> 요소만 추가 치환 (표 셀 등)
     # 1차가 이미 치환한 텍스트에는 find_text가 남아있지 않으므로,
     # 여기서 매칭되는 것은 python-hwpx가 접근하지 못한 요소(표 셀 등)뿐임.
     # 단, python-hwpx가 런 구조를 변경하면서 원본 텍스트가 잔존할 수 있으므로
     # replace_text 내에 find_text가 포함되는 경우의 무한 치환도 방지.
-    root, all_files, section_path = open_hwpx(save_path)
-    count_xml = 0
+    # cross_run(everywhere)은 표 칸까지 이미 바꿨으므로 2차를 건너뛴다(바꿀 말이 찾을 말을
+    # 품으면 같은 자리를 두 번 바꾼다).
+    try:
+        root, all_files, section_path = open_hwpx(stage)
+        count_xml = 0
 
-    # 표 내부 <hp:t>만 대상으로 제한하여 본문 런과의 중복 치환 방지
-    tables = root.findall('.//hp:tbl', NS)
-    for tbl in tables:
-        for t_elem in tbl.findall('.//hp:t', NS):
-            if t_elem.text and find_text in t_elem.text:
-                t_elem.text = t_elem.text.replace(find_text, replace_text)
-                count_xml += 1
-    # 표 치환이 0건이어도 **항상** save_hwpx를 태운다. 예전처럼 count_xml > 0에
-    # 걸어 두면 본문에만 매칭된 흔한 경우에 python-hwpx 산출물이 그대로 나가고
-    # sanitize_header(검은 배경)·fix_empty_cells·ZIP 레이아웃 복제가 통째로
-    # 건너뛰어진다. 같은 명령이 "표에 걸렸는가"에 따라 다른 품질을 내면 안 되고,
-    # CLAUDE.md의 "편집은 반드시 save_hwpx()를 통해 저장" 규칙과도 어긋난다.
-    save_hwpx(save_path, root, all_files, section_path, output=save_path)
+        # 표 내부 <hp:t>만 대상으로 제한하여 본문 런과의 중복 치환 방지
+        tables = [] if cross_run else root.findall('.//hp:tbl', NS)
+        for tbl in tables:
+            for t_elem in tbl.findall('.//hp:t', NS):
+                if t_elem.text and find_text in t_elem.text:
+                    t_elem.text = t_elem.text.replace(find_text, replace_text)
+                    count_xml += 1
 
-    total = count_runs + count_xml
-    print(f"'{find_text}' → '{replace_text}': {total}건 치환 완료 (본문 {count_runs} + 표 {count_xml})")
+        total = count_runs + count_xml
+        if total == 0:
+            print(f"경고: 찾을 말 '{find_text}'의 치환이 0건입니다.", file=sys.stderr)
+            for line in _diagnose_unmatched(diag_src_parts, find_text):
+                print(f"  {line}", file=sys.stderr)
+            if not allow_zero:
+                print("  출력 파일을 만들지 않았습니다. 0건이어도 저장하려면 --allow-zero를 붙이세요.",
+                      file=sys.stderr)
+                sys.exit(1)
+            print("  --allow-zero: 원문과 같은 내용으로 출력 파일을 저장합니다.", file=sys.stderr)
+        # 표 치환이 0건이어도 **항상** save_hwpx를 태운다. 예전처럼 count_xml > 0에
+        # 걸어 두면 본문에만 매칭된 흔한 경우에 python-hwpx 산출물이 그대로 나가고
+        # sanitize_header(검은 배경)·fix_empty_cells·ZIP 레이아웃 복제가 통째로
+        # 건너뛰어진다. 같은 명령이 "표에 걸렸는가"에 따라 다른 품질을 내면 안 되고,
+        # CLAUDE.md의 "편집은 반드시 save_hwpx()를 통해 저장" 규칙과도 어긋난다.
+        save_hwpx(stage, root, all_files, section_path, output=save_path)
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
+
+    if cross_run:
+        print(f"'{find_text}' → '{replace_text}': {total}건 치환 완료 (--cross-run, 본문·표·머리말 등 전체)")
+    else:
+        print(f"'{find_text}' → '{replace_text}': {total}건 치환 완료 (본문 {count_runs} + 표 {count_xml})")
 
     # 방금 채운 텍스트가 "한 줄로 입력"(SQUEEZE) 문단에서 과압축되는지 검사
     if total > 0:
@@ -2180,6 +2273,10 @@ def main():
                         help='--to-pdf에서 암호화된 HWPX/HWP를 열 때 사용할 비밀번호')
     parser.add_argument('--find', help='찾을 텍스트')
     parser.add_argument('--replace', help='바꿀 텍스트')
+    parser.add_argument('--allow-zero', action='store_true',
+                        help='--find/--replace가 0건이어도 출력 파일을 저장하고 0으로 끝낸다(기본은 경고 후 exit 1)')
+    parser.add_argument('--cross-run', action='store_true',
+                        help='--find/--replace: 글자 모양이 다른 run에 걸친 말도 바꾼다(한/글 모두 바꾸기처럼 표·머리말 포함, 첫 run 서식)')
     parser.add_argument('--set-cell', nargs=2, metavar=('TABLE,ROW,COL', 'TEXT'),
                         help='표 셀에 텍스트 입력 (예: --set-cell 0,1,0 "텍스트")')
     parser.add_argument('--tables', action='store_true',
@@ -2314,7 +2411,8 @@ def main():
         cmd_to_hwp(args.file, args.output)
         return
     elif args.find is not None and args.replace is not None:
-        cmd_find_replace(args.file, args.find, args.replace, args.output)
+        cmd_find_replace(args.file, args.find, args.replace, args.output,
+                         allow_zero=args.allow_zero, cross_run=args.cross_run)
     elif args.set_cell:
         t, r, c = parse_cell_ref(args.set_cell[0])
         cmd_set_cell(args.file, t, r, c, args.set_cell[1], args.output)

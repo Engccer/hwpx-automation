@@ -39,7 +39,8 @@ doc.save_to_path("output.hwpx")
 > **API 이름(6.0)**: `doc.replace_text_in_runs`는 `doc.text.replace`로 이동했고(구 이름은 7.0에서 제거 예정), 3.x에는 `doc.text`가 없다.
 > `doc.save`는 `doc.save_to_path`로 개명됐다. 여러 판을 지원해야 하면 `hwpx_edit.py`의 `cmd_find_replace`처럼 신 이름 → 구 이름 순으로 폴백한다.
 >
-> **표 셀은 잡히지 않는다**: `doc.text.replace`도 `replace_text_in_runs`도 **표 셀 안 텍스트는 0건**이다.
+> **표 셀은 잡히지 않는다**: `doc.text.replace`도 `replace_text_in_runs`도 **표 셀 안 텍스트는 0건**이다(기본값, run 하나 안의 글만 본다).
+> `doc.text.replace(..., everywhere=True)`(6.9.0 확인)는 표 칸·머리말까지, 글자 모양이 다른 run에 걸친 말도 바꾼다(`--cross-run`이 이것을 쓴다).
 > 표까지 치환하려면 lxml로 `hp:tbl` 하위 `hp:t`를 따로 순회해야 한다.
 > `hwpx_edit.py --find/--replace`가 이미 그 2단 구성으로 처리하므로 직접 스크립트를 짜기 전에 CLI를 먼저 쓸 것.
 
