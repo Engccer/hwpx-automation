@@ -1,5 +1,15 @@
 # 변경 이력
 
+## 2026-11-15
+
+이슈 정리(#11·#12·#13·#15). 버전 1.5.1 → 1.6.0.
+
+- #11 `--find/--replace`: 0건이면 stderr에 경고와 위치 진단(문단마다 run 글을 이어 붙여 다시 찾아 구역·문단 번호·run 범위·charPrIDRef)을 내고 출력 파일 없이 exit 1로 끝난다. `--allow-zero`면 저장하고 0으로 끝난다. `--cross-run`을 추가했다: python-hwpx `doc.text.replace(everywhere=True)`로 글자 모양이 다른 run에 걸친 말도 바꾸고(첫 run 서식, 일치 구간 밖 글 보존, 바뀐 문단 lineseg 제거, 6.9.0 실측) lxml 표 패스는 건너뛴다. 기본 치환은 run 하나 안의 글만 본다는 실제 범위로 주석·SKILL.md·`reference/warnings-editing.md` 1번·`reference/api.md`를 고쳤다. 시험 `test_find_replace.py`.
+- #13 `reference/conversion.md`: Pandoc 생성물 후처리(표 열 너비·장 제목 박스)의 검증을 COM 왕복 대신 `hwpx-validate` + rhwp PDF 또는 한글 직접 열기로 고쳤다. COM 왕복은 COM으로 만든 문서에만 쓴다.
+- #15 `convert/hwp2hwpx.sh`·`.bat`: 두 번째 인자가 기존 폴더면 그 안에 `<입력 이름>.hwpx`로 저장한다. `.sh`는 가짜 java 시험 `test_hwp2hwpx_wrapper.py`와 실제 JAR로 확인했고 `.bat`은 Windows 실측 대기(BACKLOG).
+- #12: `--to-hwp`(rhwp 경로, M5)로 대체 구현된 것을 문서에 잇는다. SKILL.md 양식 채우기 10단계("원본이 HWP면 `--to-hwp`로 돌려준다"), 결과물 표 행, `reference/com.md` `SaveAs(..., 'HWP', '')` 예시, PROGRESS 실기 확인 대기에 `--to-hwp` 산출물 한글 열림 확인을 넣었다.
+- BACKLOG에 열린 이슈 #14·#16·#15 Windows 실측과 착수 순서 표를 등재했다.
+
 ## 2026-10-28
 
 rhwp 중심 재설계. 플랜 `docs/plans/2026-10-28-rhwp-redesign.md`, 병렬 계획 `docs/plans/2026-10-28-rhwp-parallel-plan.md`.

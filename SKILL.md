@@ -2,7 +2,7 @@
 name: hwpx-automation
 description: "HWP/HWPX 문서 읽기, 변환, 편집을 위한 통합 워크플로우. HWP 또는 HWPX 파일을 다룰 때 사용. HWP 파일은 모두 HWPX로 변환 후 처리한다. 트리거: (1) HWP/HWPX 파일 읽기/파싱 요청 (2) HWP→HWPX 변환 요청 (3) HWPX 문서 편집(텍스트 치환, 표 셀 채우기, 양식 작성) (4) 한글 문서 템플릿 기반 자동화 작업 (5) HWPX 구조적 편집(행/표/단락 추가) (6) HWPX에 이미지 삽입 (7) HWPX→PDF 변환 (8) 한컴 COM 자동화 (9) HWPX 서명란에 서명·도장 이미지 삽입(signature/seal/도장 삽입, 동의서·계약서·서약서 서명)"
 metadata:
-    version: "1.5.1"
+    version: "1.6.0"
 ---
 
 # HWP/HWPX 작업 자동화 스킬
@@ -142,6 +142,7 @@ HWP/HWPX 작업 요청
 |--------|------|----------------------|----------------------------------|
 | HWP | 읽기 →md | `<이름>.md` | `<이름>.hwpx`(변환 중간물) |
 | HWP | 편집 →HWPX | `<이름>.hwpx`(편집본) | 변환·단계별 중간 HWPX |
+| HWP | 편집 →HWP로 돌려주기 | `--to-hwp` 배포용 `<이름>.hwp`(정본 HWPX도 함께 둔다) | 변환·단계별 중간 HWPX |
 | HWPX | 읽기 →md | `<이름>.md` | (없음) |
 | HWPX | 편집 | 편집본 HWPX | 단계별 중간본 |
 | HWPX/HWP | →PDF | `<이름>.pdf` | (PDF가 최종이면 없음) |
@@ -178,8 +179,10 @@ python hwpx_edit.py <파일.hwpx> --to-md --merge-fill [-o output.md]
 # 표 구조 확인 (표 개수, 행/열 수, 셀 내용 미리보기)
 python hwpx_edit.py <파일.hwpx> --info
 
-# 텍스트 치환 (본문 + 표 셀 모두 처리)
+# 텍스트 치환 (본문 + 표 셀 모두 처리. run 하나 안의 글만 찾는다)
 python hwpx_edit.py <파일.hwpx> --find "이전" --replace "이후"
+# 0건이면 경고·위치 진단 후 출력 없이 exit 1(--allow-zero면 저장). 진단이 "run k~m에 걸쳐 있음"이면
+# --cross-run을 붙인다(글자 모양이 다른 run에 걸친 말도 바꾼다. 서식은 첫 run을 따른다. reference/warnings-editing.md 1번)
 
 # 표 셀에 텍스트 입력 (표번호,행번호,셀번호, 0부터 시작)
 python hwpx_edit.py <파일.hwpx> --set-cell 0,1,0 "텍스트"
@@ -309,11 +312,11 @@ python hwpx_edit.py <입력.hwp> --to-md                         # 다른 명령
 `--engine jar`는 아래 래퍼를 부르고 `--add-preview` 보정까지 한 번에 한다. 래퍼를 직접 부를 때는 아래 규칙을 지킨다.
 
 ```bash
-convert/hwp2hwpx.bat <입력.hwp> [출력.hwpx]        # Windows (PowerShell에서 호출)
-bash convert/hwp2hwpx.sh <입력.hwp> [출력.hwpx]    # macOS/Linux
+convert/hwp2hwpx.bat <입력.hwp> [출력.hwpx|폴더]   # Windows (PowerShell에서 호출)
+bash convert/hwp2hwpx.sh <입력.hwp> [출력.hwpx|폴더]  # macOS/Linux
 ```
 
-- 출력 파일 미지정 시 입력 폴더의 `_work-hwpx-automation/` 하위에 `.hwpx`로 생성(원본 비파괴). HWPX가 이후 단계의 입력일 뿐이면 부산물이므로 거기 두고, HWP→HWPX 변환 자체가 목적이면 작업 폴더로 옮긴다(위 "작업 마무리" 참조). 출력 경로를 직접 지정하려면 두 번째 인자로 명시
+- 출력 파일 미지정 시 입력 폴더의 `_work-hwpx-automation/` 하위에 `.hwpx`로 생성(원본 비파괴). HWPX가 이후 단계의 입력일 뿐이면 부산물이므로 거기 두고, HWP→HWPX 변환 자체가 목적이면 작업 폴더로 옮긴다(위 "작업 마무리" 참조). 출력 경로를 직접 지정하려면 두 번째 인자로 명시한다. 두 번째 인자는 파일 경로(`출력.hwpx`)나 기존 폴더이고, 폴더면 그 안에 `<입력 이름>.hwpx`로 저장한다
 - Java 기반(hwplib + hwpxlib). rhwp 변환물의 교차 대조 기준이기도 하다
 - 요구사항: JDK 21. 두 래퍼 모두 `JAVA_HOME` → (Windows는 Adoptium 표준 설치 →) PATH 순으로 java를 자동 탐색
 - **JDK 없는 Windows 폴백**: 한컴오피스가 있으면 `python hwpx_com.py <입력.hwp> --from-hwp [-o 출력.hwpx]`로 COM 변환(변환 후 본문 글자 수 재검증 내장). JDK 설치 전까지의 우회이며, 연속·배치 호출 전에는 잔류 `Hwp.exe`를 정리할 것(`reference/warnings-com.md` 9번)
@@ -344,6 +347,7 @@ MD 등을 `hwpx_convert.py`로 변환할 때 `reference/conversion.md`의 같은
 7. **무결성 검증**: `hwpx-validate result.hwpx` (JAR 래퍼 변환물이면 PrvText 누락 실패는 무해, 위 "JAR 폴백")
 8. **쪽수 드리프트 감지**: `hwpx-page-guard --reference output.hwpx --output result.hwpx`
 9. **내용 확인**: `--to-md`로 최종 텍스트 검증. 서식이 중요한 문서는 `--to-pdf`로 렌더링 육안 확인(과압축·겹침은 텍스트 검증으로는 안 잡힌다)
+10. **원본이 HWP면 HWP로 돌려준다**: `hwpx_edit.py result.hwpx --to-hwp [-o 양식.hwp]`(배포용 사본, 정본은 HWPX. 왕복 대조에 실패하면 한컴 "다른 이름으로 저장" 안내를 따른다)
 
 ## python-hwpx API: 주요 패턴
 

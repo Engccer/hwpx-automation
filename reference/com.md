@@ -114,6 +114,7 @@ hwp.Open(os.path.abspath('input.hwpx'), 'HWPX', '')
 # ... 작업 ...
 hwp.SaveAs(os.path.abspath('output.hwpx'), 'HWPX', '')
 hwp.SaveAs(os.path.abspath('output.pdf'), 'PDF', '')
+hwp.SaveAs(os.path.abspath('output.hwp'), 'HWP', '')  # 배포용 HWP(기본 경로는 hwpx_edit.py --to-hwp, COM은 그 대조가 실패할 때 폴백)
 hwp.Quit()
 pythoncom.CoUninitialize()
 ```
