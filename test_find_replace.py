@@ -1,4 +1,7 @@
 """--find/--replace: 0건은 경고·exit 1, run 경계 걸침 진단, --allow-zero, --cross-run (이슈 #11)."""
+import contextlib
+import inspect
+import io
 from pathlib import Path
 import re
 import subprocess
@@ -8,6 +11,8 @@ import unittest
 import zipfile
 
 from hwpx.document import HwpxDocument
+
+import hwpx_edit
 
 HERE = Path(__file__).resolve().parent
 CLI = HERE / 'hwpx_edit.py'
@@ -27,7 +32,7 @@ SAME_STYLE_PARA = (
 )
 
 
-def make_doc(path, *, table_text=None):
+def make_doc(path, *, table_text=None, patch=None):
     """python-hwpx 새 문서의 자리표 문단을 run 경계 걸침 문단 둘로 바꾼다."""
     doc = HwpxDocument.new()
     doc.add_paragraph('PLACEHOLDER')
@@ -42,6 +47,8 @@ def make_doc(path, *, table_text=None):
     sec, n = re.subn(r'<hp:p [^>]*><hp:run charPrIDRef="0"><hp:t>PLACEHOLDER</hp:t></hp:run></hp:p>',
                      lambda _m: CROSS_PARA + SAME_STYLE_PARA, sec)
     assert n == 1
+    if patch:
+        sec = patch(sec)
     files['Contents/section0.xml'] = sec.encode('utf-8')
     with zipfile.ZipFile(path, 'w') as out:
         for name in names:
@@ -100,7 +107,7 @@ class FindReplaceTests(unittest.TestCase):
         make_doc(self.src)
         r = self.run_cli('--find', '없는 말', '--replace', 'X')
         self.assertEqual(r.returncode, 1)
-        self.assertIn('문서에서 찾지 못했습니다', r.stderr)
+        self.assertIn('본문·표에서 찾지 못했습니다', r.stderr)
         self.assertFalse(self.out.exists())
 
     def test_allow_zero_saves_and_exits_zero(self):
@@ -129,6 +136,55 @@ class FindReplaceTests(unittest.TestCase):
         xml = section(self.out)
         self.assertIn('표 안 AB', xml)
         self.assertNotIn('표 안 ABB', xml)
+
+
+    def test_zero_without_output_leaves_no_work_folder(self):
+        make_doc(self.src)
+        r = subprocess.run([sys.executable, str(CLI), str(self.src), '--find', '없는 말', '--replace', 'X'],
+                           capture_output=True, text=True, encoding='utf-8')
+        self.assertEqual(r.returncode, 1)
+        self.assertFalse((self.dir / '_work-hwpx-automation').exists())
+
+    def test_tab_between_words_is_not_reported_as_run_boundary(self):
+        make_doc(self.src, patch=lambda sec: sec.replace('<hp:t>같은 모양 앞</hp:t>',
+                                                         '<hp:t>탭앞<hp:tab/>탭뒤</hp:t>'))
+        r = self.run_cli('--find', '탭앞탭뒤', '--replace', 'X')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('찾지 못했습니다', r.stderr)
+        self.assertNotIn('걸쳐 있음', r.stderr)
+
+    def test_table_text_after_tab_is_reported_inside_one_run(self):
+        # 2차 lxml 표 패스는 t.text만 보므로 탭 뒤 글은 놓친다. 진단은 run 경계라고 하지 않는다.
+        make_doc(self.src, table_text='표 안 A',
+                 patch=lambda sec: sec.replace('<hp:t>표 안 A</hp:t>', '<hp:t>A<hp:tab/>목표</hp:t>'))
+        r = self.run_cli('--find', '목표', '--replace', 'X')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('(표 칸 안): run 1 안', r.stderr)
+        self.assertNotIn('걸쳐 있음', r.stderr)
+        self.assertIn('--cross-run', r.stderr)
+
+    def test_cross_run_zero_does_not_suggest_cross_run_again(self):
+        make_doc(self.src, patch=lambda sec: sec.replace('<hp:t>같은 모양 앞</hp:t>',
+                                                         '<hp:t>탭앞<hp:tab/>탭뒤</hp:t>'))
+        r = self.run_cli('--find', '탭앞탭뒤', '--replace', 'X', '--cross-run')
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn('--cross-run을 붙이면', r.stderr)
+
+    def test_cross_run_refuses_python_hwpx_without_everywhere(self):
+        make_doc(self.src)
+        err = io.StringIO()
+        with mock_signature_without_everywhere(), contextlib.redirect_stderr(err), \
+                self.assertRaises(SystemExit) as cm:
+            hwpx_edit.cmd_find_replace(str(self.src), 'CCC를 홍보할', 'Y', str(self.out), cross_run=True)
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn('everywhere', err.getvalue())
+        self.assertFalse(self.out.exists())
+
+
+def mock_signature_without_everywhere():
+    from unittest import mock
+    return mock.patch.object(hwpx_edit.inspect, 'signature',
+                             return_value=inspect.Signature([inspect.Parameter('search', inspect.Parameter.POSITIONAL_OR_KEYWORD)]))
 
 
 if __name__ == '__main__':

@@ -61,7 +61,7 @@
 ### 장 제목 박스 (표 박스 래퍼) 삽입
 
 - `<hp:ctrl>` 래퍼 크래시·빈 subList id·heading 매핑은 2026-04 실측 확인. 다른 템플릿(중집위 회의자료)에서는 `##`→4 매핑을 봤다.
-- 검증 경로(`hwpx-validate` + COM `Open()` + 한글 수동 오픈)는 다건 MD→HWPX 변환 작업에서 확인.
+- 검증 경로(`hwpx-validate` + COM `Open()` + 한글 수동 오픈)는 다건 MD→HWPX 변환 작업에서 확인. 지금 규칙은 Pandoc 생성물을 COM으로 처리하지 않는다(`reference/warnings-com.md` 4번).
 
 ### 표 헤더/합계 행 스타일링
 

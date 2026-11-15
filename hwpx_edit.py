@@ -528,17 +528,31 @@ def _section_parts(path):
     return parts
 
 
-def _diagnose_unmatched(parts, find_text):
+_DIAG_BREAK = '\x00'  # 탭·줄 바꿈 등 t 안의 인라인 요소 자리. 이것을 사이에 둔 말은 한 말로 보지 않는다
+
+
+def _run_text(run):
+    parts = []
+    for t in run.findall('hp:t', NS):
+        parts.append(t.text or '')
+        for child in t:
+            parts.append(_DIAG_BREAK)
+            parts.append(child.tail or '')
+    return ''.join(parts)
+
+
+def _diagnose_unmatched(parts, find_text, *, cross_run=False):
     """0건 치환일 때 원인을 사람이 읽을 줄로 돌려준다.
 
-    문단마다 바로 아래 run들의 글을 이어 붙여 다시 찾는다. 찾히면 run 경계에 걸친 것이므로
-    위치(구역·문단 번호·run 범위·charPrIDRef)를 알려 주고 --cross-run을 안내한다.
+    문단마다 바로 아래 run들의 글을 이어 붙여 다시 찾는다(탭·줄 바꿈 자리는 끊는다).
+    여러 run에 걸쳤으면 run 경계, run 하나 안이면 기본 치환이 닿지 않는 자리로 나눠
+    위치(구역·문단 번호·run 범위·charPrIDRef)를 알린다. cross_run이면 --cross-run 안내는 뺀다.
     """
-    hits = []
+    spans, inside = [], []
     for name, root in parts:
         for p_no, p in enumerate(root.iter(f'{{{NS["hp"]}}}p'), start=1):
             runs = p.findall('hp:run', NS)
-            texts = [''.join(''.join(t.itertext()) for t in r.findall('hp:t', NS)) for r in runs]
+            texts = [_run_text(r) for r in runs]
             joined = ''.join(texts)
             start = joined.find(find_text)
             if start < 0:
@@ -551,15 +565,24 @@ def _diagnose_unmatched(parts, find_text):
                 pos += len(text)
             refs = '/'.join(dict.fromkeys(runs[k].get('charPrIDRef', '?') for k in covered))
             where = ' (표 칸 안)' if any(a.tag == f'{{{NS["hp"]}}}tc' for a in p.iterancestors()) else ''
-            hits.append(f"{name} {p_no}번째 문단{where}: run {covered[0] + 1}~{covered[-1] + 1}에 걸쳐 있음"
-                        f" (charPrIDRef {refs})")
-    if not hits:
-        return ["문서에서 찾지 못했습니다(탭·줄 바꿈·개체를 사이에 둔 글이거나 머리말·글상자 안 글일 수 있습니다)."]
-    lines = ["run 경계에 걸쳐 있어 기본 치환이 찾지 못했습니다(기본은 run 하나 안의 글만 바꿉니다)."]
-    lines += hits[:10]
-    if len(hits) > 10:
-        lines.append(f"... 외 {len(hits) - 10}곳")
-    lines.append("--cross-run을 붙이면 걸친 말도 바꿉니다(바꾼 글은 첫 run 서식을 따르고 그 문단의 lineseg를 지웁니다).")
+            if len(covered) > 1:
+                spans.append(f"{name} {p_no}번째 문단{where}: run {covered[0] + 1}~{covered[-1] + 1}에 걸쳐 있음"
+                             f" (charPrIDRef {refs})")
+            else:
+                inside.append(f"{name} {p_no}번째 문단{where}: run {covered[0] + 1} 안 (charPrIDRef {refs})")
+    if not spans and not inside:
+        return ["문서 본문·표에서 찾지 못했습니다(탭·줄 바꿈·개체를 사이에 둔 글이거나 머리말·글상자 안 글일 수 있습니다)."]
+    lines = []
+    if spans:
+        lines.append("run 경계에 걸쳐 있어 기본 치환이 찾지 못했습니다(기본은 run 하나 안의 글만 바꿉니다).")
+        lines += spans[:10] + ([f"... 외 {len(spans) - 10}곳"] if len(spans) > 10 else [])
+    if inside:
+        lines.append("run 하나 안에 있지만 기본 치환이 닿지 않는 자리입니다"
+                     "(탭·줄 바꿈 뒤 표 칸 글, 둘째 구역 이후 표 칸 등).")
+        lines += inside[:10] + ([f"... 외 {len(inside) - 10}곳"] if len(inside) > 10 else [])
+    if not cross_run:
+        lines.append("--cross-run을 붙이면 이런 자리와 run에 걸친 말도 바꿉니다"
+                     "(바꾼 글은 첫 run 서식을 따르고 그 문단의 lineseg를 지웁니다).")
     return lines
 
 
@@ -624,9 +647,8 @@ def cmd_find_replace(filepath, find_text, replace_text, output=None, *,
             count_runs = text_ns.replace(find_text, replace_text)
         else:
             count_runs = doc.replace_text_in_runs(find_text, replace_text)
-        save_path = output if output else get_output_path(filepath)
-        # 1차 결과는 임시 파일에 둔다. 최종 건수가 0이면 출력 파일을 만들지 않기 위해서다.
-        diag_src_parts = _section_parts(src)
+        # 1차 결과는 임시 파일에 둔다. 최종 건수가 0이면 출력 파일(과 기본 출력 폴더)을
+        # 만들지 않기 위해서다. 출력 경로는 건수 판정 뒤에 정한다.
         work_dir = tempfile.mkdtemp(prefix='hwpx_find_')
         stage = os.path.join(work_dir, 'stage.hwpx')
         save_doc = getattr(doc, 'save_to_path', None) or getattr(doc, 'save')
@@ -658,7 +680,7 @@ def cmd_find_replace(filepath, find_text, replace_text, output=None, *,
         total = count_runs + count_xml
         if total == 0:
             print(f"경고: 찾을 말 '{find_text}'의 치환이 0건입니다.", file=sys.stderr)
-            for line in _diagnose_unmatched(diag_src_parts, find_text):
+            for line in _diagnose_unmatched(_section_parts(filepath), find_text, cross_run=cross_run):
                 print(f"  {line}", file=sys.stderr)
             if not allow_zero:
                 print("  출력 파일을 만들지 않았습니다. 0건이어도 저장하려면 --allow-zero를 붙이세요.",
@@ -670,6 +692,7 @@ def cmd_find_replace(filepath, find_text, replace_text, output=None, *,
         # sanitize_header(검은 배경)·fix_empty_cells·ZIP 레이아웃 복제가 통째로
         # 건너뛰어진다. 같은 명령이 "표에 걸렸는가"에 따라 다른 품질을 내면 안 되고,
         # CLAUDE.md의 "편집은 반드시 save_hwpx()를 통해 저장" 규칙과도 어긋난다.
+        save_path = output if output else get_output_path(filepath)
         save_hwpx(stage, root, all_files, section_path, output=save_path)
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)

@@ -319,7 +319,7 @@ def wrap_chapter_headings(section_xml, chapter_bf_id, chapter_char_id,
     return pattern.sub(repl, section_xml)
 ```
 
-검증: `hwpx-validate` 통과 + 한글에서 직접 열어 확인(Pandoc 생성물이라 COM으로 처리하지 않는다). → 사례
+검증: `hwpx-validate` 통과 + rhwp PDF(`hwpx_edit.py --to-pdf`) 또는 한글에서 직접 열어 확인(Pandoc 생성물이라 COM으로 처리하지 않는다). → 사례
 
 ### 표 헤더/합계 행 스타일링
 

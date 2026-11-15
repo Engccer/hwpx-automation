@@ -22,7 +22,7 @@ INPUT="${1:-}"
 OUTPUT="${2:-}"
 
 if [ -z "$INPUT" ]; then
-    echo "Usage: $(basename -- "$0") <input.hwp> [output.hwpx]" >&2
+    echo "Usage: $(basename -- "$0") <input.hwp> [output.hwpx | output-folder]" >&2
     exit 2
 fi
 
