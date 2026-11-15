@@ -102,7 +102,8 @@ class GridIntegration(unittest.TestCase):
 
     def cli(self, *argv):
         return subprocess.run([sys.executable, str(EDIT), *map(str, argv)], capture_output=True,
-                              text=True, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+                              text=True, encoding="utf-8",
+                              env=dict(os.environ, PYTHONIOENCODING="utf-8"))
 
     @unittest.skipUnless(HAS_ALLOW_RHWP, "hwpx_gate.gate(allow_rhwp=)는 세션 sign의 M3 통합 뒤")
     def test_grid_set_cell_then_tables_shows_value_and_gate_passes(self):

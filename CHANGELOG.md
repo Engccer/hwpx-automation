@@ -2,6 +2,17 @@
 
 ## 2026-11-15
 
+Windows 한컴 이슈(#12·#14·#15·#16)와 hwpx-tomd 0.5.0 밑줄 연결. 버전 1.6.0 → 1.7.0.
+
+- #15 Windows 실측: `convert/hwp2hwpx.bat`의 두 번째 인자가 기존 폴더(끝 `\` 있음·없음, 한글·공백 경로)면 그 안에 `<입력 이름>.hwpx`, 파일이면 그 이름, 생략이면 `_work-hwpx-automation/`에 생기고 `Done!`·exit 0을 PowerShell·cmd.exe에서 확인해 이슈를 닫았다.
+- #12: 익명 표본 2건을 채워 `--to-hwp`로 만든 HWP를 한컴 2024 COM으로 열어 쪽수·표 수·본문이 원본 HWPX와 같음을 확인했다(실제 회신 양식 확인은 PROGRESS 실기 확인 대기).
+- #14 `hwpx_com.py --append`: 첫 문서 끝에 나머지를 `InsertFile`(`KeepSection=1`)로 붙여 HWPX 한 파일로 저장한다. `BreakPage`를 넣지 않고 커서는 `MovePos(3)`로 옮긴다. 합본을 다시 열어 쪽수·표·그림/그리기 개체 수와 본문 순서를 원본과 대조하고 어긋나면 `.rejected.hwpx`, exit 1. 같은 그림은 한컴이 BinData 하나로 합쳐 저장한다(실측, `reference/warnings-com.md` 17번). 시험 `test_hwpx_com.py`.
+- #16 `hwpx_com.py --print`: `--printer`·`--copies`·`--duplex long|short|none`·`--dry`·`--print-to-file`. 실행 전 계획 한 줄, 드라이버 양면 설정 변경·복원, ASCII 임시 경로로 열기, 대기열 TotalPages 대조(스풀 중 관측 제외, 드라이버가 부수를 맡으면 한 부 쪽수), Windows가 바꾼 기본 프린터 복원(실측). SKILL.md "종이 인쇄" 절에 `--dry` 보고 뒤 실행 규칙. 종이 실출력 확인은 BACKLOG.
+- `--to-md --underline`: hwpx-tomd 0.5.0의 밑줄 표시(`<u>글</u>`, 밑줄 빈칸 `\_`)를 넘긴다. 기본 출력은 그대로. hwpx-tomd 하한 `>=0.5.0`. 시험 `test_to_md_underline.py`.
+- `test_rhwp_integration.py`: CLI 출력을 UTF-8로 읽게 고쳐 Windows에서 cp949 디코딩 오류로 5건이 실패하던 것을 없앴다.
+
+## 2026-11-15 (이슈 정리)
+
 이슈 정리(#11·#12·#13·#15). 버전 1.5.1 → 1.6.0.
 
 - #11 `--find/--replace`: 0건이면 stderr에 경고와 위치 진단(문단마다 run 글을 이어 붙여 다시 찾아 구역·문단 번호·run 범위·charPrIDRef)을 내고 출력 파일 없이 exit 1로 끝난다. `--allow-zero`면 저장하고 0으로 끝난다. `--cross-run`을 추가했다: python-hwpx `doc.text.replace(everywhere=True)`로 글자 모양이 다른 run에 걸친 말도 바꾸고(첫 run 서식, 일치 구간 밖 글 보존, 바뀐 문단 lineseg 제거, 6.9.0 실측) lxml 표 패스는 건너뛴다. 기본 치환은 run 하나 안의 글만 본다는 실제 범위로 주석·SKILL.md·`reference/warnings-editing.md` 1번·`reference/api.md`를 고쳤다. 시험 `test_find_replace.py`.
