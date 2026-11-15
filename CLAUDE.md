@@ -84,6 +84,7 @@ python hwpx_com.py <파일.hwpx> --insert-image img.png       # 문서 끝 이�
 python hwpx_com.py <파일.hwpx> --normalize                  # 한컴 재저장 정규화 (python-hwpx 산출물, 별도 파일)
 python hwpx_com.py <파일.hwpx> --get-text                   # COM 기준 본문 추출 (호환성 점검)
 python hwpx_com.py <파일.hwpx> --to-pdf                     # PDF 저장
+python hwpx_com.py <첫.hwpx> --append <둘.hwp> <셋.hwpx>      # 여러 문서를 한 파일로 (쪽수·표·그림 수 대조, 쪽 나눔 금지)
 ```
 
 ### hwpx_sign.py

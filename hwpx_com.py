@@ -21,6 +21,7 @@ import re
 import sys
 
 BODY_HEIGHT_PT = 10          # 본문 글자 크기 (바탕글 기본값)
+BYPRODUCT_DIR = "_work-hwpx-automation"
 HEADING_HEIGHT_PT = {1: 16, 2: 14, 3: 12}
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -338,6 +339,101 @@ def cmd_from_hwp(filepath, output=None, password=None):
     print("권장: hwpx_edit.py의 --to-md 자가검증(recall)으로 변환 품질을 확인하세요.")
 
 
+def doc_stats(hwp):
+    """현재 문서의 쪽수·표 수·그리기 개체(그림 포함) 수·본문."""
+    tables = shapes = 0
+    ctrl = hwp.hwp.HeadCtrl
+    while ctrl:
+        if ctrl.CtrlID == "tbl":
+            tables += 1
+        elif ctrl.CtrlID == "gso":
+            shapes += 1
+        ctrl = ctrl.Next
+    return {"pages": hwp.PageCount, "tables": tables, "shapes": shapes,
+            "text": extract_full_text(hwp)}
+
+
+def _squash(text):
+    return re.sub(r"\s+", "", text)
+
+
+def check_merge(parts, merged):
+    """합본 통계가 원본 합과 같은지. 어긋난 항목 설명 목록(빈 목록이면 통과)."""
+    problems = []
+    for key, label in (("pages", "쪽수"), ("tables", "표"), ("shapes", "그림·그리기 개체")):
+        want = sum(p[key] for p in parts)
+        if merged[key] != want:
+            problems.append(f"{label} {merged[key]} (원본 합 {want})")
+    if _squash(merged["text"]) != "".join(_squash(p["text"]) for p in parts):
+        problems.append("본문 글자(공백 제외)가 원본을 차례로 이은 것과 다름")
+    return problems
+
+
+def cmd_append(filepath, others, output=None, password=None):
+    """첫 문서 끝에 나머지 문서를 차례로 이어 붙여 HWPX 한 파일로 저장 (이슈 #14).
+
+    InsertFile(KeepSection=1)이 문서마다 구역을 새로 열어 쪽을 넘기므로
+    BreakPage를 넣지 않는다(넣으면 빈 쪽이 낀다). 저장 뒤 합본을 다시 열어
+    쪽수·표·그리기 개체 수가 원본 합과 같고 본문이 원본을 차례로 이은 것과
+    같은지 대조하고, 어긋나면 `<출력>.rejected.hwpx`로 옮기고 exit 1.
+    """
+    files = [os.path.abspath(f) for f in [filepath, *others]]
+    for f in files:
+        if not os.path.exists(f):
+            raise SystemExit(f"오류: 파일이 없습니다: {f}")
+    defaulted = output is None
+    if defaulted:
+        stem = os.path.splitext(os.path.basename(filepath))[0]
+        output = os.path.join(os.path.dirname(files[0]), BYPRODUCT_DIR, f"{stem}_합본.hwpx")
+    abs_output = os.path.abspath(output)
+    if not abs_output.lower().endswith(".hwpx"):
+        raise SystemExit("오류: 출력 파일은 .hwpx 확장자여야 합니다.")
+    if abs_output in files:
+        raise SystemExit("오류: 입력과 같은 경로로는 저장할 수 없습니다 (in-place 금지).")
+    if defaulted and os.path.exists(abs_output):
+        raise SystemExit(f"오류: 기본 출력 경로에 파일이 이미 있습니다: {abs_output}\n"
+                         "  덮어쓰려면 -o로 경로를 명시하세요.")
+    os.makedirs(os.path.dirname(abs_output), exist_ok=True)
+
+    hwp = create_hwp(visible=False)
+    try:
+        parts = []
+        for f in files:
+            open_for_com(hwp, f, password)
+            stats = doc_stats(hwp)
+            if not stats["text"].strip():
+                raise SystemExit(f"오류: COM이 본문을 0자로 읽었습니다: {f}\n"
+                                 "  Pandoc 생성물은 합치지 않습니다 (warnings-com.md 4번).")
+            parts.append(stats)
+        open_for_com(hwp, files[0], password)
+        for f in files[1:]:
+            # MovePos(3)=파일 끝. MoveDocEnd(HAction.Run)는 한컴 판에 따라 무시된다(warnings-com.md 16번)
+            hwp.hwp.MovePos(3, 0, 0)
+            if not hwp.insert_file(f, keep_section=1, keep_charshape=1,
+                                   keep_parashape=1, keep_style=1):
+                raise SystemExit(f"오류: 한컴 COM이 이어 붙이지 못했습니다: {f}")
+        if not hwp.save_as(abs_output, format="HWPX"):
+            raise SystemExit(f"오류: HWPX 저장 실패: {abs_output}")
+        open_for_com(hwp, abs_output)
+        merged = doc_stats(hwp)
+    finally:
+        hwp.clear(1)
+        hwp.quit()
+
+    for i, (f, p) in enumerate(zip(files, parts), 1):
+        print(f"  {i}. {os.path.basename(f)}: {p['pages']}쪽, 표 {p['tables']}, 그림·그리기 개체 {p['shapes']}")
+    problems = check_merge(parts, merged)
+    if problems:
+        rejected = os.path.splitext(abs_output)[0] + ".rejected.hwpx"
+        os.replace(abs_output, rejected)
+        print("오류: 합본 대조 실패: " + "; ".join(problems), file=sys.stderr)
+        print(f"  합본은 {rejected}에 남겼습니다. 결과물로 쓰지 마세요.", file=sys.stderr)
+        sys.exit(1)
+    print(f"합치기 완료: {abs_output} ({len(files)}개 문서, {merged['pages']}쪽, "
+          f"표 {merged['tables']}, 그림·그리기 개체 {merged['shapes']}, 원본 합과 일치)")
+    print("engine=com")
+
+
 def cmd_to_pdf(filepath, output=None, password=None):
     """HWP/HWPX → PDF (한컴 COM SaveAs)."""
     if output is None:
@@ -372,6 +468,7 @@ def main():
   %(prog)s doc.hwpx --normalize -o final.hwpx       # 한컴 재저장 정규화 (인쇄 직전 마무리)
   %(prog)s doc.hwp --from-hwp                       # HWP → HWPX 변환 (JDK 없는 기기 폴백)
   %(prog)s doc.hwpx --to-pdf                        # PDF 저장
+  %(prog)s a.hwpx --append b.hwp c.hwpx -o 합본.hwpx  # 여러 문서를 한 파일로 (쪽수·개체 대조)
 주의: 입력 파일은 절대 in-place로 덮어쓰지 않는다. Pandoc 생성 HWPX는
       COM이 본문을 0자로 읽으므로(--get-text로 확인) 이 파이프라인에 넣지 말 것.
         """,
@@ -388,6 +485,9 @@ def main():
     parser.add_argument("--from-hwp", action="store_true",
                         help="HWP → HWPX 변환 (hwp2hwpx.bat의 JDK 없는 기기용 폴백)")
     parser.add_argument("--to-pdf", action="store_true", help="PDF로 저장")
+    parser.add_argument("--append", nargs="+", metavar="FILE",
+                        help="대상 문서 끝에 FILE들을 차례로 이어 붙여 HWPX 한 파일로 저장 "
+                             "(기본 출력: _work-hwpx-automation/<대상>_합본.hwpx)")
     parser.add_argument("--password", help="암호화된 문서의 열기 암호")
     parser.add_argument("-o", "--output", help="출력 파일 경로")
 
@@ -412,8 +512,10 @@ def main():
         cmd_get_text(args.file, args.password)
     elif args.to_pdf:
         cmd_to_pdf(args.file, args.output, args.password)
+    elif args.append:
+        cmd_append(args.file, args.append, args.output, args.password)
     else:
-        parser.error("동작 플래그가 필요합니다: --from-md / --insert-image / --from-hwp / --get-text / --to-pdf / --diagnose")
+        parser.error("동작 플래그가 필요합니다: --from-md / --insert-image / --from-hwp / --get-text / --to-pdf / --append / --diagnose")
 
 
 if __name__ == "__main__":

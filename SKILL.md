@@ -15,7 +15,7 @@ metadata:
 - **hwpx_edit.py**: 이 디렉토리의 `hwpx_edit.py` (편집 명령 + `--to-md` CLI 래퍼)
 - **hwpx-tomd**: `--to-md` 변환 엔진을 단일 소스로 보유한 독립 패키지. `pip install hwpx-tomd` (PyPI·GitHub `Engccer/hwpx-tomd` 공개. 엔진 자체를 수정할 때만 로컬 editable: `pip install -e path/to/hwpx-tomd`). 라이브러리로도 직접 사용 가능(`from hwpx_tomd import to_markdown, convert`). 변환 로직은 이 패키지에만 있고 `hwpx_edit.py`는 호출만 한다(코드 분기 방지).
 - **hwpx_convert.py**: 이 디렉토리의 `convert/hwpx_convert.py` (MD/DOCX/HTML/RST/TEX/TXT → HWPX 변환, `pip install pypandoc-hwpx` 필요)
-- **hwpx_com.py**: 이 디렉토리의 `hwpx_com.py` (한컴 COM 네이티브 파이프라인, pyhwpx 기반, Windows + 한컴오피스 전용, `pip install pyhwpx` 필요). MD→HWPX 생성·HWP→HWPX 변환·이미지 삽입·본문 추출·한컴 재저장 정규화(--normalize)·PDF 변환 (아래 "한컴 COM 자동화" 참조)
+- **hwpx_com.py**: 이 디렉토리의 `hwpx_com.py` (한컴 COM 네이티브 파이프라인, pyhwpx 기반, Windows + 한컴오피스 전용, `pip install pyhwpx` 필요). MD→HWPX 생성·HWP→HWPX 변환·이미지 삽입·본문 추출·한컴 재저장 정규화(--normalize)·여러 문서 합치기(--append)·PDF 변환 (아래 "한컴 COM 자동화" 참조)
 - **PDF 변경 추적 경고 자동 처리**: 한컴 COM PDF(`hwpx_edit.py --to-pdf --pdf-backend com`·`hwpx_com.py --to-pdf`)는 `pdf_export.py`를 공유한다. PDF 저장 구간에서만 변경 추적 형식 경고에 저장으로 응답하고 원래 메시지 모드를 복원한다. 원본 이력은 수정하지 않는다. 상세와 적용 범위는 `reference/warnings-com.md` 15번 참조.
 - **rhwp_pdf.py**: `hwpx_edit.py --to-pdf`의 기본 PDF 백엔드(모든 OS. Windows 한컴은 `--pdf-backend com`). 오픈소스 조판 엔진 rhwp CLI를 호출하고, 글꼴에 없어 빈 네모로 찍힌 문자를 PDF에서 찾아 보고한다(아래 "PDF 변환 (rhwp)" 참조)
 - **hwpx_sign.py**: 이 디렉토리의 `hwpx_sign.py` (서명란(기준 텍스트 "(서명)" 등)에 서명/도장 이미지를 삽입하는 전용 도구. 기본 rhwp(모든 OS), `--backend com`은 Windows + 한컴오피스 폴백. 아래 "서명/도장 이미지 삽입" 참조)
@@ -74,6 +74,9 @@ HWP/HWPX 작업 요청
 │   ├── 병합을 반영한 격자 좌표로 셀 채우기(사용자가 원할 때만) → --tables로 좌표 확인 → --grid-set-cell (rhwp, 손실 게이트)
 │   │   ※ 중첩 표·python-hwpx로 만든 문서·원본 보존이 우선인 공문은 --set-cell
 │   ├── 서명란에 서명/도장 이미지 삽입 → hwpx_sign.py (rhwp, 모든 OS. 아래 "서명/도장 이미지 삽입")
+│   ├── 여러 HWP/HWPX를 한 파일로 합치기(회신 양식 수합 등) → hwpx_com.py 첫문서 --append 나머지...
+│   │   (Windows + 한컴오피스. 쪽 나눔을 따로 넣지 않는다. 합본 쪽수·표·그림 수를 원본 합과 대조해
+│   │    어긋나면 .rejected.hwpx로 남기고 exit 1. 맥·리눅스 대안은 없다)
 │   ├── 표/문단/머리글 추가·수정 → python-hwpx API (lineseg 자동 처리)
 │   ├── 구조적 편집 (행 추가/복제) → Python + regex (아래 구조적 편집 규칙 필수)
 │   └── 복잡한 편집 → python-hwpx + lxml 직접 사용 (reference/api.md + reference/structural.md 참조)
@@ -117,6 +120,7 @@ HWP/HWPX 작업 요청
 | 서명란에 서명/도장 이미지 삽입 | `hwpx_sign.py` | rhwp + 손실 게이트 (폴백 `--backend com`) | 자동 |
 | HWPX/HWP → PDF | `hwpx_edit.py --to-pdf` | rhwp (폴백 Windows `--pdf-backend com`) | N/A |
 | 배포용 HWP 사본 | `hwpx_edit.py --to-hwp` | rhwp + JAR 왕복 대조 | N/A |
+| 여러 문서를 한 파일로 합치기 | `hwpx_com.py --append` | 한컴 COM + 쪽수·개체 대조 | N/A |
 | 무결성 검증, 쪽수 드리프트 감지 | python-hwpx CLI | python-hwpx | N/A |
 
 **완료 보고**:
@@ -131,7 +135,7 @@ HWP/HWPX 작업 요청
 **원칙**: 도구는 "원본을 덮어쓰지 않는다"만 책임진다. 무엇이 최종 결과물이고 무엇이 부산물인지는 도구가 알 수 없으므로(같은 `--to-md`도 워크플로우에 따라 결과물이거나 부산물이다), **호출하는 워크플로우가 판단**한다.
 
 - **도구 기본 출력**: `hwpx_edit.py`와 hwp2hwpx 래퍼(`.bat`·`.sh`)는 `-o`(래퍼는 두 번째 인자) 미지정 시 입력 폴더의 `_work-hwpx-automation/`에 저장한다(원본 비파괴). 입력이 이미 `_work-hwpx-automation/` 안에 있으면 같은 폴더의 같은 이름, 즉 그 파일 자리에 쓴다. rhwp 편집(`--grid-set-cell`·`--fill-fields`)은 그 자리 대신 `<이름>_편집.hwpx`에 쓴다. rhwp가 쓰는 기본 출력(`.hwp` 입구 변환물, rhwp 편집, `--to-hwp`, 서명본)은 그 자리에 파일이 이미 있으면 덮지 않고 exit 1로 멈춘다. 단 다른 명령의 `.hwp` 입구 변환은 변환물이 그 원본에서 만든 그대로면(`<변환물>.source.json`의 원본·변환물 해시가 같으면) 다시 변환하지 않고 그 파일을 쓴다("변환물 재사용", 처음 변환의 `engine=… status=…` 줄을 다시 찍는다). `-o`로 준 경로는 덮는다.
-- **입력 옆에 쓰는 도구**: `hwpx_com.py`는 `<입력>.pdf`·`<입력>_img.hwpx`·`<입력>_norm.hwpx`, `hwpx_com.py --from-hwp`는 `<입력>.hwpx`, `hwpx_sign.py`는 `<입력>_서명.hwpx`를 입력 파일 옆에 만든다. 부산물로 둘 것이면 `-o`로 `_work-hwpx-automation/`을 지정한다.
+- **입력 옆에 쓰는 도구**: `hwpx_com.py`는 `<입력>.pdf`·`<입력>_img.hwpx`·`<입력>_norm.hwpx`, `hwpx_com.py --from-hwp`는 `<입력>.hwpx`, `hwpx_sign.py`는 `<입력>_서명.hwpx`를 입력 파일 옆에 만든다. 부산물로 둘 것이면 `-o`로 `_work-hwpx-automation/`을 지정한다. 예외로 `hwpx_com.py --append`는 `_work-hwpx-automation/<첫 문서>_합본.hwpx`에 쓰고, 그 자리에 파일이 있으면 덮지 않고 멈춘다.
 - **여러 편집을 이어 할 때**: 편집 명령은 매번 입력 파일을 새로 읽는다. 원본에 `--set-cell` 등을 여러 번 부르면 마지막 호출만 남으므로, 두 번째 호출부터는 앞 호출의 결과(`_work-hwpx-automation/<이름>.hwpx`)를 입력으로 준다. 셀이 많으면 스크립트 한 번으로 처리한다.
 - **작업 마무리**: 작업 종료 시 **최종 결과물은 작업 폴더로** 옮기고(또는 처음부터 `-o`로 작업 폴더를 지정), 그 전까지의 **중간 부산물은 `_work-hwpx-automation/`에 잔류**시킨다. 작업 폴더에는 원본과 최종 결과물만 남아 깔끔하게 유지된다. 최종본 이름이 원본과 같으면 옮길 때 원본을 덮으므로 새 이름을 준다.
 - **비교 기준 남기기**: `_work-hwpx-automation/` 안 파일을 입력으로 주면 그 자리를 덮으므로, 편집 전 파일을 `hwpx-page-guard --reference`의 기준으로 쓰려면 첫 편집에 `-o`로 새 이름을 준다.
@@ -146,6 +150,7 @@ HWP/HWPX 작업 요청
 | HWPX | 읽기 →md | `<이름>.md` | (없음) |
 | HWPX | 편집 | 편집본 HWPX | 단계별 중간본 |
 | HWPX/HWP | →PDF | `<이름>.pdf` | (PDF가 최종이면 없음) |
+| HWPX/HWP 여러 개 | 한 파일로 합치기 | `<이름>.hwpx`(합본, `-o`로 지정) | (`-o` 없으면 `<첫 문서>_합본.hwpx`) |
 | MD | →HWPX | `<이름>.hwpx` | 빈셀보정 전 중간본 |
 | 없음 | build-from-scratch | `<이름>.hwpx` | 템플릿 중간물 |
 

@@ -53,6 +53,12 @@ python hwpx_com.py doc.hwpx --get-text
 # 입력 본문을 COM이 0자로 읽으면(Pandoc 변환물) 저장하지 않고 오류로 멈춘다
 python hwpx_com.py doc.hwpx --normalize [-o final.hwpx]
 
+# 여러 HWP/HWPX를 한 파일로 합치기 (첫 문서 끝에 나머지를 차례로 InsertFile, 결과는 HWPX)
+# 기본 출력 _work-hwpx-automation/<첫 문서>_합본.hwpx(있으면 멈춤). 합본을 다시 열어 쪽수·표·
+# 그림/그리기 개체 수가 원본 합과 같고 본문이 원본을 차례로 이은 것과 같을 때만 성공(engine=com).
+# 어긋나면 <출력>.rejected.hwpx로 옮기고 exit 1. 본문이 0자인 입력(Pandoc 생성물)은 거부
+python hwpx_com.py 1반.hwpx --append 2반.hwp 3반.hwpx [-o 수합.hwpx]
+
 # PDF 저장 (hwpx_edit.py --to-pdf --pdf-backend com과 동일 기능, COM 작업 연속 시 이쪽 사용)
 python hwpx_com.py doc.hwpx --to-pdf [-o out.pdf] [--password "암호"]
 ```
