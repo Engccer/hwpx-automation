@@ -15,7 +15,7 @@ metadata:
 - **hwpx_edit.py**: 이 디렉토리의 `hwpx_edit.py` (편집 명령 + `--to-md` CLI 래퍼)
 - **hwpx-tomd**: `--to-md` 변환 엔진을 단일 소스로 보유한 독립 패키지. `pip install hwpx-tomd` (PyPI·GitHub `Engccer/hwpx-tomd` 공개. 엔진 자체를 수정할 때만 로컬 editable: `pip install -e path/to/hwpx-tomd`). 라이브러리로도 직접 사용 가능(`from hwpx_tomd import to_markdown, convert`). 변환 로직은 이 패키지에만 있고 `hwpx_edit.py`는 호출만 한다(코드 분기 방지).
 - **hwpx_convert.py**: 이 디렉토리의 `convert/hwpx_convert.py` (MD/DOCX/HTML/RST/TEX/TXT → HWPX 변환, `pip install pypandoc-hwpx` 필요)
-- **hwpx_com.py**: 이 디렉토리의 `hwpx_com.py` (한컴 COM 네이티브 파이프라인, pyhwpx 기반, Windows + 한컴오피스 전용, `pip install pyhwpx` 필요). MD→HWPX 생성·HWP→HWPX 변환·이미지 삽입·본문 추출·한컴 재저장 정규화(--normalize)·여러 문서 합치기(--append)·PDF 변환 (아래 "한컴 COM 자동화" 참조)
+- **hwpx_com.py**: 이 디렉토리의 `hwpx_com.py` (한컴 COM 네이티브 파이프라인, pyhwpx 기반, Windows + 한컴오피스 전용, `pip install pyhwpx` 필요). MD→HWPX 생성·HWP→HWPX 변환·이미지 삽입·본문 추출·한컴 재저장 정규화(--normalize)·여러 문서 합치기(--append)·종이 인쇄(--print)·PDF 변환 (아래 "한컴 COM 자동화" 참조)
 - **PDF 변경 추적 경고 자동 처리**: 한컴 COM PDF(`hwpx_edit.py --to-pdf --pdf-backend com`·`hwpx_com.py --to-pdf`)는 `pdf_export.py`를 공유한다. PDF 저장 구간에서만 변경 추적 형식 경고에 저장으로 응답하고 원래 메시지 모드를 복원한다. 원본 이력은 수정하지 않는다. 상세와 적용 범위는 `reference/warnings-com.md` 15번 참조.
 - **rhwp_pdf.py**: `hwpx_edit.py --to-pdf`의 기본 PDF 백엔드(모든 OS. Windows 한컴은 `--pdf-backend com`). 오픈소스 조판 엔진 rhwp CLI를 호출하고, 글꼴에 없어 빈 네모로 찍힌 문자를 PDF에서 찾아 보고한다(아래 "PDF 변환 (rhwp)" 참조)
 - **hwpx_sign.py**: 이 디렉토리의 `hwpx_sign.py` (서명란(기준 텍스트 "(서명)" 등)에 서명/도장 이미지를 삽입하는 전용 도구. 기본 rhwp(모든 OS), `--backend com`은 Windows + 한컴오피스 폴백. 아래 "서명/도장 이미지 삽입" 참조)
@@ -87,6 +87,7 @@ HWP/HWPX 작업 요청
 │   ※ Pandoc(hwpx_convert.py) 변환물의 PDF는 rhwp로 낸다(--pdf-backend com 금지, 아래 줄).
 │     한컴 PDF가 필요하면 hwpx_com.py --from-md로 COM에서 생성한다
 ├── 상대가 .hwp 파일을 요구 → 마지막 단계에서 hwpx_edit.py --to-hwp (배포용 사본, 정본은 HWPX)
+├── 종이로 인쇄(여러 부·양면) → hwpx_com.py --print (Windows + 한컴오피스. 아래 "종이 인쇄")
 └── 새로 생성 (마크다운 등에서)
     ├── 간단한 문서 (스타일 최소, 빠른 변환)
     │   → hwpx_convert.py + 스타일 후처리 (아래 "MD → HWPX 변환 (Pandoc)" 참조)
@@ -121,6 +122,7 @@ HWP/HWPX 작업 요청
 | HWPX/HWP → PDF | `hwpx_edit.py --to-pdf` | rhwp (폴백 Windows `--pdf-backend com`) | N/A |
 | 배포용 HWP 사본 | `hwpx_edit.py --to-hwp` | rhwp + JAR 왕복 대조 | N/A |
 | 여러 문서를 한 파일로 합치기 | `hwpx_com.py --append` | 한컴 COM + 쪽수·개체 대조 | N/A |
+| 종이 인쇄(여러 부·양면) | `hwpx_com.py --print` | 한컴 COM + 대기열 쪽수 대조 | N/A |
 | 무결성 검증, 쪽수 드리프트 감지 | python-hwpx CLI | python-hwpx | N/A |
 
 **완료 보고**:
@@ -373,6 +375,18 @@ ZIP 내부 구조·네임스페이스가 필요할 때 `reference/format.md`를 
 ## PDF 변환 (rhwp)
 
 `--to-pdf`는 모든 OS에서 rhwp가 기본이다. 한컴과 똑같은 조판이 필요할 때만 Windows에서 `--pdf-backend com`을 명시한다. Pandoc(`hwpx_convert.py`) 산출물의 PDF는 rhwp로 낸다(COM은 본문을 0자로 읽는다). rhwp 설치·출력 해석(`글꼴에 없는 문자가 빈 네모로 찍혔습니다`, exit 2)이 필요할 때 `reference/rhwp.md` "PDF"를 읽는다. exit 2가 난 PDF는 배포하지 않는다.
+
+## 종이 인쇄 (hwpx_com.py --print)
+
+종이 출력은 되돌릴 수 없고 사용자는 인쇄 미리보기를 볼 수 없다. 다음 순서를 지킨다.
+
+1. 먼저 `--dry`로 돌린다: `python hwpx_com.py 문서.hwpx --print --copies 30 --duplex long --dry`. 인쇄도 프린터 설정 변경도 하지 않고 `인쇄 계획: 프린터=…, 부수=…, 양면=…, 쪽수=…, 용지=…장` 한 줄만 찍는다.
+2. 그 한 줄(프린터·부수·양면·쪽수·용지 장수)을 사용자에게 그대로 보고하고 확인을 받은 뒤 `--dry`를 빼고 실행한다. 프린터 이름은 추측하지 않는다. `--printer`를 빼면 Windows 기본 프린터이고, 같은 드라이버의 `(1 복사)` 같은 중복 인스턴스가 있을 수 있으니 계획 줄의 이름을 확인한다.
+3. 양면은 한글 인쇄 설정이 아니라 프린터 드라이버 설정(`DuplexingMode`)을 따른다. `--duplex long|short|none`이 지금 설정과 다르면 인쇄 직전에 바꾸고 끝나면 되돌린다(사용자 PC 설정 변경이므로 1번 보고에 포함된다). 생략하면 프린터 설정 그대로다.
+4. 결과 줄을 완료 보고에 옮긴다. `대기열 대조:`는 인쇄 대기열 작업의 쪽수(TotalPages)를 쪽수 × 부수, 또는 드라이버가 부수를 맡는 프린터면 한 부 쪽수와 대조한 것이다. 끝줄 `engine=com status=passed|unverified|mismatch`에서 `unverified`(작업이 너무 빨리 지나가 최종 쪽수를 못 봄)는 "확인됨"이라고 보고하지 않고 출력물로 확인해 달라고 한다. `mismatch`는 exit 1이다.
+5. Windows가 "기본 프린터 자동 관리"로 인쇄 뒤 기본 프린터를 바꾸면 되돌리고 `기본 프린터 복원:` 줄을 찍는다.
+
+저장 위치를 묻는 프린터(`Microsoft Print to PDF` 등)는 창 때문에 멈추므로 `--print-to-file 경로`가 있어야 한다. 종이 없이 흐름을 확인할 때 이 조합을 쓴다. 상세와 실측은 `reference/com.md` "종이 인쇄"와 `reference/warnings-com.md` 18번.
 
 ## 한컴 COM 자동화 (Windows 전용, 한컴오피스 필수)
 

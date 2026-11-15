@@ -59,6 +59,9 @@ python hwpx_com.py doc.hwpx --normalize [-o final.hwpx]
 # 어긋나면 <출력>.rejected.hwpx로 옮기고 exit 1. 본문이 0자인 입력(Pandoc 생성물)은 거부
 python hwpx_com.py 1반.hwpx --append 2반.hwp 3반.hwpx [-o 수합.hwpx]
 
+# 종이 인쇄 (아래 "종이 인쇄"). 먼저 --dry로 계획 한 줄을 사용자에게 보고한 뒤 실행
+python hwpx_com.py doc.hwpx --print [--printer "이름"] [--copies 30] [--duplex long|short|none] [--dry] [--print-to-file out.pdf]
+
 # PDF 저장 (hwpx_edit.py --to-pdf --pdf-backend com과 동일 기능, COM 작업 연속 시 이쪽 사용)
 python hwpx_com.py doc.hwpx --to-pdf [-o out.pdf] [--password "암호"]
 ```
@@ -84,6 +87,19 @@ python hwpx_edit.py <파일.hwpx> --to-pdf --pdf-backend com -o <파일.pdf>
 # 암호화된 HWPX/HWP를 PDF로 저장
 python hwpx_edit.py <파일.hwpx> --to-pdf --pdf-backend com --password "<비밀번호>" -o <파일.pdf>
 ```
+
+## 종이 인쇄
+
+`hwpx_com.py --print` 순서(이슈 #16):
+
+1. 프린터 조회(`Win32_Printer`·`Get-PrintConfiguration`): 이름(생략 시 기본 프린터), 포트, `DuplexingMode`, 지금 기본 프린터.
+2. `--duplex`가 지금 값과 다르고 `--dry`가 아니면 `Set-PrintConfiguration -DuplexingMode`로 바꾼다(관리자 권한 없이 됨, 2026-11-15 실측).
+3. 입력을 ASCII 임시 경로(`%TEMP%\hwpx_print_*\print_input.hwpx`)로 복사해 연다. 한글·공백 섞인 클라우드 경로를 COM에 직접 넘기지 않는다.
+4. `PageCount`로 쪽수·용지 장수(양면이면 쪽수를 2로 나눠 올림 × 부수)를 계산해 `인쇄 계획:` 한 줄을 찍는다. `--dry`는 여기서 끝난다.
+5. 대기열 감시(PowerShell `Get-PrintJob`, 0.2초 간격)를 먼저 띄운 뒤 `HAction.GetDefault("Print", HPrint)` → `PrinterName`·`Range=0`·`NumCopy`·`Collate=1`·`PrintMethod=0`·`Device=0`(파일 출력이면 `PrintToFile=1`·`filename`) → `Execute`.
+6. 스풀이 끝난 관측의 TotalPages를 대조하고 대기열이 빌 때까지(최대 300초) 기다린다. 양면 설정과 기본 프린터를 되돌린다(실패해도 finally에서).
+
+HPrint에는 양면 항목이 없다. 출력 파일 이름 속성은 `FileName`이 아니라 `filename`이다(주요 주의사항 3번과 같은 함정).
 
 ## 원격 실행 (SSH)
 

@@ -140,5 +140,173 @@ class AppendTests(unittest.TestCase):
             self.assertIn("in-place", str(cm.exception.code))
 
 
+class FakePrintSet:
+    def __init__(self):
+        self.HSet = object()
+
+
+class FakePrintHwp:
+    """HPrint 대역. 실제 스풀러·한컴 없이 인쇄 흐름만 본다."""
+
+    def __init__(self, log, pages=2, ok=True):
+        self.log, self.PageCount, self.ok = log, pages, ok
+        self.pset = FakePrintSet()
+        outer = self
+
+        class Params:
+            HPrint = outer.pset
+
+        class Action:
+            def GetDefault(self, name, hset):
+                outer.log.append(("GetDefault", name))
+
+            def Execute(self, name, hset):
+                outer.log.append(("Execute", name, vars(outer.pset).copy()))
+                return outer.ok
+
+        self.HParameterSet, self.HAction = Params(), Action()
+
+    @property
+    def hwp(self):
+        return self
+
+    def open(self, path, fmt, arg):
+        self.log.append(("open", os.path.basename(path)))
+        return True
+
+    def clear(self, option):
+        pass
+
+    def quit(self):
+        self.log.append(("quit",))
+
+
+class FakeWatcher:
+    def __init__(self, lines):
+        self.lines = lines
+
+    def communicate(self, timeout=None):
+        return "\n".join(self.lines), ""
+
+    def poll(self):
+        return 0
+
+
+PRINTER = {"Name": "가상 프린터", "Default": True, "PortName": "IP_1", "DuplexingMode": "OneSided",
+           "Collate": True, "DefaultPrinter": "가상 프린터"}
+
+
+class QueueTests(unittest.TestCase):
+    def test_spooling_observation_is_not_final(self):
+        jobs, end = hwpx_com.parse_queue_watch(["JOB 7 6 0 Spooling", "EMPTY"])
+        self.assertEqual(jobs, {"7": {"pages": None}})
+        status, desc = hwpx_com.queue_verdict(jobs, end, 6, 2)
+        self.assertEqual(status, "unverified")
+
+    def test_pages_times_copies_or_driver_copies_pass(self):
+        lines = ["JOB 7 3 0 Spooling", "JOB 7 12 0 Paused", "JOB 7 12 4 Printing", "EMPTY"]
+        jobs, end = hwpx_com.parse_queue_watch(lines)
+        self.assertEqual(hwpx_com.queue_verdict(jobs, end, 6, 2)[0], "passed")
+        jobs, end = hwpx_com.parse_queue_watch(["JOB 7 6 0 Paused", "EMPTY"])
+        status, desc = hwpx_com.queue_verdict(jobs, end, 6, 2)
+        self.assertEqual(status, "passed")
+        self.assertIn("드라이버", desc)
+
+    def test_wrong_pages_mismatch_and_nothing_seen_unverified(self):
+        jobs, end = hwpx_com.parse_queue_watch(["JOB 7 9 0 Printing", "EMPTY"])
+        self.assertEqual(hwpx_com.queue_verdict(jobs, end, 6, 2)[0], "mismatch")
+        self.assertEqual(hwpx_com.queue_verdict({}, "NONE", 6, 2)[0], "unverified")
+
+    def test_sheet_count(self):
+        self.assertEqual(hwpx_com.sheet_count(2, 30, "TwoSidedLongEdge"), 30)
+        self.assertEqual(hwpx_com.sheet_count(3, 2, "TwoSidedShortEdge"), 4)
+        self.assertEqual(hwpx_com.sheet_count(3, 2, "OneSided"), 6)
+
+
+class PrintTests(unittest.TestCase):
+    def run_print(self, info=PRINTER, watch=("JOB 1 4 0 Printing", "EMPTY"), ok=True,
+                  default_after=None, **kw):
+        log = []
+        fake = FakePrintHwp(log, pages=2, ok=ok)
+
+        def set_duplex(name, mode):
+            log.append(("duplex", mode))
+
+        def restore_default(original):
+            log.append(("restore_default", original))
+            return default_after
+
+        out, err = io.StringIO(), io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            doc = os.path.join(tmp, "가정 통신문.hwpx")
+            Path(doc).write_bytes(b"x")
+            with mock.patch.object(hwpx_com, "printer_info", return_value=dict(info)),                     mock.patch.object(hwpx_com, "set_duplex", side_effect=set_duplex),                     mock.patch.object(hwpx_com, "restore_default_printer", side_effect=restore_default),                     mock.patch.object(hwpx_com, "start_queue_watch",
+                                      side_effect=lambda *a: log.append(("watch",)) or FakeWatcher(list(watch))),                     mock.patch.object(hwpx_com, "create_hwp", return_value=fake),                     contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                try:
+                    hwpx_com.cmd_print(doc, **kw)
+                    code = 0
+                except SystemExit as exc:
+                    code = exc.code
+        return log, code, out.getvalue(), err.getvalue()
+
+    def test_dry_changes_nothing_and_reports_plan(self):
+        log, code, out, _ = self.run_print(copies=30, duplex="long", dry=True)
+        self.assertEqual(code, 0)
+        kinds = [e[0] for e in log]
+        self.assertNotIn("duplex", kinds)
+        self.assertNotIn("Execute", kinds)
+        self.assertNotIn("restore_default", kinds)
+        self.assertIn("프린터=가상 프린터, 부수=30, 양면=TwoSidedLongEdge(지금 OneSided", out)
+        self.assertIn("쪽수=2, 용지=30장", out)
+        self.assertTrue(out.rstrip().endswith("engine=com status=dry"))
+        self.assertEqual(log[0], ("open", "print_input.hwpx"))  # ASCII 임시 사본을 연다
+
+    def test_duplex_set_before_print_and_restored_after(self):
+        log, code, out, _ = self.run_print(copies=2, duplex="long",
+                                           watch=("JOB 1 4 0 Printing", "EMPTY"))
+        self.assertEqual(code, 0)
+        kinds = [e[0] for e in log]
+        self.assertLess(kinds.index("duplex"), kinds.index("Execute"))
+        self.assertEqual([e for e in log if e[0] == "duplex"],
+                         [("duplex", "TwoSidedLongEdge"), ("duplex", "OneSided")])
+        params = next(e[2] for e in log if e[0] == "Execute")
+        self.assertEqual((params["PrinterName"], params["NumCopy"], params["Collate"], params["Range"]),
+                         ("가상 프린터", 2, 1, 0))
+        self.assertNotIn("PrintToFile", params)
+        self.assertIn("양면 설정 복원: OneSided", out)
+        self.assertTrue(out.rstrip().endswith("engine=com status=passed"))
+
+    def test_same_duplex_is_not_touched(self):
+        log, _, out, _ = self.run_print(duplex="none")
+        self.assertNotIn("duplex", [e[0] for e in log])
+        self.assertIn("프린터 설정 그대로", out)
+
+    def test_execute_failure_still_restores(self):
+        log, code, _, _ = self.run_print(duplex="short", ok=False)
+        self.assertIn("Execute=False", str(code))
+        self.assertEqual(log[-2:], [("duplex", "OneSided"), ("restore_default", "가상 프린터")])
+
+    def test_mismatch_exits_1_and_default_printer_restored(self):
+        log, code, out, _ = self.run_print(watch=("JOB 1 5 0 Printing", "EMPTY"),
+                                           default_after="가상 프린터")
+        self.assertEqual(code, 1)
+        self.assertIn("기본 프린터 복원: 가상 프린터", out)
+        self.assertTrue(out.rstrip().endswith("engine=com status=mismatch"))
+
+    def test_port_prompt_printer_needs_file(self):
+        info = dict(PRINTER, PortName="PORTPROMPT:")
+        log, code, _, _ = self.run_print(info=info)
+        self.assertIn("--print-to-file", str(code))
+        self.assertEqual(log, [])
+        log, code, _, _ = self.run_print(info=info, to_file="out.pdf")
+        params = next(e[2] for e in log if e[0] == "Execute")
+        self.assertEqual(params["PrintToFile"], 1)
+        self.assertTrue(params["filename"].endswith("out.pdf"))
+
+    def test_copies_must_be_positive(self):
+        with self.assertRaises(SystemExit):
+            hwpx_com.cmd_print("x.hwpx", copies=0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -434,6 +434,267 @@ def cmd_append(filepath, others, output=None, password=None):
     print("engine=com")
 
 
+# ---------------------------------------------------------------------------
+# 종이 인쇄 (이슈 #16)
+# ---------------------------------------------------------------------------
+
+DUPLEX_MODES = {"long": "TwoSidedLongEdge", "short": "TwoSidedShortEdge", "none": "OneSided"}
+QUEUE_WATCH_SEC = 300        # 대기열이 빌 때까지 기다리는 최대 시간
+QUEUE_GRACE_SEC = 5          # 인쇄 명령이 끝난 뒤 작업이 안 보이면 이만큼 더 기다린다
+
+PRINTER_INFO_PS = r"""
+$all = @(Get-CimInstance Win32_Printer)
+$p = if ($env:HWPX_PRINTER) { $all | Where-Object Name -eq $env:HWPX_PRINTER } else { $all | Where-Object Default }
+if (-not $p) { "{}"; exit 0 }
+$c = Get-PrintConfiguration -PrinterName $p.Name
+[pscustomobject]@{ Name = $p.Name; Default = [bool]$p.Default; PortName = $p.PortName;
+  DuplexingMode = [string]$c.DuplexingMode; Collate = [bool]$c.Collate;
+  DefaultPrinter = [string]($all | Where-Object Default | Select-Object -First 1 -ExpandProperty Name)
+} | ConvertTo-Json -Compress
+"""
+
+# Windows "기본 프린터 자동 관리"는 마지막으로 쓴 프린터를 기본으로 바꾼다(2026-11-15 실측)
+DEFAULT_PRINTER_PS = r"""
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+Get-CimInstance Win32_Printer | Where-Object Default | Select-Object -First 1 -ExpandProperty Name
+"""
+SET_DEFAULT_PRINTER_PS = r"""
+$p = Get-CimInstance Win32_Printer | Where-Object Name -eq $env:HWPX_PRINTER
+$r = Invoke-CimMethod -InputObject $p -MethodName SetDefaultPrinter
+if ($r.ReturnValue -ne 0) { throw "SetDefaultPrinter=$($r.ReturnValue)" }
+"""
+
+SET_DUPLEX_PS = ("Set-PrintConfiguration -PrinterName $env:HWPX_PRINTER "
+                 "-DuplexingMode $env:HWPX_DUPLEX -ErrorAction Stop")
+
+QUEUE_WATCH_PS = r"""
+$p = $env:HWPX_PRINTER
+$pre = @(Get-PrintJob -PrinterName $p | ForEach-Object Id)
+"READY"
+$deadline = (Get-Date).AddSeconds([int]$env:HWPX_WATCH_SEC)
+$seen = 0; $doneAt = $null
+while ((Get-Date) -lt $deadline) {
+  $jobs = @(Get-PrintJob -PrinterName $p | Where-Object { $pre -notcontains $_.Id })
+  foreach ($j in $jobs) { "JOB {0} {1} {2} {3}" -f $j.Id, $j.TotalPages, $j.PagesPrinted, $j.JobStatus; $seen++ }
+  if ($seen -gt 0 -and $jobs.Count -eq 0) { "EMPTY"; exit 0 }
+  if (Test-Path -LiteralPath $env:HWPX_WATCH_DONE) {
+    if (-not $doneAt) { $doneAt = Get-Date }
+    if ($seen -eq 0 -and ((Get-Date) - $doneAt).TotalSeconds -gt [int]$env:HWPX_WATCH_GRACE) { "NONE"; exit 0 }
+  }
+  Start-Sleep -Milliseconds 200
+}
+"TIMEOUT"
+"""
+
+
+def _ps_env(**values):
+    env = os.environ.copy()
+    env.update({f"HWPX_{k.upper()}": str(v) for k, v in values.items()})
+    return env
+
+
+def run_ps(script, **values):
+    """PowerShell 한 번 실행. 값은 환경변수로 넘겨 따옴표 이스케이프를 피한다."""
+    import subprocess
+    r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       env=_ps_env(**values))
+    if r.returncode != 0:
+        raise RuntimeError((r.stderr or r.stdout).strip())
+    return r.stdout
+
+
+def printer_info(name=None):
+    """프린터 이름·기본 여부·포트·양면·한 부씩. name이 없으면 기본 프린터."""
+    import json
+    out = run_ps("[Console]::OutputEncoding = [Text.Encoding]::UTF8\n" + PRINTER_INFO_PS,
+                 printer=name or "").strip()
+    info = json.loads(out or "{}")
+    if not info.get("Name"):
+        raise SystemExit(f"오류: 프린터를 찾지 못했습니다: {name or '(기본 프린터 없음)'}")
+    return info
+
+
+def set_duplex(name, mode):
+    run_ps(SET_DUPLEX_PS, printer=name, duplex=mode)
+
+
+def restore_default_printer(original):
+    """인쇄 뒤 Windows가 기본 프린터를 바꿨으면 되돌린다. 되돌린 이름 또는 None."""
+    if not original or run_ps(DEFAULT_PRINTER_PS).strip() == original:
+        return None
+    run_ps(SET_DEFAULT_PRINTER_PS, printer=original)
+    return original
+
+
+def start_queue_watch(name, done_flag):
+    """새 인쇄 작업을 지켜보는 PowerShell을 띄우고 기준 대기열을 잡을 때까지 기다린다."""
+    import subprocess
+    proc = subprocess.Popen(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", QUEUE_WATCH_PS],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
+        errors="replace",
+        env=_ps_env(printer=name, watch_sec=QUEUE_WATCH_SEC, watch_done=done_flag,
+                    watch_grace=QUEUE_GRACE_SEC))
+    first = proc.stdout.readline().strip()
+    if first != "READY":
+        proc.kill()
+        raise RuntimeError(f"대기열 감시를 시작하지 못했습니다: {first or proc.stderr.read().strip()}")
+    return proc
+
+
+def parse_queue_watch(lines):
+    """감시 출력 → (작업별 {"pages": 스풀이 끝난 관측의 최대 TotalPages 또는 None}, 끝 상태).
+
+    스풀 중(JobStatus에 Spooling)인 작업의 TotalPages는 아직 다 차지 않은 값이라
+    최종값으로 쓰지 않는다(Microsoft Print to PDF 실측: 스풀 중 6, 최종 12).
+    """
+    jobs, end = {}, "TIMEOUT"
+    for line in lines:
+        parts = line.split(maxsplit=4)
+        if parts and parts[0] == "JOB" and len(parts) >= 3:
+            job = jobs.setdefault(parts[1], {"pages": None})
+            status = parts[4] if len(parts) > 4 else ""
+            if "Spooling" not in status:
+                job["pages"] = max(job["pages"] or 0, int(parts[2] or 0))
+        elif parts and parts[0] in ("EMPTY", "NONE", "TIMEOUT"):
+            end = parts[0]
+    return jobs, end
+
+
+def queue_verdict(jobs, end, pages, copies):
+    """대기열 대조 → (status, 설명). status: passed | mismatch | unverified.
+
+    TotalPages는 한글이 부수만큼 찍어 보내면 쪽수 × 부수(이슈 #16 실측 프린터),
+    드라이버가 부수를 맡으면 한 부 쪽수다(Microsoft Print to PDF 실측: 6쪽 2부에
+    TotalPages 6, 출력 PDF 12쪽). 둘 다 맞는 값으로 본다.
+    """
+    expected = pages * copies
+    if not jobs:
+        return "unverified", ("대기열에서 작업을 보지 못했습니다(너무 빨리 지나갔거나 들어가지 않음). "
+                              "프린터 출력으로 확인하세요")
+    if any(j["pages"] is None for j in jobs.values()):
+        return "unverified", (f"작업 {len(jobs)}건이 스풀 중에 대기열을 떠나 최종 쪽수를 보지 못했습니다"
+                              f"(기대 {pages}쪽 × {copies}부). 프린터 출력으로 확인하세요")
+    total = sum(j["pages"] for j in jobs.values())
+    if copies > 1 and total == pages:
+        expected = pages
+        how = f"한 부 쪽수({pages})와 같음, 부수({copies})는 프린터 드라이버가 처리"
+    else:
+        how = f"기대 {expected} = {pages}쪽 × {copies}부"
+    tail = {"EMPTY": "대기열 비움 확인",
+            "TIMEOUT": f"{QUEUE_WATCH_SEC}초 안에 대기열이 비지 않음(인쇄 중일 수 있음)"}.get(end, "")
+    desc = f"작업 {len(jobs)}건, TotalPages {total} ({how}). {tail}".rstrip(". ")
+    return ("passed" if total == expected else "mismatch"), desc
+
+
+def sheet_count(pages, copies, duplex_mode):
+    per_copy = -(-pages // 2) if duplex_mode.startswith("TwoSided") else pages
+    return per_copy * copies
+
+
+def cmd_print(filepath, printer=None, copies=1, duplex=None, dry=False,
+              to_file=None, password=None):
+    """HWP/HWPX를 프린터로 인쇄 (한컴 COM HPrint).
+
+    양면은 HPrint에 항목이 없어 프린터 드라이버 기본값(DuplexingMode)을 따른다.
+    --duplex가 현재 값과 다르면 인쇄 전에 바꾸고 끝나면 되돌린다. 실행 전에
+    프린터·부수·양면·쪽수·장수를 한 줄로 찍고, 인쇄 뒤에는 대기열의 TotalPages를
+    쪽수 × 부수와 대조한다. --dry는 인쇄와 설정 변경 없이 계획 줄만 찍는다.
+    """
+    import shutil
+    import tempfile
+    if copies < 1:
+        raise SystemExit("오류: --copies는 1 이상이어야 합니다.")
+    src = os.path.abspath(filepath)
+    if not os.path.exists(src):
+        raise SystemExit(f"오류: 파일이 없습니다: {src}")
+    info = printer_info(printer)
+    name = info["Name"]
+    if info.get("PortName") == "PORTPROMPT:" and not (dry or to_file):
+        raise SystemExit(f"오류: '{name}'은 저장 위치를 묻는 창을 띄우는 프린터라 자동 인쇄가 멈춥니다. "
+                         "--print-to-file로 출력 파일을 주세요.")
+    current = info["DuplexingMode"]
+    target = DUPLEX_MODES[duplex] if duplex else current
+    change = target != current
+
+    # 한글·공백·클라우드 경로를 COM에 직접 넘기지 않는다(이슈 #16 실측)
+    work = tempfile.mkdtemp(prefix="hwpx_print_")
+    staged = os.path.join(work, "print_input" + os.path.splitext(src)[1].lower())
+    shutil.copyfile(src, staged)
+    restored = default_restored = None
+    printed = False
+    hwp = watcher = None
+    try:
+        if change and not dry:
+            try:
+                set_duplex(name, target)
+            except RuntimeError as exc:
+                raise SystemExit(f"오류: 양면 설정을 바꾸지 못해 인쇄하지 않았습니다: {exc}")
+        hwp = create_hwp(visible=False)
+        open_for_com(hwp, staged, password)
+        pages = hwp.PageCount
+        sheets = sheet_count(pages, copies, target)
+        duplex_desc = target + (f"(지금 {current}, 인쇄 뒤 되돌림)" if change else "(프린터 설정 그대로)")
+        print(f"인쇄 계획: 프린터={name}, 부수={copies}, 양면={duplex_desc}, "
+              f"쪽수={pages}, 용지={sheets}장" + (f", 파일로={to_file}" if to_file else ""))
+        if dry:
+            print("--dry: 인쇄하지 않았고 프린터 설정도 바꾸지 않았습니다.")
+            print("engine=com status=dry")
+            return
+        done_flag = os.path.join(work, "done")
+        watcher = start_queue_watch(name, done_flag)
+        h = hwp.hwp
+        pset = h.HParameterSet.HPrint
+        h.HAction.GetDefault("Print", pset.HSet)
+        pset.PrinterName = name
+        pset.Range = 0
+        pset.NumCopy = copies
+        pset.Collate = 1
+        pset.PrintMethod = 0
+        pset.Device = 0
+        if to_file:
+            pset.PrintToFile = 1
+            pset.filename = os.path.abspath(to_file)
+        printed = True
+        ok = h.HAction.Execute("Print", pset.HSet)
+        open(done_flag, "w").close()
+        out, _ = watcher.communicate(timeout=QUEUE_WATCH_SEC + 30)
+        if not ok:
+            raise SystemExit("오류: 한컴 COM 인쇄 명령이 실패했습니다(Execute=False).")
+        jobs, end = parse_queue_watch(out.splitlines())
+        status, desc = queue_verdict(jobs, end, pages, copies)
+    finally:
+        if watcher is not None and watcher.poll() is None:
+            watcher.kill()
+        if hwp is not None:
+            hwp.clear(1)
+            hwp.quit()
+        if change and not dry:
+            try:
+                set_duplex(name, current)
+                restored = current
+            except RuntimeError as exc:
+                print(f"경고: 양면 설정을 되돌리지 못했습니다({exc}). 직접 되돌리세요: "
+                      f"Set-PrintConfiguration -PrinterName '{name}' -DuplexingMode {current}",
+                      file=sys.stderr)
+        if printed:
+            try:
+                default_restored = restore_default_printer(info.get("DefaultPrinter"))
+            except RuntimeError as exc:
+                print(f"경고: Windows가 바꾼 기본 프린터를 되돌리지 못했습니다({exc}). "
+                      f"원래 기본 프린터: {info.get('DefaultPrinter')}", file=sys.stderr)
+        shutil.rmtree(work, ignore_errors=True)
+    if restored:
+        print(f"양면 설정 복원: {restored}")
+    if default_restored:
+        print(f"기본 프린터 복원: {default_restored} (Windows가 인쇄 뒤 바꾼 것을 되돌림)")
+    print(f"대기열 대조: {desc}")
+    print(f"engine=com status={status}")
+    if status == "mismatch":
+        sys.exit(1)
+
+
 def cmd_to_pdf(filepath, output=None, password=None):
     """HWP/HWPX → PDF (한컴 COM SaveAs)."""
     if output is None:
@@ -469,6 +730,8 @@ def main():
   %(prog)s doc.hwp --from-hwp                       # HWP → HWPX 변환 (JDK 없는 기기 폴백)
   %(prog)s doc.hwpx --to-pdf                        # PDF 저장
   %(prog)s a.hwpx --append b.hwp c.hwpx -o 합본.hwpx  # 여러 문서를 한 파일로 (쪽수·개체 대조)
+  %(prog)s doc.hwpx --print --copies 30 --duplex long --dry   # 인쇄 계획만 (먼저 사용자에게 보고)
+  %(prog)s doc.hwpx --print --copies 30 --duplex long         # 인쇄 + 대기열 쪽수 대조
 주의: 입력 파일은 절대 in-place로 덮어쓰지 않는다. Pandoc 생성 HWPX는
       COM이 본문을 0자로 읽으므로(--get-text로 확인) 이 파이프라인에 넣지 말 것.
         """,
@@ -488,6 +751,17 @@ def main():
     parser.add_argument("--append", nargs="+", metavar="FILE",
                         help="대상 문서 끝에 FILE들을 차례로 이어 붙여 HWPX 한 파일로 저장 "
                              "(기본 출력: _work-hwpx-automation/<대상>_합본.hwpx)")
+    parser.add_argument("--print", dest="do_print", action="store_true",
+                        help="프린터로 인쇄 (실행 전 계획 한 줄, 뒤에 대기열 쪽수 대조)")
+    parser.add_argument("--printer", help="--print 프린터 이름 (생략하면 Windows 기본 프린터)")
+    parser.add_argument("--copies", type=int, default=1, help="--print 부수 (기본 1)")
+    parser.add_argument("--duplex", choices=sorted(DUPLEX_MODES),
+                        help="--print 양면: long(긴 쪽 넘김)·short(짧은 쪽)·none(단면). "
+                             "생략하면 프린터 설정 그대로. 다르면 바꾸고 인쇄 뒤 되돌린다")
+    parser.add_argument("--dry", action="store_true",
+                        help="--print 계획(프린터·부수·양면·쪽수·용지 장수)만 찍고 인쇄·설정 변경 안 함")
+    parser.add_argument("--print-to-file", metavar="PATH",
+                        help="--print 결과를 종이 대신 파일로 (Microsoft Print to PDF 등 확인용)")
     parser.add_argument("--password", help="암호화된 문서의 열기 암호")
     parser.add_argument("-o", "--output", help="출력 파일 경로")
 
@@ -514,8 +788,11 @@ def main():
         cmd_to_pdf(args.file, args.output, args.password)
     elif args.append:
         cmd_append(args.file, args.append, args.output, args.password)
+    elif args.do_print:
+        cmd_print(args.file, args.printer, args.copies, args.duplex, args.dry,
+                  args.print_to_file, args.password)
     else:
-        parser.error("동작 플래그가 필요합니다: --from-md / --insert-image / --from-hwp / --get-text / --to-pdf / --append / --diagnose")
+        parser.error("동작 플래그가 필요합니다: --from-md / --insert-image / --from-hwp / --get-text / --to-pdf / --append / --print / --diagnose")
 
 
 if __name__ == "__main__":
