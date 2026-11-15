@@ -1,6 +1,7 @@
 #!/bin/sh
 # HWP -> HWPX 변환 (macOS/Linux용. Windows는 같은 폴더의 hwp2hwpx.bat 사용)
-# 사용법: hwp2hwpx.sh <input.hwp> [output.hwpx]
+# 사용법: hwp2hwpx.sh <input.hwp> [output.hwpx | 출력 폴더]
+# 두 번째 인자가 기존 폴더면 그 안에 <입력 이름>.hwpx로 저장한다.
 # 출력 미지정 시 입력 폴더의 _work-hwpx-automation/ 하위에 <이름>.hwpx로 생성(원본 비파괴).
 set -u
 
@@ -30,13 +31,16 @@ if [ ! -f "$INPUT" ]; then
     exit 1
 fi
 
+BASE=$(basename -- "$INPUT")
+NAME="${BASE%.*}"
 if [ -z "$OUTPUT" ]; then
     INPUT_DIR=$(CDPATH= cd -- "$(dirname -- "$INPUT")" && pwd)
-    BASE=$(basename -- "$INPUT")
-    NAME="${BASE%.*}"
     OUTPUT_DIR="$INPUT_DIR/_work-hwpx-automation"
     mkdir -p "$OUTPUT_DIR"
     OUTPUT="$OUTPUT_DIR/$NAME.hwpx"
+elif [ -d "$OUTPUT" ]; then
+    # 두 번째 인자가 기존 폴더면 그 안에 <입력 이름>.hwpx로 저장한다(이슈 #15).
+    OUTPUT="${OUTPUT%/}/$NAME.hwpx"
 fi
 
 # macOS/Linux JVM은 UTF-8 로케일에서 argv를 그대로 받으므로

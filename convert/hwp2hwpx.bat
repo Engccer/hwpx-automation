@@ -26,7 +26,7 @@ set "INPUT=%~1"
 set "OUTPUT=%~2"
 
 if "%INPUT%"=="" (
-    echo Usage: %~nx0 ^<input.hwp^> [output.hwpx]
+    echo Usage: %~nx0 ^<input.hwp^> [output.hwpx ^| output-folder]
     exit /B 2
 )
 
@@ -36,6 +36,17 @@ if "%OUTPUT%"=="" (
     set "OUTPUT_DIR=%~dp1_work-hwpx-automation"
     if not exist "!OUTPUT_DIR!" mkdir "!OUTPUT_DIR!"
     set "OUTPUT=!OUTPUT_DIR!\!INPUT_NAME!.hwpx"
+)
+
+REM Output given as an existing folder: save <input name>.hwpx inside it (issue #15).
+set "OUT_ATTR="
+for %%A in ("!OUTPUT!") do set "OUT_ATTR=%%~aA"
+if /I "!OUT_ATTR:~0,1!"=="d" (
+    if "!OUTPUT:~-1!"=="\" (
+        set "OUTPUT=!OUTPUT!%~n1.hwpx"
+    ) else (
+        set "OUTPUT=!OUTPUT!\%~n1.hwpx"
+    )
 )
 
 REM JVM decodes argv as cp949 on Windows; en-dash, em-dash, etc. break it.
