@@ -374,6 +374,33 @@ class PrintTests(unittest.TestCase):
         self.assertNotIn("되돌리지 못했습니다", err.getvalue())
         create.assert_not_called()
 
+    def test_non_ascii_temp_uses_short_path_or_public(self):
+        import tempfile as tf
+        real_mkdtemp = tf.mkdtemp
+        with tempfile.TemporaryDirectory() as root:
+            korean = os.path.join(root, "한글 계정")
+            ascii_dir = os.path.join(root, "SHORT~1")
+            public = os.path.join(root, "public")
+            for d in (korean, ascii_dir, public):
+                os.makedirs(d)
+
+            def mkdtemp(prefix="", dir=None):
+                return real_mkdtemp(prefix=prefix, dir=dir) if dir else korean
+
+            for short, expect_dir, warn in ((ascii_dir, ascii_dir, False), (korean, public, True)):
+                opened = []
+                fake = FakePrintHwp([])
+                fake.open = lambda path, fmt, arg: opened.append(path) or True
+                err = io.StringIO()
+                with mock.patch("tempfile.mkdtemp", side_effect=mkdtemp),                         mock.patch.object(hwpx_com, "short_path", return_value=short),                         mock.patch.dict(os.environ, {"PUBLIC": public}),                         mock.patch.object(hwpx_com, "printer_info", return_value=dict(PRINTER)),                         mock.patch.object(hwpx_com, "create_hwp", return_value=fake),                         contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+                    doc = os.path.join(root, "doc.hwpx")
+                    Path(doc).write_bytes(b"x")
+                    os.makedirs(korean, exist_ok=True)
+                    hwpx_com.cmd_print(doc, dry=True)
+                self.assertTrue(opened[0].startswith(expect_dir), opened[0])
+                self.assertTrue(opened[0].isascii())
+                self.assertEqual("경고" in err.getvalue(), warn)
+
     def test_print_to_file_must_differ_from_input(self):
         with tempfile.TemporaryDirectory() as tmp:
             doc = os.path.join(tmp, "a.hwpx")

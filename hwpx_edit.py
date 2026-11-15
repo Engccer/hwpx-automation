@@ -2351,6 +2351,8 @@ def main():
                              '최종 결과물을 작업 폴더에 바로 두려면 -o로 지정')
 
     args = parser.parse_args()
+    if args.underline and not args.to_md:
+        parser.error('--underline은 --to-md와 함께 씁니다.')
 
     if args.check_env:
         sys.exit(cmd_check_env())
@@ -2418,8 +2420,6 @@ def main():
 
     if args.info:
         cmd_info(args.file)
-    elif args.underline and not args.to_md:
-        parser.error('--underline은 --to-md와 함께 씁니다.')
     elif args.to_md:
         cmd_to_md(args.file, args.output, cell_br=args.cell_br, merge_fill=args.merge_fill,
                   underline=args.underline)

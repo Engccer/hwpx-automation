@@ -475,8 +475,9 @@ $pre = @(Get-PrintJob -PrinterName $p | ForEach-Object Id)
 $deadline = (Get-Date).AddSeconds([int]$env:HWPX_WATCH_SEC)
 $seen = 0; $doneAt = $null
 while ((Get-Date) -lt $deadline) {
-  $jobs = @(Get-PrintJob -PrinterName $p | Where-Object { $pre -notcontains $_.Id -and $_.UserName -eq $me })
+  # 완료 표시를 먼저 본다: 조회 뒤에 보면 그 사이 들어온 작업을 놓친 채 비움으로 끝날 수 있다
   $done = Test-Path -LiteralPath $env:HWPX_WATCH_DONE
+  $jobs = @(Get-PrintJob -PrinterName $p | Where-Object { $pre -notcontains $_.Id -and $_.UserName -eq $me })
   foreach ($j in $jobs) { "JOB {0} {1} {2} {3}" -f $j.Id, $j.TotalPages, $j.PagesPrinted, $j.JobStatus; $seen++ }
   if ($done -and $seen -gt 0 -and $jobs.Count -eq 0) { "EMPTY"; exit 0 }
   if ($done) {
@@ -591,6 +592,14 @@ def queue_verdict(jobs, end, pages, copies):
     return ("passed" if total == expected else "mismatch"), desc
 
 
+def short_path(path):
+    """Windows 8.3 짧은 경로(없으면 원래 경로)."""
+    import ctypes
+    buf = ctypes.create_unicode_buffer(1024)
+    n = ctypes.windll.kernel32.GetShortPathNameW(path, buf, len(buf))
+    return buf.value if 0 < n < len(buf) else path
+
+
 def sheet_count(pages, copies, duplex_mode):
     per_copy = -(-pages // 2) if duplex_mode.startswith("TwoSided") else pages
     return per_copy * copies
@@ -627,9 +636,15 @@ def cmd_print(filepath, printer=None, copies=1, duplex=None, dry=False,
     # 한글·공백·클라우드 경로를 COM에 직접 넘기지 않는다(이슈 #16 실측)
     work = tempfile.mkdtemp(prefix="hwpx_print_")
     if not work.isascii():  # 계정 이름이 한글이면 %TEMP%에도 한글이 든다
-        shutil.rmtree(work, ignore_errors=True)
-        public = os.environ.get("PUBLIC", "C:/Users/Public")
-        work = tempfile.mkdtemp(prefix="hwpx_print_", dir=public if public.isascii() else None)
+        short = short_path(work)
+        if short.isascii():
+            work = short
+        else:
+            shutil.rmtree(work, ignore_errors=True)
+            public = os.environ.get("PUBLIC", "C:/Users/Public")
+            work = tempfile.mkdtemp(prefix="hwpx_print_", dir=public if public.isascii() else None)
+            print(f"경고: 임시 사본을 {work}에 둡니다(인쇄 뒤 지움). "
+                  "%TEMP%에 한글이 있고 8.3 짧은 이름이 없습니다.", file=sys.stderr)
     staged = os.path.join(work, "print_input" + os.path.splitext(src)[1].lower())
     shutil.copyfile(src, staged)
     restored = default_restored = None
@@ -668,7 +683,7 @@ def cmd_print(filepath, printer=None, copies=1, duplex=None, dry=False,
         pset.PrintToFile = 1 if to_file else 0
         if to_file:
             pset.filename = os.path.abspath(to_file)
-        if pset.PrinterName != name:
+        if (pset.PrinterName or "").casefold() != name.casefold():
             raise SystemExit(f"오류: 한글이 프린터 '{name}'을 받지 않았습니다(지금 '{pset.PrinterName}'). "
                              "인쇄하지 않았습니다.")
         printed = True
