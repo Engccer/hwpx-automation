@@ -399,7 +399,7 @@ def get_cell_span(cell):
     return int(span.get('rowSpan', '1')), int(span.get('colSpan', '1'))
 
 
-def cmd_to_md(filepath, output=None, cell_br=False, merge_fill=False):
+def cmd_to_md(filepath, output=None, cell_br=False, merge_fill=False, underline=False):
     """HWPX를 Markdown으로 변환 (hwpx-tomd 패키지 엔진 호출, 외부 API 불필요).
 
     변환 엔진(글상자 reading-order 수집, <hp:t> tail 보존, 표 cellAddr/cellSpan
@@ -410,7 +410,9 @@ def cmd_to_md(filepath, output=None, cell_br=False, merge_fill=False):
 
     cell_br=True이면 표 셀 내부 문단을 <br>로 구분한다(긴 지문이 셀 안에 있는
     고사지·보고서에 권장). merge_fill=True이면 병합으로 덮인 칸을 시작 칸 값으로
-    채운다(행 단위 파싱·LLM 입력용; 기본은 GFM 정렬 보존).
+    채운다(행 단위 파싱·LLM 입력용; 기본은 GFM 정렬 보존). underline=True이면
+    밑줄 친 글은 <u>글</u>로, 밑줄 빈칸은 \\_로 남긴다(빈칸 채우기 시험지·양식용,
+    hwpx-tomd 0.5.0). 기본은 밑줄 정보를 버린다(출력 불변).
     """
     try:
         from hwpx_tomd import convert, HwpxEncryptedError, HwpxError
@@ -425,7 +427,7 @@ def cmd_to_md(filepath, output=None, cell_br=False, merge_fill=False):
         sys.exit(3)
 
     try:
-        result = convert(filepath, cell_br=cell_br, merge_fill=merge_fill)
+        result = convert(filepath, cell_br=cell_br, merge_fill=merge_fill, underline=underline)
     except HwpxEncryptedError as e:
         print(f"오류: {e}", file=sys.stderr)
         sys.exit(1)
@@ -2341,6 +2343,9 @@ def main():
     parser.add_argument('--merge-fill', action='store_true',
                         help='--to-md와 함께 사용: 병합으로 덮인 칸을 시작 칸 값으로 채움 '
                              '(행 단위 파싱·LLM 입력용; 기본은 GFM 정렬 보존)')
+    parser.add_argument('--underline', action='store_true',
+                        help='--to-md와 함께 사용: 밑줄 친 글은 <u>글</u>, 밑줄 빈칸은 \\_로 표시 '
+                             '(빈칸 채우기 시험지·양식. 기본은 밑줄을 버림)')
     parser.add_argument('-o', '--output',
                         help='출력 파일 경로 (기본: _work-hwpx-automation/ 폴더). '
                              '최종 결과물을 작업 폴더에 바로 두려면 -o로 지정')
@@ -2414,7 +2419,8 @@ def main():
     if args.info:
         cmd_info(args.file)
     elif args.to_md:
-        cmd_to_md(args.file, args.output, cell_br=args.cell_br, merge_fill=args.merge_fill)
+        cmd_to_md(args.file, args.output, cell_br=args.cell_br, merge_fill=args.merge_fill,
+                  underline=args.underline)
     elif args.to_pdf:
         cmd_to_pdf(args.file, args.output, password=args.password, backend=args.pdf_backend)
     elif args.tables:

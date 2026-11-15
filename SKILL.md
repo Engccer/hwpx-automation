@@ -179,6 +179,10 @@ python hwpx_edit.py <파일.hwpx> --to-md --cell-br [-o output.md]
 #  - 기본은 GFM 정렬 보존(병합 칸은 빈 칸). --merge-fill은 시작 칸 값 복제
 python hwpx_edit.py <파일.hwpx> --to-md --merge-fill [-o output.md]
 
+# 밑줄 보존 (빈칸 채우기 시험지·양식: 밑줄 친 글은 <u>글</u>, 밑줄 빈칸은 \_)
+#  - 기본은 밑줄 정보를 버린다. hwpx-tomd 0.5.0 이상
+python hwpx_edit.py <파일.hwpx> --to-md --underline [-o output.md]
+
 # 암호화된 HWPX (AES-256-CBC)는 hwpx_edit.py가 자동 감지하고 오류 메시지로
 # 해제 절차 안내한다. 해제는 한컴 COM으로 FilePasswordChange 액션 사용.
 # 상세: reference/encrypted-hwpx.md
