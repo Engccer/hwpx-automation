@@ -30,5 +30,5 @@
 18. **종이 인쇄의 프린터 쪽 함정** (`hwpx_com.py --print`, 2026-11-15 Windows 11 + 한컴 13.0.0.3903 실측):
     - **Windows가 기본 프린터를 바꾼다**: "기본 프린터 자동 관리"(`HKCU\Software\Microsoft\Windows NT\CurrentVersion\Windows`의 `LegacyDefaultPrinterMode=0`)가 켜져 있으면 한글로 다른 프린터에 한 번 인쇄한 뒤 기본 프린터가 그 프린터로 바뀐다. 다음 작업이 `--printer` 없이 엉뚱한 프린터로 가지 않게 `--print`는 인쇄 전 기본 프린터를 기억해 두고 바뀌었으면 되돌린다.
     - **대기열 TotalPages는 스풀 중에 자란다**: 스풀 중(JobStatus `Spooling`) 관측값은 최종값이 아니다(6쪽 2부 작업이 스풀 중 6). 빠른 프린터는 스풀이 끝나자마자 작업이 사라져 최종값을 못 볼 수 있고, 이때 `--print`는 `status=unverified`를 낸다.
-    - **부수를 누가 찍느냐에 따라 TotalPages가 다르다**: 한글이 부수만큼 보내면 쪽수 × 부수(이슈 #16의 프린터), 드라이버가 부수를 맡으면 한 부 쪽수다(`Microsoft Print to PDF`: 대기열을 멈춰 본 최종 TotalPages 6, 출력 PDF 12쪽). 둘 다 정상으로 본다.
+    - **부수를 누가 찍느냐에 따라 TotalPages가 다르다**: 한글이 부수만큼 보내면 쪽수 × 부수(이슈 #16의 프린터), 드라이버가 부수를 맡으면 한 부 쪽수다(`Microsoft Print to PDF`: 대기열을 멈춰 본 최종 TotalPages 6, 출력 PDF 12쪽). 뒤의 경우는 한 부만 나간 것과 대기열로는 구별되지 않아 `--print`는 `status=unverified`로 보고하고 출력물 확인을 요청한다.
     - **저장 위치를 묻는 프린터**(포트 `PORTPROMPT:`, `Microsoft Print to PDF`)는 비가시 한글에서 창을 띄워 멈춘다. HPrint `PrintToFile=1`·`filename`을 주면 창 없이 파일로 나온다(`--print-to-file`).

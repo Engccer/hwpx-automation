@@ -388,7 +388,7 @@ def cmd_append(filepath, others, output=None, password=None):
     abs_output = os.path.abspath(output)
     if not abs_output.lower().endswith(".hwpx"):
         raise SystemExit("오류: 출력 파일은 .hwpx 확장자여야 합니다.")
-    if abs_output in files:
+    if os.path.normcase(abs_output) in {os.path.normcase(f) for f in files}:
         raise SystemExit("오류: 입력과 같은 경로로는 저장할 수 없습니다 (in-place 금지).")
     if defaulted and os.path.exists(abs_output):
         raise SystemExit(f"오류: 기본 출력 경로에 파일이 이미 있습니다: {abs_output}\n"
@@ -469,15 +469,17 @@ SET_DUPLEX_PS = ("Set-PrintConfiguration -PrinterName $env:HWPX_PRINTER "
 
 QUEUE_WATCH_PS = r"""
 $p = $env:HWPX_PRINTER
+$me = $env:USERNAME
 $pre = @(Get-PrintJob -PrinterName $p | ForEach-Object Id)
 "READY"
 $deadline = (Get-Date).AddSeconds([int]$env:HWPX_WATCH_SEC)
 $seen = 0; $doneAt = $null
 while ((Get-Date) -lt $deadline) {
-  $jobs = @(Get-PrintJob -PrinterName $p | Where-Object { $pre -notcontains $_.Id })
+  $jobs = @(Get-PrintJob -PrinterName $p | Where-Object { $pre -notcontains $_.Id -and $_.UserName -eq $me })
+  $done = Test-Path -LiteralPath $env:HWPX_WATCH_DONE
   foreach ($j in $jobs) { "JOB {0} {1} {2} {3}" -f $j.Id, $j.TotalPages, $j.PagesPrinted, $j.JobStatus; $seen++ }
-  if ($seen -gt 0 -and $jobs.Count -eq 0) { "EMPTY"; exit 0 }
-  if (Test-Path -LiteralPath $env:HWPX_WATCH_DONE) {
+  if ($done -and $seen -gt 0 -and $jobs.Count -eq 0) { "EMPTY"; exit 0 }
+  if ($done) {
     if (-not $doneAt) { $doneAt = Get-Date }
     if ($seen -eq 0 -and ((Get-Date) - $doneAt).TotalSeconds -gt [int]$env:HWPX_WATCH_GRACE) { "NONE"; exit 0 }
   }
@@ -567,7 +569,8 @@ def queue_verdict(jobs, end, pages, copies):
 
     TotalPages는 한글이 부수만큼 찍어 보내면 쪽수 × 부수(이슈 #16 실측 프린터),
     드라이버가 부수를 맡으면 한 부 쪽수다(Microsoft Print to PDF 실측: 6쪽 2부에
-    TotalPages 6, 출력 PDF 12쪽). 둘 다 맞는 값으로 본다.
+    TotalPages 6, 출력 PDF 12쪽). 뒤의 경우는 한 부만 나간 것과 구별되지 않아
+    부수를 확인하지 못한 것(unverified)으로 본다.
     """
     expected = pages * copies
     if not jobs:
@@ -578,10 +581,10 @@ def queue_verdict(jobs, end, pages, copies):
                               f"(기대 {pages}쪽 × {copies}부). 프린터 출력으로 확인하세요")
     total = sum(j["pages"] for j in jobs.values())
     if copies > 1 and total == pages:
-        expected = pages
-        how = f"한 부 쪽수({pages})와 같음, 부수({copies})는 프린터 드라이버가 처리"
-    else:
-        how = f"기대 {expected} = {pages}쪽 × {copies}부"
+        return "unverified", (f"작업 {len(jobs)}건, TotalPages {total}: 한 부 쪽수와 같다. 드라이버가 "
+                              f"부수를 맡는 프린터면 정상이지만 한 부만 나간 것과 구별되지 않으니 "
+                              f"{copies}부가 나왔는지 출력물로 확인하세요")
+    how = f"기대 {expected} = {pages}쪽 × {copies}부"
     tail = {"EMPTY": "대기열 비움 확인",
             "TIMEOUT": f"{QUEUE_WATCH_SEC}초 안에 대기열이 비지 않음(인쇄 중일 수 있음)"}.get(end, "")
     desc = f"작업 {len(jobs)}건, TotalPages {total} ({how}). {tail}".rstrip(". ")
@@ -603,12 +606,15 @@ def cmd_print(filepath, printer=None, copies=1, duplex=None, dry=False,
     쪽수 × 부수와 대조한다. --dry는 인쇄와 설정 변경 없이 계획 줄만 찍는다.
     """
     import shutil
+    import subprocess
     import tempfile
     if copies < 1:
         raise SystemExit("오류: --copies는 1 이상이어야 합니다.")
     src = os.path.abspath(filepath)
     if not os.path.exists(src):
         raise SystemExit(f"오류: 파일이 없습니다: {src}")
+    if to_file and os.path.normcase(os.path.abspath(to_file)) == os.path.normcase(src):
+        raise SystemExit("오류: --print-to-file은 입력과 다른 경로여야 합니다.")
     info = printer_info(printer)
     name = info["Name"]
     if info.get("PortName") == "PORTPROMPT:" and not (dry or to_file):
@@ -620,15 +626,20 @@ def cmd_print(filepath, printer=None, copies=1, duplex=None, dry=False,
 
     # 한글·공백·클라우드 경로를 COM에 직접 넘기지 않는다(이슈 #16 실측)
     work = tempfile.mkdtemp(prefix="hwpx_print_")
+    if not work.isascii():  # 계정 이름이 한글이면 %TEMP%에도 한글이 든다
+        shutil.rmtree(work, ignore_errors=True)
+        public = os.environ.get("PUBLIC", "C:/Users/Public")
+        work = tempfile.mkdtemp(prefix="hwpx_print_", dir=public if public.isascii() else None)
     staged = os.path.join(work, "print_input" + os.path.splitext(src)[1].lower())
     shutil.copyfile(src, staged)
     restored = default_restored = None
-    printed = False
+    printed = applied = False
     hwp = watcher = None
     try:
         if change and not dry:
             try:
                 set_duplex(name, target)
+                applied = True
             except RuntimeError as exc:
                 raise SystemExit(f"오류: 양면 설정을 바꾸지 못해 인쇄하지 않았습니다: {exc}")
         hwp = create_hwp(visible=False)
@@ -653,13 +664,21 @@ def cmd_print(filepath, printer=None, copies=1, duplex=None, dry=False,
         pset.Collate = 1
         pset.PrintMethod = 0
         pset.Device = 0
+        # 한글이 지난 실행 값을 기억해도 종이 인쇄가 파일로 새지 않게 늘 정한다
+        pset.PrintToFile = 1 if to_file else 0
         if to_file:
-            pset.PrintToFile = 1
             pset.filename = os.path.abspath(to_file)
+        if pset.PrinterName != name:
+            raise SystemExit(f"오류: 한글이 프린터 '{name}'을 받지 않았습니다(지금 '{pset.PrinterName}'). "
+                             "인쇄하지 않았습니다.")
         printed = True
         ok = h.HAction.Execute("Print", pset.HSet)
         open(done_flag, "w").close()
-        out, _ = watcher.communicate(timeout=QUEUE_WATCH_SEC + 30)
+        try:
+            out, _ = watcher.communicate(timeout=QUEUE_WATCH_SEC + 30)
+        except subprocess.TimeoutExpired:
+            watcher.kill()
+            out = (watcher.communicate()[0] or "") + "\nTIMEOUT"
         if not ok:
             raise SystemExit("오류: 한컴 COM 인쇄 명령이 실패했습니다(Execute=False).")
         jobs, end = parse_queue_watch(out.splitlines())
@@ -670,7 +689,7 @@ def cmd_print(filepath, printer=None, copies=1, duplex=None, dry=False,
         if hwp is not None:
             hwp.clear(1)
             hwp.quit()
-        if change and not dry:
+        if applied:
             try:
                 set_duplex(name, current)
                 restored = current
@@ -772,6 +791,9 @@ def main():
 
     if args.file is None:
         parser.error("대상 파일 경로가 필요합니다 (--diagnose 제외).")
+    if not args.do_print and (args.printer or args.duplex or args.dry or args.print_to_file
+                              or args.copies != 1):
+        parser.error("--printer·--copies·--duplex·--dry·--print-to-file은 --print와 함께 씁니다.")
 
     if args.from_md:
         cmd_from_md(args.file, args.from_md)

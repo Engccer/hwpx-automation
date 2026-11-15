@@ -387,7 +387,7 @@ ZIP 내부 구조·네임스페이스가 필요할 때 `reference/format.md`를 
 1. 먼저 `--dry`로 돌린다: `python hwpx_com.py 문서.hwpx --print --copies 30 --duplex long --dry`. 인쇄도 프린터 설정 변경도 하지 않고 `인쇄 계획: 프린터=…, 부수=…, 양면=…, 쪽수=…, 용지=…장` 한 줄만 찍는다.
 2. 그 한 줄(프린터·부수·양면·쪽수·용지 장수)을 사용자에게 그대로 보고하고 확인을 받은 뒤 `--dry`를 빼고 실행한다. 프린터 이름은 추측하지 않는다. `--printer`를 빼면 Windows 기본 프린터이고, 같은 드라이버의 `(1 복사)` 같은 중복 인스턴스가 있을 수 있으니 계획 줄의 이름을 확인한다.
 3. 양면은 한글 인쇄 설정이 아니라 프린터 드라이버 설정(`DuplexingMode`)을 따른다. `--duplex long|short|none`이 지금 설정과 다르면 인쇄 직전에 바꾸고 끝나면 되돌린다(사용자 PC 설정 변경이므로 1번 보고에 포함된다). 생략하면 프린터 설정 그대로다.
-4. 결과 줄을 완료 보고에 옮긴다. `대기열 대조:`는 인쇄 대기열 작업의 쪽수(TotalPages)를 쪽수 × 부수, 또는 드라이버가 부수를 맡는 프린터면 한 부 쪽수와 대조한 것이다. 끝줄 `engine=com status=passed|unverified|mismatch`에서 `unverified`(작업이 너무 빨리 지나가 최종 쪽수를 못 봄)는 "확인됨"이라고 보고하지 않고 출력물로 확인해 달라고 한다. `mismatch`는 exit 1이다.
+4. 결과 줄을 완료 보고에 옮긴다. `대기열 대조:`는 이 사용자가 보낸 인쇄 대기열 작업의 쪽수(TotalPages)를 쪽수 × 부수와 대조한 것이다. 끝줄 `engine=com status=passed|unverified|mismatch`에서 `unverified`(작업이 너무 빨리 지나가 최종 쪽수를 못 봄, 또는 여러 부인데 TotalPages가 한 부 쪽수라 드라이버가 부수를 맡은 것인지 한 부만 나간 것인지 모름)는 "확인됨"이라고 보고하지 않고 출력물로 확인해 달라고 한다. `mismatch`는 exit 1이다.
 5. Windows가 "기본 프린터 자동 관리"로 인쇄 뒤 기본 프린터를 바꾸면 되돌리고 `기본 프린터 복원:` 줄을 찍는다.
 
 저장 위치를 묻는 프린터(`Microsoft Print to PDF` 등)는 창 때문에 멈추므로 `--print-to-file 경로`가 있어야 한다. 종이 없이 흐름을 확인할 때 이 조합을 쓴다. 상세와 실측은 `reference/com.md` "종이 인쇄"와 `reference/warnings-com.md` 18번.

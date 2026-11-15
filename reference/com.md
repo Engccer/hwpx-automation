@@ -97,7 +97,7 @@ python hwpx_edit.py <파일.hwpx> --to-pdf --pdf-backend com --password "<비밀
 3. 입력을 ASCII 임시 경로(`%TEMP%\hwpx_print_*\print_input.hwpx`)로 복사해 연다. 한글·공백 섞인 클라우드 경로를 COM에 직접 넘기지 않는다.
 4. `PageCount`로 쪽수·용지 장수(양면이면 쪽수를 2로 나눠 올림 × 부수)를 계산해 `인쇄 계획:` 한 줄을 찍는다. `--dry`는 여기서 끝난다.
 5. 대기열 감시(PowerShell `Get-PrintJob`, 0.2초 간격)를 먼저 띄운 뒤 `HAction.GetDefault("Print", HPrint)` → `PrinterName`·`Range=0`·`NumCopy`·`Collate=1`·`PrintMethod=0`·`Device=0`(파일 출력이면 `PrintToFile=1`·`filename`) → `Execute`.
-6. 스풀이 끝난 관측의 TotalPages를 대조하고 대기열이 빌 때까지(최대 300초) 기다린다. 양면 설정과 기본 프린터를 되돌린다(실패해도 finally에서).
+6. 이 사용자(`UserName`)가 보낸 새 작업만 보고, 스풀이 끝난 관측의 TotalPages를 쪽수 × 부수와 대조한다. 인쇄 명령이 끝난 뒤 대기열이 빌 때까지(최대 300초) 기다리고, 시간을 넘기면 감시를 끊고 결과 줄을 찍는다. 인쇄 직전에 HPrint의 `PrinterName`을 다시 읽어 지정한 프린터가 아니면 인쇄하지 않고, 파일 출력이 아니면 `PrintToFile=0`을 늘 준다. 양면 설정과 기본 프린터를 되돌린다(실패해도 finally에서).
 
 HPrint에는 양면 항목이 없다. 출력 파일 이름 속성은 `FileName`이 아니라 `filename`이다(주요 주의사항 3번과 같은 함정).
 

@@ -141,16 +141,22 @@ class AppendTests(unittest.TestCase):
 
 
 class FakePrintSet:
-    def __init__(self):
+    def __init__(self, accept_printer=True):
         self.HSet = object()
+        self._accept = accept_printer
+
+    def __setattr__(self, key, value):
+        if key == "PrinterName" and not self.__dict__.get("_accept", True):
+            value = "다른 프린터"  # 한글이 이름을 무시하는 경우
+        object.__setattr__(self, key, value)
 
 
 class FakePrintHwp:
     """HPrint 대역. 실제 스풀러·한컴 없이 인쇄 흐름만 본다."""
 
-    def __init__(self, log, pages=2, ok=True):
+    def __init__(self, log, pages=2, ok=True, accept_printer=True):
         self.log, self.PageCount, self.ok = log, pages, ok
-        self.pset = FakePrintSet()
+        self.pset = FakePrintSet(accept_printer)
         outer = self
 
         class Params:
@@ -161,7 +167,8 @@ class FakePrintHwp:
                 outer.log.append(("GetDefault", name))
 
             def Execute(self, name, hset):
-                outer.log.append(("Execute", name, vars(outer.pset).copy()))
+                params = {k: v for k, v in vars(outer.pset).items() if not k.startswith("_")}
+                outer.log.append(("Execute", name, params))
                 return outer.ok
 
         self.HParameterSet, self.HAction = Params(), Action()
@@ -203,14 +210,18 @@ class QueueTests(unittest.TestCase):
         status, desc = hwpx_com.queue_verdict(jobs, end, 6, 2)
         self.assertEqual(status, "unverified")
 
-    def test_pages_times_copies_or_driver_copies_pass(self):
+    def test_pages_times_copies_pass(self):
         lines = ["JOB 7 3 0 Spooling", "JOB 7 12 0 Paused", "JOB 7 12 4 Printing", "EMPTY"]
         jobs, end = hwpx_com.parse_queue_watch(lines)
         self.assertEqual(hwpx_com.queue_verdict(jobs, end, 6, 2)[0], "passed")
+
+    def test_one_copy_pages_is_unverified_not_passed(self):
+        # 드라이버가 부수를 맡는 경우와 한 부만 나간 경우가 구별되지 않는다
         jobs, end = hwpx_com.parse_queue_watch(["JOB 7 6 0 Paused", "EMPTY"])
         status, desc = hwpx_com.queue_verdict(jobs, end, 6, 2)
-        self.assertEqual(status, "passed")
-        self.assertIn("드라이버", desc)
+        self.assertEqual(status, "unverified")
+        self.assertIn("2부", desc)
+        self.assertEqual(hwpx_com.queue_verdict(jobs, end, 6, 1)[0], "passed")
 
     def test_wrong_pages_mismatch_and_nothing_seen_unverified(self):
         jobs, end = hwpx_com.parse_queue_watch(["JOB 7 9 0 Printing", "EMPTY"])
@@ -225,9 +236,9 @@ class QueueTests(unittest.TestCase):
 
 class PrintTests(unittest.TestCase):
     def run_print(self, info=PRINTER, watch=("JOB 1 4 0 Printing", "EMPTY"), ok=True,
-                  default_after=None, **kw):
+                  default_after=None, watcher=None, accept_printer=True, **kw):
         log = []
-        fake = FakePrintHwp(log, pages=2, ok=ok)
+        fake = FakePrintHwp(log, pages=2, ok=ok, accept_printer=accept_printer)
 
         def set_duplex(name, mode):
             log.append(("duplex", mode))
@@ -236,12 +247,23 @@ class PrintTests(unittest.TestCase):
             log.append(("restore_default", original))
             return default_after
 
+        def start_watch(*args):
+            log.append(("watch",))
+            return watcher or FakeWatcher(list(watch))
+
         out, err = io.StringIO(), io.StringIO()
         with tempfile.TemporaryDirectory() as tmp:
             doc = os.path.join(tmp, "가정 통신문.hwpx")
             Path(doc).write_bytes(b"x")
-            with mock.patch.object(hwpx_com, "printer_info", return_value=dict(info)),                     mock.patch.object(hwpx_com, "set_duplex", side_effect=set_duplex),                     mock.patch.object(hwpx_com, "restore_default_printer", side_effect=restore_default),                     mock.patch.object(hwpx_com, "start_queue_watch",
-                                      side_effect=lambda *a: log.append(("watch",)) or FakeWatcher(list(watch))),                     mock.patch.object(hwpx_com, "create_hwp", return_value=fake),                     contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            with contextlib.ExitStack() as stack:
+                for name, kw2 in (("printer_info", {"return_value": dict(info)}),
+                                  ("set_duplex", {"side_effect": set_duplex}),
+                                  ("restore_default_printer", {"side_effect": restore_default}),
+                                  ("start_queue_watch", {"side_effect": start_watch}),
+                                  ("create_hwp", {"return_value": fake})):
+                    stack.enter_context(mock.patch.object(hwpx_com, name, **kw2))
+                stack.enter_context(contextlib.redirect_stdout(out))
+                stack.enter_context(contextlib.redirect_stderr(err))
                 try:
                     hwpx_com.cmd_print(doc, **kw)
                     code = 0
@@ -272,7 +294,7 @@ class PrintTests(unittest.TestCase):
         params = next(e[2] for e in log if e[0] == "Execute")
         self.assertEqual((params["PrinterName"], params["NumCopy"], params["Collate"], params["Range"]),
                          ("가상 프린터", 2, 1, 0))
-        self.assertNotIn("PrintToFile", params)
+        self.assertEqual(params["PrintToFile"], 0)  # 지난 실행 값이 남아도 종이로
         self.assertIn("양면 설정 복원: OneSided", out)
         self.assertTrue(out.rstrip().endswith("engine=com status=passed"))
 
@@ -302,6 +324,62 @@ class PrintTests(unittest.TestCase):
         params = next(e[2] for e in log if e[0] == "Execute")
         self.assertEqual(params["PrintToFile"], 1)
         self.assertTrue(params["filename"].endswith("out.pdf"))
+
+    def test_printer_name_not_accepted_aborts_before_execute(self):
+        log, code, _, _ = self.run_print(duplex="long", accept_printer=False)
+        self.assertIn("받지 않았습니다", str(code))
+        kinds = [e[0] for e in log]
+        self.assertNotIn("Execute", kinds)
+        self.assertNotIn("restore_default", kinds)
+        self.assertEqual(log[-1], ("duplex", "OneSided"))
+
+    def test_watch_timeout_still_prints_result_line(self):
+        import subprocess
+
+        class SlowWatcher:
+            killed = False
+
+            def communicate(self, timeout=None):
+                if timeout is not None:
+                    raise subprocess.TimeoutExpired("powershell", timeout)
+                return "JOB 1 2 0 Printing", ""
+
+            def kill(self):
+                SlowWatcher.killed = True
+
+            def poll(self):
+                return 0
+
+        log, code, out, _ = self.run_print(watcher=SlowWatcher())
+        self.assertEqual(code, 0)
+        self.assertTrue(SlowWatcher.killed)
+        self.assertIn("비지 않음", out)
+        self.assertTrue(out.rstrip().endswith("engine=com status=passed"))
+
+    def test_duplex_set_failure_does_not_claim_restore(self):
+        def fail(name, mode):
+            raise RuntimeError("권한 없음")
+        log = []
+        err = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            doc = os.path.join(tmp, "a.hwpx")
+            Path(doc).write_bytes(b"x")
+            with mock.patch.object(hwpx_com, "printer_info", return_value=dict(PRINTER)), \
+                    mock.patch.object(hwpx_com, "set_duplex", side_effect=fail), \
+                    mock.patch.object(hwpx_com, "create_hwp") as create, \
+                    contextlib.redirect_stderr(err):
+                with self.assertRaises(SystemExit) as cm:
+                    hwpx_com.cmd_print(doc, duplex="long")
+        self.assertIn("양면 설정을 바꾸지 못해", str(cm.exception.code))
+        self.assertNotIn("되돌리지 못했습니다", err.getvalue())
+        create.assert_not_called()
+
+    def test_print_to_file_must_differ_from_input(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            doc = os.path.join(tmp, "a.hwpx")
+            Path(doc).write_bytes(b"x")
+            with self.assertRaises(SystemExit):
+                hwpx_com.cmd_print(doc, to_file=doc.upper())
 
     def test_copies_must_be_positive(self):
         with self.assertRaises(SystemExit):
