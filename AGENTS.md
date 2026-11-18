@@ -1,7 +1,7 @@
 > 🤖 **이 파일은 자동 생성됩니다. 직접 수정하지 마세요.**
 > 정본은 `CLAUDE.md` 입니다. 내용을 바꾸려면 `CLAUDE.md` 를 수정한 뒤
 > 프로젝트 루트에서 `python sync_agent_docs.py` 를 실행하세요.
-> 이 파일을 직접 고치면 다음 동기화 때 경고와 함께 건너뛰며, --force 로 실행하면 덮어써집니다.
+> 이 파일을 직접 고치면 다음 동기화 때 경고와 함께 덮어쓰기 대상이 됩니다.
 
 <!-- SYNC-BODY-START: 이 줄 아래 본문은 CLAUDE.md 와 100% 동일하게 자동 생성됨 -->
 # hwpx-automation
@@ -90,6 +90,8 @@ python hwpx_com.py <파일.hwpx> --insert-image img.png       # 문서 끝 이�
 python hwpx_com.py <파일.hwpx> --normalize                  # 한컴 재저장 정규화 (python-hwpx 산출물, 별도 파일)
 python hwpx_com.py <파일.hwpx> --get-text                   # COM 기준 본문 추출 (호환성 점검)
 python hwpx_com.py <파일.hwpx> --to-pdf                     # PDF 저장
+python hwpx_com.py <첫.hwpx> --append <둘.hwp> <셋.hwpx>      # 여러 문서를 한 파일로 (쪽수·표·그림 수 대조, 쪽 나눔 금지)
+python hwpx_com.py <파일.hwpx> --print --copies 30 --duplex long --dry  # 종이 인쇄 계획 한 줄 (보고 뒤 --dry 빼고 실행, 대기열 쪽수 대조)
 ```
 
 ### hwpx_sign.py
