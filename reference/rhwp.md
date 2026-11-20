@@ -46,6 +46,8 @@ rhwp는 문서를 자기 내부 구조로 읽어 **통째로 다시 써서** 저
 
 상태는 `passed`·`failed`·`unverified` 셋이다. hwpx-tomd나 `hwpx-validate`가 없어 못 본 항목이 있으면 `passed`가 아니라 `unverified`이며, "검증됨"이라고 보고하지 않는다.
 
+허용할 차이나 비교 전에 정규화할 항목을 늘릴 때는 한컴오피스에서 저장한 문서로 먼저 재현한다. rhwp가 이미 다시 쓴 표본만 비교하면 첫 저장에서 생긴 차이가 보이지 않는다.
+
 **허용 목록 (`allow_rhwp=True`)**: rhwp 재직렬화로 알려진 손실 다섯 가지만 실패 대신 `GateReport.allowed`로 보낸다.
 1. `header.xml`에서 **본문이 한 번도 참조하지 않는 paraPr**(header 밖 모든 XML의 `paraPrIDRef` 속성을 XML로 파싱해 판정. 파싱하지 못한 파트가 있으면 이 허용을 적용하지 않는다) 안의 `switch`·`case`·`default`와 `heading`(type NONE, 또는 OUTLINE level 7~9) 감소. 실측된 모양은 개요 8~10단계(`level` 7~9)의 `hp:switch/case/default` 블록이 `heading type=NONE`으로 접히는 것이다. 스타일만 참조하는 paraPr도 미사용으로 보는 것은 개요 8~10단계 paraPr가 스타일에서만 참조되기 때문이다. 미사용 paraPr라도 그 밖의 변화(정렬 등)와 본문이 쓰는 paraPr의 같은 손실은 실패다.
 2. 본문 파트의 `hp:p id` 재부여. 문단 `id`를 빼고 센 census가 완전히 같을 때(문단 수·나머지 속성이 같을 때)만이다.

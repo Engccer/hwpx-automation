@@ -37,3 +37,6 @@ reference/parameterset-table.md
 # Third-party proprietary binaries (see vendor/README.md for installation)
 vendor/*.dll
 
+
+/CLAUDE.md
+/AGENTS.md

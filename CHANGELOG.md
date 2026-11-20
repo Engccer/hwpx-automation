@@ -1,5 +1,9 @@
 # 변경 이력
 
+## 1.7.1 (2026-11-21)
+
+- 양식 채우기 안내에 병합 셀 좌표를 확인하는 방법을 보태고 README에서 편집·검증 문서로 연결했다.
+
 ## 2026-11-15
 
 Windows 한컴 이슈(#12·#14·#15·#16)와 hwpx-tomd 0.5.0 밑줄 연결. 버전 1.6.0 → 1.7.0.
@@ -33,7 +37,7 @@ rhwp 중심 재설계. 플랜 `docs/plans/2026-10-28-rhwp-redesign.md`, 병렬 �
   - 실측: rhwp insert-image는 그림을 쪽 첫 문단에 어울림으로 붙여, 첫 문단이 빈 문서는 rhwp 조판이 한 줄 올라간다(앵커 문단으로 옮겨 해결). 한컴 저장 공문 2건은 게이트 통과, 표·글상자 많은 학교 양식 3건은 표 셀 속성·대각선 테두리 손실로 막힌다. HWP 3건의 rhwp·JAR 변환물 BinData 170개는 바이트가 같다.
 - M4 PDF 백엔드: `--to-pdf`를 모든 OS rhwp 기본으로, `--pdf-backend rhwp|com` 추가(`com`은 Windows 밖에서 exit 1). stdout 마지막 줄 `engine=rhwp|com`. Pandoc 산출물 PDF는 rhwp. 표본 HWPX와 Pandoc 산출물 rhwp PDF 빈 네모 0을 통합 시험으로 고정.
 - M5 누름틀·격자 좌표·역변환: `--tables`·`--grid-set-cell`·`--fields`·`--fill-fields`(없는·모호한·닮은 이름은 dry-run에서 거부)·`--to-hwp`(배포용 HWP, JAR 왕복 `cross_check`와 차트·OLE·수식 수 대조, 실패 시 한컴 다른 이름 저장 안내). 편집 산출물은 `gate(allow=is_text_run_key, allow_rhwp=True, expect_text_change=True)`를 통과해야 놓이고(실패하면 `.rejected.hwpx`) 허용된 손실 줄은 stdout에 보인다. `.hwp` 입력은 변환을 먼저 거친다. 단위 시험 `test_grid.py`.
-- M6: Windows hunyong-samsung에 rhwp v0.8.7(`C:\Users\pc\.local\bin\rhwp.exe`, SHA256 릴리스 대조) 설치. 한컴 2024 호환은 위원장 실사용에서 확인한다.
+- M6: Windows에 rhwp v0.8.7(`%USERPROFILE%\.local\bin\rhwp.exe`, SHA256 릴리스 대조) 설치. 한컴 2024 호환은 위원장 실사용에서 확인한다.
 - M7 문서 분배: `reference/rhwp-pdf.md`를 `reference/rhwp.md`로 확장(설치·호출 계약·게이트·좌표 단위·명령별 실측 계약·폴백 조건·PDF). SKILL.md 정본 형식 원칙·의사결정 트리·도구 표 엔진 열·Tier 표·완료 보고 문장, CLAUDE.md rhwp 함정 절, README 축약, evals 기대 답 갱신.
 - fix 웨이브(codex 횡단 리뷰 block 9건): 판정 계층을 바꿨다. rhwp 편집 산출물은 census+허용 콜백(`is_text_run_key`, 제거) 대신 `gate(allow_rhwp=True, edits=[...])`로 `section*.xml`을 순서 보존 토큰열로 위치별 대조한다. 대상(`CellEdit`·`FieldEdit`·`ImageInsert`)은 원본 XML과 요청값으로 정하고 칸 안쪽·누름틀 값 자리·삽입 그림만 가린다(codex 적대적 설계 리뷰 반영: 문단 census는 서식 맞바꿈을, 문단 단위 허용은 누름틀 앞뒤 글자 이동을 못 막는다). 허용 목록에 `fieldBegin zorder="-1"` 소실(실측) 추가, paraPr 사용 판정은 XML 속성 파싱.
   - `rhwp_cli.run`: `verify(staged, envelope)`로 봉투 사후조건을 게시 전에 검사, 어떤 verify 예외·봉투 계약 오류든 산출물을 `<stem>.rejected-<시각>`으로 보존. rhwp 기본 출력(입구 변환물·`_편집`·`--to-hwp`·`_서명`)은 있으면 덮지 않는다. `--to-md`는 `engine=hwpx-tomd`, 명시 폴백은 `reason=사용자 지정`, 서명은 `engine=rhwp status=`.

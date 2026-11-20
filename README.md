@@ -47,7 +47,7 @@ ln -s /path/to/hwpx-automation ~/.claude/skills/hwpx-automation  # sanitize: all
 
 - `SKILL.md`: 의사결정 트리와 사용법
 - `reference/`: 상세 레퍼런스(rhwp 엔진, 서명, 변환, 한컴 COM, python-hwpx API 등)
-- `CLAUDE.md`: 개발 규칙과 함정
+- [편집 주의사항](reference/warnings-editing.md)은 표·문단을 고치고 저장할 때, [rhwp 엔진 안내](reference/rhwp.md)는 변환 결과와 셀 좌표를 확인할 때 참고한다.
 
 일부 레퍼런스 파일(action-table.md, hwp-automation.md, parameterset-table.md)은 [한컴 개발자 센터 아카이브](https://github.com/hancom-io/devcenter-archive)의 PDF를 파싱한 것으로, 저작권 고려로 `.gitignore`에서 제외되어 있습니다. 필요 시 해당 PDF를 직접 다운로드하여 파싱하세요.
 

@@ -693,7 +693,7 @@ def cmd_find_replace(filepath, find_text, replace_text, output=None, *,
         # 걸어 두면 본문에만 매칭된 흔한 경우에 python-hwpx 산출물이 그대로 나가고
         # sanitize_header(검은 배경)·fix_empty_cells·ZIP 레이아웃 복제가 통째로
         # 건너뛰어진다. 같은 명령이 "표에 걸렸는가"에 따라 다른 품질을 내면 안 되고,
-        # CLAUDE.md의 "편집은 반드시 save_hwpx()를 통해 저장" 규칙과도 어긋난다.
+        # reference/warnings-editing.md 17번의 저장 규칙과도 어긋난다.
         save_path = output if output else get_output_path(filepath)
         save_hwpx(stage, root, all_files, section_path, output=save_path)
     finally:

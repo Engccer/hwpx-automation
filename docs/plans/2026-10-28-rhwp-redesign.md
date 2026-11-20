@@ -23,7 +23,7 @@
 | 이미지 | `edit insert-image` | HWP·HWPX 양쪽 성공, export-svg에 `<image>` 생성. 단위 HWPUNIT(1/7200인치). `search --json`이 section·paragraph·page·charOffset을, `export-render-tree`가 TextRun bbox(px, 96dpi, ×75=HWPUNIT)를 돌려줘 "(서명)" 위 좌표 계산 가능 |
 | PDF | `export-pdf` 21쪽 | 3.3초. 기존 `reference/rhwp-pdf.md` 규칙 그대로 |
 | Pandoc 산출물 | `export-text`, `export-hwpx` | COM은 본문 0자로 읽지만 rhwp는 전문을 읽고 재저장도 된다(PrvText 추가). 한컴에서 열리는지는 Windows 미실측 |
-| 환경 | 설치 | 맥 `~/.local/bin/rhwp` v0.8.7. Windows hunyong-samsung 미설치. PyPI 바인딩 없음(subprocess가 유일한 통합) |
+| 환경 | 설치 | 맥 `~/.local/bin/rhwp` v0.8.7. Windows 미설치. PyPI 바인딩 없음(subprocess가 유일한 통합) |
 | 상류 | 릴리스·이슈 | 6개월 25회 릴리스(2~4주 간격), 0.x. switch·chart 저장 손실 이슈 #3551·#2197·#3546은 closed. 모든 명령이 `--json`(schemaVersion 1.0)·`--dry-run`, exit 0/1/2/3(verify)/4(pages). `rhwp edit <sub> --help`는 exit 2, `-h`를 써야 함 |
 
 ## 설계 원칙
@@ -100,8 +100,8 @@
 M2~M5가 옵트인으로 들어가는 즉시 그 축의 실기 확인을 할 수 있어야 하므로 설치는 M1 다음에 바로 한다. 각 축의 "기본값 승격" 커밋은 이 절의 해당 항목 통과가 선행 조건이다.
 
 - hunyong-samsung에 rhwp v0.8.7 windows x86_64 zip 설치: 맥에서 받아 `SHA256SUMS.txt` 대조 → `scp` → `%USERPROFILE%\.local\bin`에 풀고 사용자 PATH 등록(`setx`는 영구 변경이라 실행 전 명령을 보고). SSH 기본 셸이 cmd인 점을 지킨다(`reference/environment.md`).
-- 한컴 2024 실기 확인(위원장 또는 원격 데스크톱 세션): rhwp 변환 HWPX 3건, rhwp 서명 삽입본(HWP·HWPX), Pandoc 재저장본이 한글에서 열리고 서명 위치가 "(서명)" 위에 있는지. 열리지 않는 문서군이 있으면 그 축은 COM 폴백을 기본으로 되돌리고 CLAUDE.md에 사유를 적는다.
-- `~/.claude/reference/environment.md`에 Windows rhwp 설치 위치 한 줄.
+- 한컴 2024 실기 확인(위원장 또는 원격 데스크톱 세션): rhwp 변환 HWPX 3건, rhwp 서명 삽입본(HWP·HWPX), Pandoc 재저장본이 한글에서 열리고 서명 위치가 "(서명)" 위에 있는지. 열리지 않는 문서군이 있으면 그 축은 COM 폴백을 기본으로 되돌리고 reference/rhwp.md의 폴백 조건에 사유를 적는다.
+- 로컬 환경 문서에 Windows용 rhwp 설치 위치를 기록한다.
 
 ### M7. 문서 분배와 버전
 

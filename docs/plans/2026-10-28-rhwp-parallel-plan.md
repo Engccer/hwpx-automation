@@ -99,7 +99,7 @@ git push origin feat/<name>:master && git -C ~/Mac-Projects/hwpx-automation pull
 
 - `--force` 금지. `git stash` 금지(바로 커밋). 리뷰 중 rebase·커밋 금지.
 - 게이트는 2초짜리 단위 시험이라 `gate-lock.py` 불필요. Python 패키지는 전역 설치본을 그대로 쓴다(`npm install` 없음). rhwp는 `~/.local/bin/rhwp` v0.8.7.
-- 기준선: `~/.claude/parallel-sessions/hwpx-automation/baseline-<base 12자리>.log` (75건 통과, skipped 2).
+- 기준선: `baseline-<base 12자리>.log` (75건 통과, skipped 2).
 - 마일스톤 push 뒤 메인 체크아웃은 세션이 `pull --ff-only`로 맞춘다.
 
 ## §4 웨이브
@@ -113,14 +113,14 @@ git push origin feat/<name>:master && git -C ~/Mac-Projects/hwpx-automation pull
 
 ## §5 착수 프롬프트·보고 파일
 
-- 프롬프트 사본: `~/.claude/parallel-sessions/hwpx-automation/<name>.prompt.txt`
+- 프롬프트 사본: `<name>.prompt.txt`
 - 보고 디렉터리: `~/hwpx-automation-wt/<name>-reports/` (`<단계>-<YYYYmmddHHMM>.md`, 리뷰는 `review-<주제>-<시각>.md`, 판정 요청은 `judgment-<시각>.md`)
 - 코디네이터 주소: 이 세션(`ListAgents` 기준 `hwpx-automation-*`), 프롬프트에 `이름 [ref]`로 적는다.
 
 ## 정정·종료 기록
 
 - 2026-10-28 07:30, 9b7e7d7 기준. §2-1 ② 정정: 허용 목록은 header.xml 개요 블록에 그치지 않는다. 세션 sign이 실측하고 코디네이터가 한컴 저장 HWPX(문단 16,671개)로 재현했다: rhwp 재직렬화는 모든 문서에서 section*.xml의 `hp:p id`를 0,1,2…로 다시 매기고(문단 수·내용은 그대로) `hp:shadow type="NONE"`을 지운다(32→22). `allow_rhwp=True`는 이 둘도 allowed로 보낸다. 조건: p id는 문단 수가 같고 id를 뺀 속성 묶음이 같을 때만, shadow는 `type="NONE"`일 때만. 둘 다 "허용된 손실(rhwp 재직렬화)" 줄에 건수로 보고한다. 개요 블록 허용은 본문이 쓰지 않는 paraPr 안의 손실로 좁힌다(본문이 쓰는 paraPr의 개요 단계 손실은 실패). 기존 시그니처 호출의 동작은 바뀌지 않는다.
-- M6 완료(9b7e7d7): hunyong-samsung `C:\Users\pc\.local\bin\rhwp.exe` v0.8.7, 해시 대조, `setx` 불필요.
+- M6 완료(9b7e7d7): Windows `%USERPROFILE%\.local\bin\rhwp.exe` v0.8.7, 해시 대조, `setx` 불필요.
 - M2 통합(718bc46, 세션 edit): 단위 91건. 리뷰 8번(cross_check BinData 해시 미대조)은 hwpx_gate 소유자인 sign의 M3 범위로 넘겼다(07:40 전파).
 - 07:50 소유권 예외 승인: sign이 M3 커밋에 edit 소유 test_doc_promises.py의 SignPdfImageGate argv 두 곳에 `--backend com`을 넣는다(기본 백엔드 전환과 같은 커밋이어야 시험이 깨지지 않는다). edit에 전파.
 - 08:00 판정(edit judgment-202610280735): `hwpx_sign.py --pdf`의 하위 호출은 sign이 M3에서 `--backend com`이면 `--pdf-backend com`을 붙인다(소유권대로). edit의 `reference/com.md` 수정(`--to-pdf` 예시에 `--pdf-backend com`) 자진 신고 수용.

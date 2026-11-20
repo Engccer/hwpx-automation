@@ -2,7 +2,7 @@
 name: hwpx-automation
 description: "HWP/HWPX 문서 읽기, 변환, 편집을 위한 통합 워크플로우. HWP 또는 HWPX 파일을 다룰 때 사용. HWP 파일은 모두 HWPX로 변환 후 처리한다. 트리거: (1) HWP/HWPX 파일 읽기/파싱 요청 (2) HWP→HWPX 변환 요청 (3) HWPX 문서 편집(텍스트 치환, 표 셀 채우기, 양식 작성) (4) 한글 문서 템플릿 기반 자동화 작업 (5) HWPX 구조적 편집(행/표/단락 추가) (6) HWPX에 이미지 삽입 (7) HWPX→PDF 변환 (8) 한컴 COM 자동화 (9) HWPX 서명란에 서명·도장 이미지 삽입(signature/seal/도장 삽입, 동의서·계약서·서약서 서명)"
 metadata:
-    version: "1.7.0"
+    version: "1.7.1"
 ---
 
 # HWP/HWPX 작업 자동화 스킬
@@ -351,7 +351,7 @@ MD 등을 `hwpx_convert.py`로 변환할 때 `reference/conversion.md`의 같은
 
 1. **원본이 HWP이면 변환**: `hwpx_edit.py <입력.hwp> --from-hwp`(위 "HWP → HWPX 변환". 이후 단계의 `output.hwpx`는 이 변환물)
 2. **내용 파악**: `hwpx_edit.py output.hwpx --to-md`
-3. **표 구조 확인**: `hwpx_edit.py output.hwpx --info`
+3. **표 구조 확인**: `--info`로 각 행에 실제로 들어 있는 셀을 확인한다. `--set-cell`은 이 순서를 쓴다. 병합을 반영한 행·열로 지정하려면 `--tables`로 좌표를 확인한 뒤 `--grid-set-cell`을 쓴다. [좌표와 단위](reference/rhwp.md#좌표단위)
 4. **(선택) 심층 분석**: `hwpx-analyze-template output.hwpx --json` (스타일 ID 맵 필요 시)
 5. **데이터 채우기**: `--set-cell`로 개별 셀(두 번째부터 앞 결과를 입력으로, 위 "여러 편집을 이어 할 때") 또는 Python 스크립트로 일괄 처리
 6. **"한 줄로 입력" 과압축 확인**: 제목·긴 문장을 채웠다면 `--list-squeeze`로 확인, 걸리면 `--fix-squeeze`로 자연 줄바꿈 전환 (양식 제목 문단의 lineWrap="SQUEEZE"가 긴 텍스트를 한 줄로 욱여넣어 글자가 겹침. `--find/--replace`·`--set-cell`이 자동 경고하지만, Python 스크립트로 일괄 채운 경우엔 수동 확인 필요. 상세: reference/warnings-editing.md 13번)
